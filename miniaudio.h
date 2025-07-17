@@ -39208,8 +39208,19 @@ OSS Backend
 #ifdef MA_HAS_OSS
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <dirent.h> /* For enumerating over /dev/dsp* devices. */
 #include <fcntl.h>
 #include <sys/soundcard.h>
+
+/*#define MA_OSS_LEGACY*/
+
+#if !defined(MA_OSS_MODERN) && !defined(MA_OSS_LEGACY)
+    #if defined(SOUND_VERSION) && SOUND_VERSION >= 0x040000
+        #define MA_OSS_MODERN
+    #else
+        #define MA_OSS_LEGACY
+    #endif
+#endif
 
 #ifndef SNDCTL_DSP_HALT
 #define SNDCTL_DSP_HALT SNDCTL_DSP_RESET
@@ -39297,8 +39308,25 @@ static ma_result ma_context_init__oss(ma_context* pContext, const void* pContext
     /* The file handle to temp device is no longer needed. Close ASAP. */
     close(fd);
 
-    pContextStateOSS->versionMajor = ((ossVersion & 0xFF0000) >> 16);
-    pContextStateOSS->versionMinor = ((ossVersion & 0x00FF00) >> 8);
+    if (ossVersion > 361) {
+        pContextStateOSS->versionMajor = ((ossVersion & 0xFF0000) >> 16);
+        pContextStateOSS->versionMinor = ((ossVersion & 0x00FF00) >> 8);
+    } else {
+        pContextStateOSS->versionMajor = (ossVersion / 100);
+        pContextStateOSS->versionMinor = (ossVersion - (pContextStateOSS->versionMajor * 100)) / 10;
+    }
+
+    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] Version %d.%d", pContextStateOSS->versionMajor, pContextStateOSS->versionMinor);
+
+    #if defined(MA_OSS_MODERN)
+    {
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] API: Modern");
+    }
+    #else
+    {
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] API: Legacy");
+    }
+    #endif
 
     *ppContextState = pContextStateOSS;
 
@@ -39346,73 +39374,51 @@ static ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_typ
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_enumerate_devices__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+static int ma_format_to_oss(ma_format format)
 {
-    int fd;
-    oss_sysinfo si;
-    int result;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
-    fd = ma_open_temp_device__oss();
-    if (fd == -1) {
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.");
-        return MA_NO_BACKEND;
+    int ossFormat = AFMT_U8;
+    switch (format) {
+        case ma_format_s16: ossFormat = (ma_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
+        #if defined(AFMT_S32_LE) && defined(AFMT_S32_BE)
+        case ma_format_s24: ossFormat = (ma_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
+        case ma_format_s32: ossFormat = (ma_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
+        #endif
+        case ma_format_f32: ossFormat = (ma_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
+        case ma_format_u8:
+        default: ossFormat = AFMT_U8; break;
     }
 
-    result = ioctl(fd, SNDCTL_SYSINFO, &si);
-    if (result != -1) {
-        int iAudioDevice;
-        for (iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
-            oss_audioinfo ai;
-            ai.dev = iAudioDevice;
-            result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
-            if (result != -1) {
-                if (ai.devnode[0] != '\0') {    /* <-- Can be blank, according to documentation. */
-                    ma_device_info deviceInfo;
-                    ma_bool32 isTerminating = MA_FALSE;
-
-                    MA_ZERO_OBJECT(&deviceInfo);
-
-                    /* ID */
-                    ma_strncpy_s(deviceInfo.id.oss, sizeof(deviceInfo.id.oss), ai.devnode, (size_t)-1);
-
-                    /*
-                    The human readable device name should be in the "ai.handle" variable, but it can
-                    sometimes be empty in which case we just fall back to "ai.name" which is less user
-                    friendly, but usually has a value.
-                    */
-                    if (ai.handle[0] != '\0') {
-                        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.handle, (size_t)-1);
-                    } else {
-                        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.name, (size_t)-1);
-                    }
-
-                    /* The device can be both playback and capture. */
-                    if (!isTerminating && (ai.caps & PCM_CAP_OUTPUT) != 0) {
-                        isTerminating = !callback(ma_device_type_playback, &deviceInfo, pUserData);
-                    }
-                    if (!isTerminating && (ai.caps & PCM_CAP_INPUT) != 0) {
-                        isTerminating = !callback(ma_device_type_capture, &deviceInfo, pUserData);
-                    }
-
-                    if (isTerminating) {
-                        break;
-                    }
-                }
-            }
-        }
-    } else {
-        close(fd);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve system information for device enumeration.");
-        return MA_NO_BACKEND;
-    }
-
-    close(fd);
-    return MA_SUCCESS;
+    return ossFormat;
 }
 
+static ma_format ma_format_from_oss(int ossFormat)
+{
+    if (ossFormat == AFMT_U8) {
+        return ma_format_u8;
+    } else {
+        if (ma_is_little_endian()) {
+            switch (ossFormat) {
+                case AFMT_S16_LE: return ma_format_s16;
+                #if defined(AFMT_S32_LE)
+                case AFMT_S32_LE: return ma_format_s32;
+                #endif
+                default: return ma_format_unknown;
+            }
+        } else {
+            switch (ossFormat) {
+                case AFMT_S16_BE: return ma_format_s16;
+                #if defined(AFMT_S32_BE)
+                case AFMT_S32_BE: return ma_format_s32;
+                #endif
+                default: return ma_format_unknown;
+            }
+        }
+    }
+
+    return ma_format_unknown;
+}
+
+#if defined(MA_OSS_MODERN)
 static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_audioinfo* pAudioInfo, ma_format format, ma_device_info* pDeviceInfo)
 {
     unsigned int minChannels;
@@ -39422,6 +39428,8 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
     MA_ASSERT(pContext    != NULL);
     MA_ASSERT(pAudioInfo  != NULL);
     MA_ASSERT(pDeviceInfo != NULL);
+
+    (void)pContext;
 
     /* If we support all channels we just report 0. */
     minChannels = ma_clamp(pAudioInfo->min_channels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
@@ -39462,143 +39470,306 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
         }
     }
 }
+#endif
 
-static ma_result ma_context_get_device_info__oss(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pContext, int fdDevice, ma_format format, ma_device_info* pDeviceInfo)
 {
-    ma_bool32 foundDevice;
-    int fdTemp;
-    oss_sysinfo si;
-    int result;
+    const int maxChannelCount = 8;
+    int iChannel;
+    int formatWant;
+    int formatHave;
+    int originalChannels;
+    int originalRate;
 
+    MA_ASSERT(pDeviceInfo != NULL);
     MA_ASSERT(pContext != NULL);
+    (void)pContext;
 
-    /* Handle the default device a little differently. */
-    if (pDeviceID == NULL) {
-        if (deviceType == ma_device_type_playback) {
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-        } else {
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-        }
+    MA_ASSERT(format == ma_format_u8 || format == ma_format_s16);
 
-        return MA_SUCCESS;
-    }
+    originalChannels = 0;
+    ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &originalChannels);
 
+    originalRate = 0;
+    ioctl(fdDevice, SNDCTL_DSP_SPEED, &originalRate);
 
-    /* If we get here it means we are _not_ using the default device. */
-    foundDevice = MA_FALSE;
+    /*
+    OSS does not have good support for querying supported channels and sample rates. The only way I can think
+    of to make this work is to probe it. We'll go up to 8 channels, and for each of them probe for each of our
+    standard rates.
+    */
+    formatWant = ma_format_to_oss(format);
+    formatHave = formatWant;
+    if (ioctl(fdDevice, SNDCTL_DSP_SETFMT, &formatHave) >= 0 && formatHave == formatWant) {
+        for (iChannel = 0; iChannel < maxChannelCount; iChannel += 1) {
+            int channelsWant = iChannel + 1;
+            int channelsHave = channelsWant;
+            ma_uint32 iSampleRate;
 
-    fdTemp = ma_open_temp_device__oss();
-    if (fdTemp == -1) {
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration.");
-        return MA_NO_BACKEND;
-    }
+            if (ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &channelsHave) >= 0 && channelsHave == channelsWant) {
+                /* The device supports this channel count. */
+                for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); iSampleRate += 1) {
+                    int sampleRateWant = (int)g_maStandardSampleRatePriorities[iSampleRate];
+                    int sampleRateHave = sampleRateWant;
 
-    result = ioctl(fdTemp, SNDCTL_SYSINFO, &si);
-    if (result != -1) {
-        int iAudioDevice;
-        for (iAudioDevice = 0; iAudioDevice < si.numaudios; ++iAudioDevice) {
-            oss_audioinfo ai;
-            ai.dev = iAudioDevice;
-            result = ioctl(fdTemp, SNDCTL_AUDIOINFO, &ai);
-            if (result != -1) {
-                if (ma_strcmp(ai.devnode, pDeviceID->oss) == 0) {
-                    /* It has the same name, so now just confirm the type. */
-                    if ((deviceType == ma_device_type_playback && ((ai.caps & PCM_CAP_OUTPUT) != 0)) ||
-                        (deviceType == ma_device_type_capture  && ((ai.caps & PCM_CAP_INPUT)  != 0))) {
-                        unsigned int formatMask;
-
-                        /* ID */
-                        ma_strncpy_s(pDeviceInfo->id.oss, sizeof(pDeviceInfo->id.oss), ai.devnode, (size_t)-1);
-
-                        /*
-                        The human readable device name should be in the "ai.handle" variable, but it can
-                        sometimes be empty in which case we just fall back to "ai.name" which is less user
-                        friendly, but usually has a value.
-                        */
-                        if (ai.handle[0] != '\0') {
-                            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ai.handle, (size_t)-1);
-                        } else {
-                            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), ai.name, (size_t)-1);
-                        }
-
-
-                        pDeviceInfo->nativeDataFormatCount = 0;
-
-                        if (deviceType == ma_device_type_playback) {
-                            formatMask = ai.oformats;
-                        } else {
-                            formatMask = ai.iformats;
-                        }
-
-                        if (((formatMask & AFMT_S16_LE) != 0 && ma_is_little_endian()) || (AFMT_S16_BE && ma_is_big_endian())) {
-                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_s16, pDeviceInfo);
-                        }
-                        if (((formatMask & AFMT_S32_LE) != 0 && ma_is_little_endian()) || (AFMT_S32_BE && ma_is_big_endian())) {
-                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_s32, pDeviceInfo);
-                        }
-                        if ((formatMask & AFMT_U8) != 0) {
-                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_u8, pDeviceInfo);
-                        }
-
-                        foundDevice = MA_TRUE;
-                        break;
+                    if (ioctl(fdDevice, SNDCTL_DSP_SPEED, &sampleRateHave) >= 0 && sampleRateHave == sampleRateWant) {
+                        /* Our format/channels/rate trio are supported. We can add this to the device info. */
+                        ma_device_info_add_native_data_format(pDeviceInfo, format, channelsHave, sampleRateHave, 0);
+                        ioctl(fdDevice, SNDCTL_DSP_SPEED, &originalRate);
+                    } else {
+                        /* Sample rate not supported. */
                     }
                 }
+
+                ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &originalChannels);
+            } else {
+                /* The channel count is not supported. */
             }
         }
     } else {
-        close(fdTemp);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve system information for device enumeration.");
-        return MA_NO_BACKEND;
-    }
-
-
-    close(fdTemp);
-
-    if (!foundDevice) {
-        return MA_NO_DEVICE;
+        /* The format is not supported. */
+        return MA_ERROR;
     }
 
     return MA_SUCCESS;
 }
 
-
-static int ma_format_to_oss(ma_format format)
+static ma_bool32 ma_context_enumerate_device_from_fd_legacy__oss(ma_context* pContext, int fd, const char* devnode, struct stat* stDefault, ma_device_type deviceType, ma_device_info* pDeviceInfo, ma_enum_devices_callback_proc callback, void* pUserData) /* Returns the result of the callback. */
 {
-    int ossFormat = AFMT_U8;
-    switch (format) {
-        case ma_format_s16: ossFormat = (ma_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
-        case ma_format_s24: ossFormat = (ma_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
-        case ma_format_s32: ossFormat = (ma_is_little_endian()) ? AFMT_S32_LE : AFMT_S32_BE; break;
-        case ma_format_f32: ossFormat = (ma_is_little_endian()) ? AFMT_S16_LE : AFMT_S16_BE; break;
-        case ma_format_u8:
-        default: ossFormat = AFMT_U8; break;
-    }
+    struct stat stDevice;
+    int formats;
 
-    return ossFormat;
-}
-
-static ma_format ma_format_from_oss(int ossFormat)
-{
-    if (ossFormat == AFMT_U8) {
-        return ma_format_u8;
-    } else {
-        if (ma_is_little_endian()) {
-            switch (ossFormat) {
-                case AFMT_S16_LE: return ma_format_s16;
-                case AFMT_S32_LE: return ma_format_s32;
-                default: return ma_format_unknown;
-            }
-        } else {
-            switch (ossFormat) {
-                case AFMT_S16_BE: return ma_format_s16;
-                case AFMT_S32_BE: return ma_format_s32;
-                default: return ma_format_unknown;
-            }
+    /* Default. */
+    if (fstat(fd, &stDevice) == 0) {
+        if ((stDefault->st_dev == stDevice.st_dev) && (stDefault->st_ino == stDevice.st_ino)) {
+            pDeviceInfo->isDefault = MA_TRUE;
         }
     }
 
-    return ma_format_unknown;
+    /* ID. */
+    ma_strncpy_s(pDeviceInfo->id.oss, sizeof(pDeviceInfo->id.oss), devnode, (size_t)-1);
+
+    /* Name. Not sure how to get this friendly name here so just using the file path for now. Advice welcome! */
+    ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), devnode, (size_t)-1);
+
+    /* Data Formats. */
+    formats = 0;
+    if (ioctl(fd, SNDCTL_DSP_GETFMTS, &formats) < 0) {
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] Failed to retrieve formats for \"%s\" during device enumeration. Skipping", devnode);
+        return MA_TRUE;
+    }
+
+    /* We need to support at least u8 or s16. */
+    if ((formats & AFMT_U8) == 0 && (formats & (AFMT_S16_LE | AFMT_S16_BE)) == 0) {
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] \"%s\" does not support u8 or s16 formats. Skipping", devnode);
+        return MA_TRUE;
+    }
+
+    if (((formats & AFMT_S16_LE) != 0 && ma_is_little_endian()) || ((formats & AFMT_S16_BE) != 0 && ma_is_big_endian())) {
+        ma_context_add_native_data_format_legacy__oss(pContext, fd, ma_format_s16, pDeviceInfo);
+    }
+    if ((formats & AFMT_U8) != 0) {
+        ma_context_add_native_data_format_legacy__oss(pContext, fd, ma_format_u8, pDeviceInfo);
+    }
+
+    return callback(deviceType, pDeviceInfo, pUserData);
+}
+
+static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    //ma_context_state_oss* pContextStateOSS = ma_context_get_backend_state__oss(pContext);
+    struct stat stDefault;  /* For detecting the default device. */
+
+    if (stat(MA_OSS_DEFAULT_DEVICE_NAME, &stDefault) < 0) {
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Could not find default device.");
+        return MA_NO_BACKEND;
+    }
+
+    {
+        DIR *d = opendir("/dev");
+        struct dirent *e;
+        ma_bool32 isTerminating = MA_FALSE;
+
+        while ((e = readdir(d)) != NULL) {
+            if (isTerminating) {
+                break;
+            }
+
+            if (strncmp(e->d_name, "dsp", 3) == 0 && strspn(e->d_name+3, "0123456789") == strlen(e->d_name+3)) {
+                char devnode[256];
+                int fdDevice;
+                struct audio_buf_info bufInfo;
+                ma_device_info deviceInfo;
+
+                MA_ZERO_OBJECT(&deviceInfo);
+
+                sprintf(devnode, "/dev/%s", e->d_name);
+                
+
+                /*
+                We'll need to open the device first. We need to try both O_RDONLY and O_WRONLY, one for capture the other
+                for playback. The idea behind checking SNDCTL_DSP_GETOSPACE and SNDCTL_DSP_GETISPACE is to confirm that
+                the device is usable as a playback or capture device. I'm not sure if this is the most robust way to check
+                for this so advice welcome on that front.
+                */
+                if (!isTerminating) {
+                    fdDevice = open(devnode, O_WRONLY);
+                    if (fdDevice >= 0) {
+                        if (ioctl(fdDevice, SNDCTL_DSP_GETOSPACE, &bufInfo) >= 0) {
+                            isTerminating = !ma_context_enumerate_device_from_fd_legacy__oss(pContext, fdDevice, devnode, &stDefault, ma_device_type_playback, &deviceInfo, callback, pUserData);
+                        }
+
+                        close(fdDevice);
+                    } else {
+                        /* Not a playback device. */
+                    }
+                }
+
+                if (!isTerminating) {
+                    fdDevice = open(devnode, O_RDONLY);
+                    if (fdDevice >= 0) {
+                        if (ioctl(fdDevice, SNDCTL_DSP_GETISPACE, &bufInfo) >= 0) {
+                            isTerminating = !ma_context_enumerate_device_from_fd_legacy__oss(pContext, fdDevice, devnode, &stDefault, ma_device_type_capture, &deviceInfo, callback, pUserData);
+                        }
+
+                        close(fdDevice);
+                    } else {
+                        /* Not a capture device. */
+                    }
+                }
+            }
+        }
+
+        closedir(d);
+    }
+
+    return MA_SUCCESS;
+}
+
+#if defined(MA_OSS_MODERN)
+static ma_result ma_context_enumerate_devices_modern__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    oss_sysinfo si;
+    int result;
+    int fd;
+    struct stat stDefault;  /* For detecting the default device. */
+
+    /* We need to stat the default device so we use this to determine the default device later. If this fails we need to abort. */
+    if (stat(MA_OSS_DEFAULT_DEVICE_NAME, &stDefault) < 0) {
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Could not find default device.");
+        return MA_NO_BACKEND;
+    }
+
+    fd = ma_open_temp_device__oss();
+    if (fd != -1) {
+        result = ioctl(fd, SNDCTL_SYSINFO, &si);
+        if (result != -1) {
+            ma_bool32 isTerminating = MA_FALSE;
+            int iAudioDevice;
+            for (iAudioDevice = 0; iAudioDevice < si.numaudios && !isTerminating; iAudioDevice += 1) {
+                oss_audioinfo ai;
+                ai.dev = iAudioDevice;
+                result = ioctl(fd, SNDCTL_AUDIOINFO, &ai);
+                if (result != -1) {
+                    if (ai.devnode[0] != '\0') {    /* <-- Can be blank, according to documentation. */
+                        ma_device_info deviceInfo;
+                        struct stat stDevice;
+                        int formatMask;
+
+                        MA_ZERO_OBJECT(&deviceInfo);
+
+                        /* Default. */
+                        if (stat(ai.devnode, &stDevice) == 0) {
+                            if ((stDefault.st_dev == stDevice.st_dev) && (stDefault.st_ino == stDevice.st_ino)) {
+                                deviceInfo.isDefault = MA_TRUE;
+                            }
+                        }
+
+                        /* ID */
+                        ma_strncpy_s(deviceInfo.id.oss, sizeof(deviceInfo.id.oss), ai.devnode, (size_t)-1);
+
+                        /*
+                        Name
+
+                        The human readable device name should be in the "ai.handle" variable, but it can
+                        sometimes be empty in which case we just fall back to "ai.name" which is less user
+                        friendly, but usually has a value.
+                        */
+                        if (ai.handle[0] != '\0') {
+                            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.handle, (size_t)-1);
+                        } else {
+                            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.name, (size_t)-1);
+                        }
+
+                        /* Data Format. */
+                        deviceInfo.nativeDataFormatCount = 0;
+
+                        if ((ai.caps & PCM_CAP_OUTPUT) != 0) {
+                            formatMask = ai.oformats;
+                        } else {
+                            formatMask = ai.iformats;
+                        }
+
+                        if (((formatMask & AFMT_S16_LE) != 0 && ma_is_little_endian()) || ((formatMask & AFMT_S16_BE) != 0 && ma_is_big_endian())) {
+                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_s16, &deviceInfo);
+                        }
+                        #if defined(AFMT_S32_LE) && defined(AFMT_S32_BE)
+                        if (((formatMask & AFMT_S32_LE) != 0 && ma_is_little_endian()) || ((formatMask & AFMT_S32_LE) != 0 && ma_is_big_endian())) {
+                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_s32, &deviceInfo);
+                        }
+                        #endif
+                        if ((formatMask & AFMT_U8) != 0) {
+                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_u8, &deviceInfo);
+                        }
+
+
+                        /* The device can be both playback and capture. */
+                        if (!isTerminating && (ai.caps & PCM_CAP_OUTPUT) != 0) {
+                            isTerminating = !callback(ma_device_type_playback, &deviceInfo, pUserData);
+                        }
+                        if (!isTerminating && (ai.caps & PCM_CAP_INPUT) != 0) {
+                            isTerminating = !callback(ma_device_type_capture, &deviceInfo, pUserData);
+                        }
+
+                        if (isTerminating) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            close(fd);
+        } else {
+            close(fd);
+            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] Failed to retrieve system information for device enumeration. Falling back to legacy code path.");
+            return ma_context_enumerate_devices_legacy__oss(pContext, callback, pUserData);
+        }
+    } else {
+        close(fd);
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] Failed to open a temporary device for retrieving system information used for device enumeration. Falling back to legacy code path.");
+        return ma_context_enumerate_devices_legacy__oss(pContext, callback, pUserData);
+    }
+
+    return MA_SUCCESS;
+}
+#endif
+
+static ma_result ma_context_enumerate_devices__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    #if defined(MA_OSS_MODERN)
+    {
+        return ma_context_enumerate_devices_modern__oss(pContext, callback, pUserData);
+    }
+    #endif
+
+    #if defined(MA_OSS_LEGACY)
+    {
+        return ma_context_enumerate_devices_legacy__oss(pContext, callback, pUserData);
+    }
+    #endif
 }
 
 static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_config_oss* pDeviceConfigOSS, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD)
@@ -39879,7 +40050,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OSS =
     ma_context_init__oss,
     ma_context_uninit__oss,
     ma_context_enumerate_devices__oss,
-    ma_context_get_device_info__oss,
+    NULL,
     ma_device_init__oss,
     ma_device_uninit__oss,
     ma_device_start__oss,
