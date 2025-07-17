@@ -44643,6 +44643,49 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
     return result;
 }
 
+
+typedef struct ma_context_get_device_info_enum_callback_data
+{
+    ma_device_type deviceType;
+    const ma_device_id* pDeviceID;
+    ma_device_info* pDeviceInfo;
+    ma_bool32 foundDevice;
+} ma_context_get_device_info_enum_callback_data;
+
+static ma_bool32 ma_context_get_device_info_enum_callback(ma_device_type deviceType, const ma_device_info* pDeviceInfo, void* pUserData)
+{
+    ma_context_get_device_info_enum_callback_data* pData = (ma_context_get_device_info_enum_callback_data*)pUserData;
+
+    if (pData->deviceType == deviceType) {
+        if (pData->pDeviceID == NULL) {
+            if (pDeviceInfo->isDefault) {
+                /* Found a match. */
+                *pData->pDeviceInfo = *pDeviceInfo;
+                pData->foundDevice = MA_TRUE;
+            } else {
+                /* Not a default device. Keep looking. */
+            }
+        } else {
+            if (ma_device_id_equal(&pDeviceInfo->id, pData->pDeviceID)) {
+                /* Found a match. */
+                *pData->pDeviceInfo = *pDeviceInfo;
+                pData->foundDevice = MA_TRUE;
+            } else {
+                /* IDs do not match. */
+            }
+        }
+    } else {
+        /* Device types don't match. */
+    }
+
+    /* Abort enumeration once we've found our info. */
+    if (pData->foundDevice) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
+}
+
 MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_result result;
@@ -44655,23 +44698,46 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
 
     MA_ZERO_OBJECT(&deviceInfo);
 
-    /* Help the backend out by copying over the device ID if we have one. */
-    if (pDeviceID != NULL) {
-        MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
-    }
+    if (pContext->pVTable->onContextGetDeviceInfo != NULL) {
+        /* Help the backend out by copying over the device ID if we have one. */
+        if (pDeviceID != NULL) {
+            MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
+        }
 
-    if (pContext->pVTable->onContextGetDeviceInfo == NULL) {
-        return MA_INVALID_OPERATION;
-    }
+        if (pContext->pVTable->onContextGetDeviceInfo == NULL) {
+            return MA_INVALID_OPERATION;
+        }
 
-    ma_mutex_lock(&pContext->deviceInfoLock);
-    {
-        result = pContext->pVTable->onContextGetDeviceInfo(pContext, deviceType, pDeviceID, &deviceInfo);
-    }
-    ma_mutex_unlock(&pContext->deviceInfoLock);
+        ma_mutex_lock(&pContext->deviceInfoLock);
+        {
+            result = pContext->pVTable->onContextGetDeviceInfo(pContext, deviceType, pDeviceID, &deviceInfo);
+        }
+        ma_mutex_unlock(&pContext->deviceInfoLock);
 
-    *pDeviceInfo = deviceInfo;
-    return result;
+        *pDeviceInfo = deviceInfo;
+        return result;
+    } else {
+        /* Device info retrieval can be implemented via device enumeration. */
+        ma_result result;
+        ma_context_get_device_info_enum_callback_data data;
+
+        MA_ZERO_OBJECT(&data);
+        data.deviceType  = deviceType;
+        data.pDeviceID   = pDeviceID;
+        data.pDeviceInfo = pDeviceInfo;
+
+        /* We just enumerate over devices until we find one matching our ID. */
+        result = ma_context_enumerate_devices(pContext, ma_context_get_device_info_enum_callback, &data);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        if (data.foundDevice == MA_FALSE) {
+            return MA_NO_DEVICE;
+        }
+
+        return MA_SUCCESS;
+    }
 }
 
 
