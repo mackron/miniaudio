@@ -28165,7 +28165,19 @@ ma_device_backend_vtable* ma_device_backend_winmm = NULL;
 ALSA Backend
 
 ******************************************************************************/
-#ifdef MA_HAS_ALSA
+/*
+Our ALSA backend uses poll() and eventfd() which are not available on very old
+versions of Linux so we'll need check for it and disable the ALSA backend if
+necessary. This should be a non-issue in practice because ALSA itself won't be
+available in old versions of Linux anyway.
+*/
+#if defined(MA_HAS_ALSA)
+    #if (!defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 199309L)
+        #undef MA_HAS_ALSA
+    #endif
+#endif
+
+#if defined(MA_HAS_ALSA)
 
 #include <poll.h>           /* poll(), struct pollfd */
 #include <sys/eventfd.h>    /* eventfd() */
