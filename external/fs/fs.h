@@ -1172,7 +1172,7 @@ FS_API fs_config fs_config_init_default(void);
 FS_API fs_config fs_config_init(const fs_backend* pBackend, void* pBackendConfig, fs_stream* pStream);
 
 
-typedef struct fs_backend
+struct fs_backend
 {
     size_t       (* alloc_size      )(const void* pBackendConfig);
     fs_result    (* init            )(fs* pFS, const void* pBackendConfig, fs_stream* pStream);              /* Return 0 on success or an errno result code on error. pBackendConfig is a pointer to a backend-specific struct. The documentation for your backend will tell you how to use this. You can usually pass in NULL for this. */
@@ -1196,7 +1196,7 @@ typedef struct fs_backend
     fs_iterator* (* first           )(fs* pFS, const char* pDirectoryPath, size_t directoryPathLen);
     fs_iterator* (* next            )(fs_iterator* pIterator);  /* <-- Must return null when there are no more files. In this case, free_iterator must be called internally. */
     void         (* free_iterator   )(fs_iterator* pIterator);  /* <-- Free the `fs_iterator` object here since `first` and `next` were the ones who allocated it. Also do any uninitialization routines. */
-} fs_backend;
+};
 
 FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS);
 FS_API void fs_uninit(fs* pFS);

@@ -1359,13 +1359,13 @@ struct fs
     fs_uint32 refCount;        /* Incremented when a file is opened, decremented when a file is closed. */
 };
 
-typedef struct fs_file
+struct fs_file
 {
     fs_stream stream; /* Files are streams. This must be the first member so it can be cast. */
     fs* pFS;
     fs_stream* pStreamForBackend;   /* The stream for use by the backend. Different to `stream`. This is a duplicate of the stream used by `pFS` so the backend can do reading. */
     size_t backendDataSize;
-} fs_file;
+};
 
 typedef enum fs_mount_priority
 {
