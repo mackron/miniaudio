@@ -6693,7 +6693,7 @@ BACKENDS
     #if defined(__NetBSD__) || defined(__OpenBSD__)
         #define MA_SUPPORT_AUDIO4   /* Only support audio(4) on platforms with known support. */
     #endif
-    #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(MA_LINUX)
+    #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(MA_LINUX) && !defined(MA_ANDROID)
         #define MA_SUPPORT_OSS      /* Only support OSS on specific platforms with known support. */
     #endif
 #endif
