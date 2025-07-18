@@ -363,7 +363,37 @@ static void ma_context_uninit__pipewire(ma_context* pContext)
     ma_free(pContextStatePipeWire, ma_context_get_allocation_callbacks(pContext));
 }
 
-static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
+static ma_bool32 ma_context_enumerate_device_from_type__pipewire(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_device_info deviceInfo;
+
+    (void)pContext;
+
+    MA_PIPEWIRE_ZERO_OBJECT(&deviceInfo);
+
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
+
+    /* ID. */
+    deviceInfo.id.custom.i = 0;
+
+    /* Name. */
+    if (deviceType == ma_device_type_playback) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Playback Device", (size_t)-1);
+    } else {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Capture Device", (size_t)-1);
+    }
+
+    /* Data Format. */
+    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
+    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = 0;
+    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = 0;
+    deviceInfo.nativeDataFormatCount += 1;
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
+static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(pContext);
     ma_bool32 cbResult = MA_TRUE;
@@ -375,51 +405,13 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 
     /* Playback. */
     if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_PIPEWIRE_ZERO_OBJECT(&deviceInfo);
-        deviceInfo.id.custom.i = 0;
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Playback Device", (size_t)-1);
-
-        cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
+        cbResult = ma_context_enumerate_device_from_type__pipewire(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
     if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_PIPEWIRE_ZERO_OBJECT(&deviceInfo);
-        deviceInfo.id.custom.i = 0;
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Capture Device", (size_t)-1);
-
-        cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
+        cbResult = ma_context_enumerate_device_from_type__pipewire(pContext, ma_device_type_capture, callback, pUserData);
     }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_context_get_device_info__pipewire(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    /* TODO: Implement this properly. */
-
-    (void)pContext;
-    (void)pDeviceID;
-
-    MA_PIPEWIRE_ZERO_OBJECT(pDeviceInfo);
-
-    /* ID */
-    pDeviceInfo->id.custom.i = 0;
-
-    /* Name */
-    if (deviceType == ma_device_type_playback) {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "Default Playback Device", (size_t)-1);
-    } else {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "Default Capture Device", (size_t)-1);
-    }
-
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = ma_format_unknown;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = 0;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = 0;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
-    pDeviceInfo->nativeDataFormatCount += 1;
 
     return MA_SUCCESS;
 }
@@ -838,7 +830,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
     ma_context_init__pipewire,
     ma_context_uninit__pipewire,
     ma_context_enumerate_devices__pipewire,
-    ma_context_get_device_info__pipewire,
+    NULL,
     ma_device_init__pipewire,
     ma_device_uninit__pipewire,
     ma_device_start__pipewire,
