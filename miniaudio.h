@@ -33744,7 +33744,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
 
         ma_channel_map_init_standard(ma_standard_channel_map_alsa, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
 
-        
+
         pDeviceStateJACK->ppPortsPlayback = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsPlayback) * pDescriptorPlayback->channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsPlayback == NULL) {
             ma_free(pDeviceStateJACK->ppPortsCapture, ma_device_get_allocation_callbacks(pDevice));
@@ -39518,7 +39518,8 @@ static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, 
 
                 MA_ZERO_OBJECT(&deviceInfo);
 
-                sprintf(devnode, "/dev/%s", e->d_name);
+                ma_strcpy_s(devnode, sizeof(devnode), "/dev/");
+                ma_strcat_s(devnode, sizeof(devnode), e->d_name);
                 
 
                 /*
