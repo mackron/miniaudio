@@ -40667,19 +40667,6 @@ static ma_result ma_close_stream__aaudio(ma_context* pContext, ma_AAudioStream* 
     return ma_result_from_aaudio(pContextStateAAudio->AAudioStream_close(pStream));
 }
 
-static ma_bool32 ma_has_default_device__aaudio(ma_context* pContext, ma_device_type deviceType)
-{
-    /* The only way to know this is to try creating a stream. */
-    ma_AAudioStream* pStream;
-    ma_result result = ma_open_stream_basic__aaudio(pContext, NULL, deviceType, ma_share_mode_shared, &pStream);
-    if (result != MA_SUCCESS) {
-        return MA_FALSE;
-    }
-
-    ma_close_stream__aaudio(pContext, pStream);
-    return MA_TRUE;
-}
-
 static ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContext, ma_AAudioStream* pStream, ma_aaudio_stream_state_t oldState, ma_aaudio_stream_state_t newState)
 {
     ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(pContext);
@@ -40691,43 +40678,6 @@ static ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContex
 
     if (newState != actualNewState) {
         return MA_ERROR;   /* Failed to transition into the expected state. */
-    }
-
-    return MA_SUCCESS;
-}
-
-
-static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
-{
-    ma_bool32 cbResult = MA_TRUE;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
-    /* Unfortunately AAudio does not have an enumeration API. Therefore I'm only going to report default devices, but only if it can instantiate a stream. */
-
-    /* Playback. */
-    if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_ZERO_OBJECT(&deviceInfo);
-        deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-
-        if (ma_has_default_device__aaudio(pContext, ma_device_type_playback)) {
-            cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
-        }
-    }
-
-    /* Capture. */
-    if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_ZERO_OBJECT(&deviceInfo);
-        deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-
-        if (ma_has_default_device__aaudio(pContext, ma_device_type_capture)) {
-            cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
-        }
     }
 
     return MA_SUCCESS;
@@ -40754,40 +40704,59 @@ static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_conte
     ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_s16, flags, pDeviceInfo);
 }
 
-static ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+static ma_bool32 ma_context_enumerate_device_from_type__aaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    ma_AAudioStream* pStream;
     ma_result result;
+    ma_AAudioStream* pStream;
+    ma_device_info deviceInfo;
+
+    result = ma_open_stream_basic__aaudio(pContext, NULL, deviceType, ma_share_mode_shared, &pStream);
+    if (result == MA_SUCCESS) {
+        return MA_TRUE;
+    }
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
+
+    /* ID. */
+    deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
+
+    /* Name. */
+    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+
+    /* Data Format. */
+    ma_context_add_native_data_format_from_AAudioStream__aaudio(pContext, pStream, 0, &deviceInfo);
+
+    /* Done with the stream. */
+    ma_close_stream__aaudio(pContext, pStream);
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
+static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_bool32 cbResult = MA_TRUE;
 
     MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
 
-    /* ID */
-    if (pDeviceID != NULL) {
-        pDeviceInfo->id.aaudio = pDeviceID->aaudio;
-    } else {
-        pDeviceInfo->id.aaudio = MA_AAUDIO_UNSPECIFIED;
+    /*
+    Unfortunately AAudio does not have an enumeration API. Therefore I'm only going to report default
+    devices. We need to open the stream in order to determine if we have a usable device, and for
+    extracting format info.
+    */
+
+    /* Playback. */
+    if (cbResult) {
+        cbResult = ma_context_enumerate_device_from_type__aaudio(pContext, ma_device_type_playback, callback, pUserData);
     }
 
-    /* Name */
-    if (deviceType == ma_device_type_playback) {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-    } else {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    /* Capture. */
+    if (cbResult) {
+        cbResult = ma_context_enumerate_device_from_type__aaudio(pContext, ma_device_type_capture, callback, pUserData);
     }
-
-
-    pDeviceInfo->nativeDataFormatCount = 0;
-
-    /* We'll need to open the device to get accurate sample rate and channel count information. */
-    result = ma_open_stream_basic__aaudio(pContext, pDeviceID, deviceType, ma_share_mode_shared, &pStream);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    ma_context_add_native_data_format_from_AAudioStream__aaudio(pContext, pStream, 0, pDeviceInfo);
-
-    ma_close_stream__aaudio(pContext, pStream);
-    pStream = NULL;
 
     return MA_SUCCESS;
 }
@@ -41212,7 +41181,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
     ma_context_init__aaudio,
     ma_context_uninit__aaudio,
     ma_context_enumerate_devices__aaudio,
-    ma_context_get_device_info__aaudio,
+    NULL,
     ma_device_init__aaudio,
     ma_device_uninit__aaudio,
     ma_device_start__aaudio,
