@@ -33750,7 +33750,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         }
 
         /* Need to count the number of ports first so we can allocate some memory. */
-        while (ppPorts[pDescriptorPlayback->channels] != NULL && (desiredChannelCount == 0 || desiredChannelCount > pDescriptorCapture->channels)) {
+        while (ppPorts[pDescriptorPlayback->channels] != NULL && (desiredChannelCount == 0 || desiredChannelCount > pDescriptorPlayback->channels)) {
             pDescriptorPlayback->channels += 1;
         }
 
