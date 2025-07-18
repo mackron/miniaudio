@@ -40711,7 +40711,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__aaudio(ma_context* pCont
     ma_device_info deviceInfo;
 
     result = ma_open_stream_basic__aaudio(pContext, NULL, deviceType, ma_share_mode_shared, &pStream);
-    if (result == MA_SUCCESS) {
+    if (result != MA_SUCCESS) {
         return MA_TRUE;
     }
 
