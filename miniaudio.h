@@ -41689,120 +41689,6 @@ static void ma_context_uninit__opensl(ma_context* pContext)
     ma_free(pContextStateOpenSL, ma_context_get_allocation_callbacks(pContext));
 }
 
-
-
-static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
-{
-    ma_bool32 cbResult;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
-    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
-    if (g_maOpenSLInitCounter == 0) {
-        return MA_INVALID_OPERATION;
-    }
-
-    /*
-    TODO: Test Me.
-
-    This is currently untested, so for now we are just returning default devices.
-    */
-#if 0 && !defined(MA_ANDROID)
-    ma_context_state_opensl* pContextStateOpenSL = ma_context_get_backend_state__opensl(pContext);
-    ma_bool32 isTerminated = MA_FALSE;
-
-    SLuint32 pDeviceIDs[128];
-    SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
-
-    SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, pContextStateOpenSL->SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        /* The interface may not be supported so just report a default device. */
-        goto return_default_device;
-    }
-
-    /* Playback */
-    if (!isTerminated) {
-        resultSL = (*deviceCaps)->GetAvailableAudioOutputs(deviceCaps, &deviceCount, pDeviceIDs);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return ma_result_from_OpenSL(resultSL);
-        }
-
-        for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
-            ma_device_info deviceInfo;
-            MA_ZERO_OBJECT(&deviceInfo);
-            deviceInfo.id.opensl = pDeviceIDs[iDevice];
-
-            SLAudioOutputDescriptor desc;
-            resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, deviceInfo.id.opensl, &desc);
-            if (resultSL == SL_RESULT_SUCCESS) {
-                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), (const char*)desc.pDeviceName, (size_t)-1);
-
-                ma_bool32 cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
-                if (cbResult == MA_FALSE) {
-                    isTerminated = MA_TRUE;
-                    break;
-                }
-            }
-        }
-    }
-
-    /* Capture */
-    if (!isTerminated) {
-        resultSL = (*deviceCaps)->GetAvailableAudioInputs(deviceCaps, &deviceCount, pDeviceIDs);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return ma_result_from_OpenSL(resultSL);
-        }
-
-        for (SLint32 iDevice = 0; iDevice < deviceCount; ++iDevice) {
-            ma_device_info deviceInfo;
-            MA_ZERO_OBJECT(&deviceInfo);
-            deviceInfo.id.opensl = pDeviceIDs[iDevice];
-
-            SLAudioInputDescriptor desc;
-            resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, deviceInfo.id.opensl, &desc);
-            if (resultSL == SL_RESULT_SUCCESS) {
-                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), (const char*)desc.deviceName, (size_t)-1);
-
-                ma_bool32 cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
-                if (cbResult == MA_FALSE) {
-                    isTerminated = MA_TRUE;
-                    break;
-                }
-            }
-        }
-    }
-
-    return MA_SUCCESS;
-#else
-    goto return_default_device;
-#endif
-
-return_default_device:;
-    cbResult = MA_TRUE;
-
-    /* Playback. */
-    if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_ZERO_OBJECT(&deviceInfo);
-        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-        cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
-    }
-
-    /* Capture. */
-    if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_ZERO_OBJECT(&deviceInfo);
-        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-        cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
-    }
-
-    return MA_SUCCESS;
-}
-
 static void ma_context_add_data_format_ex__opensl(ma_context* pContext, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_device_info* pDeviceInfo)
 {
     MA_ASSERT(pContext    != NULL);
@@ -41841,88 +41727,64 @@ static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format f
     }
 }
 
-static ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+static ma_bool32 ma_context_enumerate_device_from_type__opensl(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    MA_ASSERT(pContext != NULL);
+    ma_device_info deviceInfo;
 
-    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
-    if (g_maOpenSLInitCounter == 0) {
-        return MA_INVALID_OPERATION;
-    }
+    MA_ZERO_OBJECT(&deviceInfo);
 
-    /*
-    TODO: Test Me.
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
 
-    This is currently untested, so for now we are just returning default devices.
-    */
-#if 0 && !defined(MA_ANDROID)
-    ma_context_state_opensl* pContextStateOpenSL = ma_context_get_backend_state__opensl(pContext);
-
-    SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, pContextStateOpenSL->SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        /* The interface may not be supported so just report a default device. */
-        goto return_default_device;
-    }
-
+    /* ID. */
     if (deviceType == ma_device_type_playback) {
-        SLAudioOutputDescriptor desc;
-        resultSL = (*deviceCaps)->QueryAudioOutputCapabilities(deviceCaps, pDeviceID->opensl, &desc);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return ma_result_from_OpenSL(resultSL);
-        }
-
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), (const char*)desc.pDeviceName, (size_t)-1);
+        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
     } else {
-        SLAudioInputDescriptor desc;
-        resultSL = (*deviceCaps)->QueryAudioInputCapabilities(deviceCaps, pDeviceID->opensl, &desc);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            return ma_result_from_OpenSL(resultSL);
-        }
-
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), (const char*)desc.deviceName, (size_t)-1);
+        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
     }
 
-    goto return_detailed_info;
-#else
-    goto return_default_device;
-#endif
+    /* Name. */
+    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
 
-return_default_device:
-    if (pDeviceID != NULL) {
-        if ((deviceType == ma_device_type_playback && pDeviceID->opensl != SL_DEFAULTDEVICEID_AUDIOOUTPUT) ||
-            (deviceType == ma_device_type_capture  && pDeviceID->opensl != SL_DEFAULTDEVICEID_AUDIOINPUT)) {
-            return MA_NO_DEVICE;   /* Don't know the device. */
-        }
-    }
-
-    /* ID and Name / Description */
-    if (deviceType == ma_device_type_playback) {
-        pDeviceInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-    } else {
-        pDeviceInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-    }
-
-    pDeviceInfo->isDefault = MA_TRUE;
-
-    goto return_detailed_info;
-
-
-return_detailed_info:
-
+    /* Data Format. */
     /*
     For now we're just outputting a set of values that are supported by the API but not necessarily supported
     by the device natively. Later on we should work on this so that it more closely reflects the device's
     actual native format.
     */
-    pDeviceInfo->nativeDataFormatCount = 0;
+    deviceInfo.nativeDataFormatCount = 0;
 #if defined(MA_ANDROID) && __ANDROID_API__ >= 21
-    ma_context_add_data_format__opensl(pContext, ma_format_f32, pDeviceInfo);
+    ma_context_add_data_format__opensl(pContext, ma_format_f32, &deviceInfo);
 #endif
-    ma_context_add_data_format__opensl(pContext, ma_format_s16, pDeviceInfo);
-    ma_context_add_data_format__opensl(pContext, ma_format_u8,  pDeviceInfo);
+    ma_context_add_data_format__opensl(pContext, ma_format_s16, &deviceInfo);
+    ma_context_add_data_format__opensl(pContext, ma_format_u8,  &deviceInfo);
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
+static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_bool32 cbResult;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to enumerate devices. */
+    if (g_maOpenSLInitCounter == 0) {
+        return MA_INVALID_OPERATION;
+    }
+
+    cbResult = MA_TRUE;
+
+    /* Playback. */
+    if (cbResult) {
+        cbResult = ma_context_enumerate_device_from_type__opensl(pContext, ma_device_type_playback, callback, pUserData);
+    }
+
+    /* Capture. */
+    if (cbResult) {
+        cbResult = ma_context_enumerate_device_from_type__opensl(pContext, ma_device_type_capture, callback, pUserData);
+    }
 
     return MA_SUCCESS;
 }
@@ -42580,7 +42442,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
     ma_context_init__opensl,
     ma_context_uninit__opensl,
     ma_context_enumerate_devices__opensl,
-    ma_context_get_device_info__opensl,
+    NULL,
     ma_device_init__opensl,
     ma_device_uninit__opensl,
     ma_device_start__opensl,
