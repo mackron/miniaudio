@@ -20732,6 +20732,37 @@ static void ma_context_uninit__null(ma_context* pContext)
     ma_free(pContextStateNull, ma_context_get_allocation_callbacks(pContext));
 }
 
+static ma_bool32 ma_context_enumerate_device_from_type__null(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_device_info deviceInfo;
+
+    (void)pContext;
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
+
+    /* ID. */
+    deviceInfo.id.nullbackend = 0;
+
+    /* Name. */
+    if (deviceType == ma_device_type_playback) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device", (size_t)-1);
+    } else {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device", (size_t)-1);
+    }
+
+    /* Data Format. */
+    deviceInfo.nativeDataFormats[0].format     = ma_format_unknown;
+    deviceInfo.nativeDataFormats[0].channels   = 0;
+    deviceInfo.nativeDataFormats[0].sampleRate = 0;
+    deviceInfo.nativeDataFormats[0].flags      = 0;
+    deviceInfo.nativeDataFormatCount = 1;
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
 static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_null* pContextStateNull = ma_context_get_backend_state__null(pContext);
@@ -20744,59 +20775,18 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
 
     /* Playback. */
     if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_ZERO_OBJECT(&deviceInfo);
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device", (size_t)-1);
-        deviceInfo.isDefault = MA_TRUE; /* Only one playback and capture device for the null backend, so might as well mark as default. */
-        cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
+        cbResult = ma_context_enumerate_device_from_type__null(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
     if (cbResult) {
-        ma_device_info deviceInfo;
-        MA_ZERO_OBJECT(&deviceInfo);
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device", (size_t)-1);
-        deviceInfo.isDefault = MA_TRUE; /* Only one playback and capture device for the null backend, so might as well mark as default. */
-        cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
+        cbResult = ma_context_enumerate_device_from_type__null(pContext, ma_device_type_capture, callback, pUserData);
     }
 
     (void)cbResult; /* Silence a static analysis warning. */
 
     return MA_SUCCESS;
 }
-
-static ma_result ma_context_get_device_info__null(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    ma_context_state_null* pContextStateNull = ma_context_get_backend_state__null(pContext);
-
-    MA_ASSERT(pContextStateNull != NULL);
-    (void)pContextStateNull;
-
-    if (pDeviceID != NULL && pDeviceID->nullbackend != 0) {
-        return MA_NO_DEVICE;   /* Don't know the device. */
-    }
-
-    /* Name / Description */
-    if (deviceType == ma_device_type_playback) {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Playback Device", (size_t)-1);
-    } else {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Capture Device", (size_t)-1);
-    }
-
-    pDeviceInfo->isDefault = MA_TRUE;   /* Only one playback and capture device for the null backend, so might as well mark as default. */
-
-    /* Support everything on the null backend. */
-    pDeviceInfo->nativeDataFormats[0].format     = ma_format_unknown;
-    pDeviceInfo->nativeDataFormats[0].channels   = 0;
-    pDeviceInfo->nativeDataFormats[0].sampleRate = 0;
-    pDeviceInfo->nativeDataFormats[0].flags      = 0;
-    pDeviceInfo->nativeDataFormatCount = 1;
-
-    return MA_SUCCESS;
-}
-
-
-
 
 static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -21101,7 +21091,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
     ma_context_init__null,
     ma_context_uninit__null,
     ma_context_enumerate_devices__null,
-    ma_context_get_device_info__null,
+    NULL,
     ma_device_init__null,
     ma_device_uninit__null,
     ma_device_start__null,
