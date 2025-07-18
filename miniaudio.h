@@ -37778,7 +37778,11 @@ static ma_bool32 ma_context_enumeate_device_from_handle__sndio(ma_context* pCont
     ma_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), name);
 
     /* Name. */
-    ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME);
+    if (deviceType == ma_device_type_playback) {
+        ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME);
+    } else {
+        ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME);
+    }
 
     /* Format. */
     if (pContextStateSndio->sio_getcap(handle, &caps) == 0) {
@@ -40724,7 +40728,11 @@ static ma_bool32 ma_context_enumerate_device_from_type__aaudio(ma_context* pCont
     deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
 
     /* Name. */
-    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    if (deviceType == ma_device_type_playback) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
 
     /* Data Format. */
     ma_context_add_native_data_format_from_AAudioStream__aaudio(pContext, pStream, 0, &deviceInfo);
@@ -41744,7 +41752,11 @@ static ma_bool32 ma_context_enumerate_device_from_type__opensl(ma_context* pCont
     }
 
     /* Name. */
-    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    if (deviceType == ma_device_type_playback) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
 
     /* Data Format. */
     /*
