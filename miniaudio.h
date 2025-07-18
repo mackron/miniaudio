@@ -9772,7 +9772,7 @@ struct ma_decoder
 MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate);
 MA_API ma_decoder_config ma_decoder_config_init_default(void);
 
-MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, ma_decoder_tell_proc onTell, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
@@ -67402,14 +67402,14 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
     return MA_NO_BACKEND;
 }
 
-MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, ma_decoder_tell_proc onTell, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_decoder_config config;
     ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);
 
-    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, onTell, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
