@@ -459,7 +459,7 @@ endif()
 
 
 # Static Libraries
-add_library(miniaudio STATIC
+add_library(miniaudio
     miniaudio.c
     miniaudio.h
 )
@@ -482,7 +482,7 @@ if(HAS_LIBVORBIS)
 endif()
 
 if(HAS_LIBVORBIS)
-    add_library(miniaudio_libvorbis STATIC
+    add_library(miniaudio_libvorbis
         extras/decoders/libvorbis/miniaudio_libvorbis.c
         extras/decoders/libvorbis/miniaudio_libvorbis.h
     )
@@ -507,7 +507,7 @@ if(HAS_LIBOPUS)
 endif()
 
 if(HAS_LIBOPUS)
-    add_library(miniaudio_libopus STATIC
+    add_library(miniaudio_libopus
         extras/decoders/libopus/miniaudio_libopus.c
         extras/decoders/libopus/miniaudio_libopus.h
     )
@@ -524,7 +524,7 @@ endif()
 
 if (NOT MINIAUDIO_NO_EXTRA_NODES)
     function(add_extra_node name)
-        add_library(miniaudio_${name}_node STATIC
+        add_library(miniaudio_${name}_node
             extras/nodes/ma_${name}_node/ma_${name}_node.c
             extras/nodes/ma_${name}_node/ma_${name}_node.h
         )
