@@ -580,6 +580,81 @@ add_library(miniaudio_common_options INTERFACE)
 target_compile_options(miniaudio_common_options INTERFACE ${COMPILE_OPTIONS})
 target_link_libraries (miniaudio_common_options INTERFACE ${COMMON_LINK_LIBRARIES})
 
+function(is_backend_enabled NAME)
+    if (NOT MINIAUDIO_NO_${NAME} AND (NOT MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS OR MINIAUDIO_ENABLE_${NAME}))
+        set(${NAME}_ENABLED TRUE PARENT_SCOPE)
+    else()
+        set(${NAME}_ENABLED FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
+if(MINIAUDIO_NO_RUNTIME_LINKING)
+    is_backend_enabled(PULSEAUDIO)
+    if (PULSEAUDIO_ENABLED)
+        find_package(PulseAudio REQUIRED)
+        target_link_libraries(miniaudio PRIVATE ${PULSEAUDIO_LIBRARY})
+        target_include_directories(miniaudio SYSTEM PRIVATE ${PULSEAUDIO_INCLUDE_DIR})
+    endif()
+
+    is_backend_enabled(ALSA)
+    if (ALSA_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_ALSA alsa)
+        endif()
+
+        find_library(ALSA_LIBRARY
+            NAMES asound
+            HINTS ${PC_ALSA_LIBRARY_DIRS}
+        )
+        find_path(ALSA_INCLUDE_DIR
+            NAMES alsa/asoundlib.h
+            HINTS ${PC_ALSA_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(miniaudio PRIVATE ${ALSA_LIBRARY})
+        target_include_directories(miniaudio PRIVATE ${ALSA_INCLUDE_DIR})
+    endif()
+
+    is_backend_enabled(SNDIO)
+    if (SNDIO_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_SNDIO sndio)
+        endif()
+
+        find_library(SNDIO_LIBRARY
+            NAMES sndio
+            HINTS ${PC_SNDIO_LIBRARY_DIRS}
+        )
+        target_link_libraries(miniaudio PRIVATE ${SNDIO_LIBRARY})
+    endif()
+
+    is_backend_enabled(JACK)
+    if (JACK_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_JACK jack)
+        endif()
+
+        find_library(JACK_LIBRARY
+            NAMES jack
+            HINTS ${PC_JACK_LIBRARY_DIRS}
+        )
+
+        find_path(JACK_INCLUDE_DIR
+            NAMES jack/jack.h
+            HINTS ${PC_JACK_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(miniaudio PRIVATE ${JACK_LIBRARY})
+        target_include_directories(miniaudio PRIVATE ${JACK_INCLUDE_DIR})
+    endif()
+endif()
+
 # Tests
 #
 # All tests are compiled as a single translation unit. There is no need to add miniaudio as a link library.
