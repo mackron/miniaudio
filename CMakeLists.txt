@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(miniaudio
-    VERSION 0.11
+    VERSION 0.11.22
 )
 
 
@@ -588,12 +588,15 @@ function(is_backend_enabled NAME)
     endif()
 endfunction()
 
+set(LINKED_LIBS)
+
 if(MINIAUDIO_NO_RUNTIME_LINKING)
     is_backend_enabled(PULSEAUDIO)
     if (PULSEAUDIO_ENABLED)
         find_package(PulseAudio REQUIRED)
         target_link_libraries(miniaudio PRIVATE ${PULSEAUDIO_LIBRARY})
         target_include_directories(miniaudio SYSTEM PRIVATE ${PULSEAUDIO_INCLUDE_DIR})
+        list(APPEND LINKED_LIBS libpulse)
     endif()
 
     is_backend_enabled(ALSA)
@@ -615,6 +618,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
 
         target_link_libraries(miniaudio PRIVATE ${ALSA_LIBRARY})
         target_include_directories(miniaudio PRIVATE ${ALSA_INCLUDE_DIR})
+        list(APPEND LINKED_LIBS alsa)
     endif()
 
     is_backend_enabled(SNDIO)
@@ -630,6 +634,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
             HINTS ${PC_SNDIO_LIBRARY_DIRS}
         )
         target_link_libraries(miniaudio PRIVATE ${SNDIO_LIBRARY})
+        list(APPEND LINKED_LIBS sndio)
     endif()
 
     is_backend_enabled(JACK)
@@ -652,6 +657,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
 
         target_link_libraries(miniaudio PRIVATE ${JACK_LIBRARY})
         target_include_directories(miniaudio PRIVATE ${JACK_INCLUDE_DIR})
+        list(APPEND LINKED_LIBS jack)
     endif()
 endif()
 
@@ -766,6 +772,25 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
 endif()
+
+if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+    set(MINIAUDIO_PC_INCLUDEDIR "${CMAKE_INSTALL_INCLUDEDIR}")
+else()
+    set(MINIAUDIO_PC_INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
+if(IS_ABSOLUTE "${CMAKE_INSTALL_LIBDIR}")
+    set(MINIAUDIO_PC_LIBDIR "${CMAKE_INSTALL_LIBDIR}")
+else()
+    set(MINIAUDIO_PC_LIBDIR "\${exec_prefix}/${CMAKE_INSTALL_LIBDIR}")
+endif()
+
+string(JOIN ", " MINIAUDIO_PC_REQUIRES_PRIVATE ${LINKED_LIBS})
+list(TRANSFORM COMMON_LINK_LIBRARIES PREPEND "-l")
+string(JOIN " " MINIAUDIO_PC_LIBS_PRIVATE ${COMMON_LINK_LIBRARIES})
+
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" @ONLY)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
 message(STATUS "Library list: ${LIBS_TO_INSTALL}")
 install(TARGETS ${LIBS_TO_INSTALL}
