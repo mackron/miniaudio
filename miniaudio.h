@@ -79022,7 +79022,12 @@ MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound)
 
 MA_API ma_uint64 ma_sound_get_time_in_milliseconds(const ma_sound* pSound)
 {
-    return ma_sound_get_time_in_pcm_frames(pSound) * 1000 / ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
+    ma_uint32 sampleRate = ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
+    if (sampleRate == 0) {
+        return 0;   /* Prevent a division by zero. */
+    }
+
+    return ma_sound_get_time_in_pcm_frames(pSound) * 1000 / sampleRate;
 }
 
 MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
