@@ -35551,118 +35551,30 @@ static void ma_AVAudioSessionPortDescription_to_device_info(AVAudioSessionPortDe
 }
 #endif
 
-static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
-{
 #if defined(MA_APPLE_DESKTOP)
-    UInt32 deviceCount;
-    AudioObjectID* pDeviceObjectIDs;
-    AudioObjectID defaultDeviceObjectIDPlayback;
-    AudioObjectID defaultDeviceObjectIDCapture;
-    ma_result result;
-    UInt32 iDevice;
-
-    ma_find_default_AudioObjectID(pContext, ma_device_type_playback, &defaultDeviceObjectIDPlayback);   /* OK if this fails. */
-    ma_find_default_AudioObjectID(pContext, ma_device_type_capture,  &defaultDeviceObjectIDCapture);    /* OK if this fails. */
-
-    result = ma_get_device_object_ids__coreaudio(pContext, &deviceCount, &pDeviceObjectIDs);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
-        AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
-        ma_device_info info;
-
-        MA_ZERO_OBJECT(&info);
-        if (ma_get_AudioObject_uid(pContext, deviceObjectID, sizeof(info.id.coreaudio), info.id.coreaudio) != MA_SUCCESS) {
-            continue;
-        }
-        if (ma_get_AudioObject_name(pContext, deviceObjectID, sizeof(info.name), info.name) != MA_SUCCESS) {
-            continue;
-        }
-
-        if (ma_does_AudioObject_support_playback(pContext, deviceObjectID)) {
-            if (deviceObjectID == defaultDeviceObjectIDPlayback) {
-                info.isDefault = MA_TRUE;
-            }
-
-            if (!callback(ma_device_type_playback, &info, pUserData)) {
-                break;
-            }
-        }
-        if (ma_does_AudioObject_support_capture(pContext, deviceObjectID)) {
-            if (deviceObjectID == defaultDeviceObjectIDCapture) {
-                info.isDefault = MA_TRUE;
-            }
-
-            if (!callback(ma_device_type_capture, &info, pUserData)) {
-                break;
-            }
-        }
-    }
-
-    ma_free(pDeviceObjectIDs, &pContext->allocationCallbacks);
-#else
-    ma_device_info info;
-    NSArray *pInputs  = [[[AVAudioSession sharedInstance] currentRoute] inputs];
-    NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
-
-    for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
-        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
-        if (!callback(ma_device_type_playback, &info, pUserData)) {
-            return MA_SUCCESS;
-        }
-    }
-
-    for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
-        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
-        if (!callback(ma_device_type_capture, &info, pUserData)) {
-            return MA_SUCCESS;
-        }
-    }
-#endif
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+static ma_bool32 ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, AudioObjectID defaultDeviceObjectID, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    ma_result result;
+    ma_device_info deviceInfo;
 
-    MA_ASSERT(pContext != NULL);
+    MA_ZERO_OBJECT(&deviceInfo);
 
-#if defined(MA_APPLE_DESKTOP)
-    /* Desktop */
+    /* Default. */
+    if (deviceObjectID == defaultDeviceObjectID) {
+        deviceInfo.isDefault = MA_TRUE;
+    }
+
+    /* ID. */
+    if (ma_get_AudioObject_uid(pContext, deviceObjectID, sizeof(deviceInfo.id.coreaudio), deviceInfo.id.coreaudio) != MA_SUCCESS) {
+        return MA_TRUE;
+    }
+
+    /* Name. */
+    if (ma_get_AudioObject_name(pContext, deviceObjectID, sizeof(deviceInfo.name), deviceInfo.name) != MA_SUCCESS) {
+        return MA_TRUE;
+    }
+
+    /* Data Format. */
     {
-        AudioObjectID deviceObjectID;
-        AudioObjectID defaultDeviceObjectID;
-        UInt32 streamDescriptionCount;
-        AudioStreamRangedDescription* pStreamDescriptions;
-        UInt32 iStreamDescription;
-        UInt32 sampleRateRangeCount;
-        AudioValueRange* pSampleRateRanges;
-
-        ma_find_default_AudioObjectID(pContext, deviceType, &defaultDeviceObjectID);     /* OK if this fails. */
-
-        result = ma_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        result = ma_get_AudioObject_uid(pContext, deviceObjectID, sizeof(pDeviceInfo->id.coreaudio), pDeviceInfo->id.coreaudio);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        result = ma_get_AudioObject_name(pContext, deviceObjectID, sizeof(pDeviceInfo->name), pDeviceInfo->name);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        if (deviceObjectID == defaultDeviceObjectID) {
-            pDeviceInfo->isDefault = MA_TRUE;
-        }
-
         /*
         There could be a large number of permutations here. Fortunately there is only a single channel count
         being reported which reduces this quite a bit. For sample rates we're only reporting those that are
@@ -35671,200 +35583,258 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         if some driver performs software data conversion and therefore reports every possible format and
         sample rate.
         */
-        pDeviceInfo->nativeDataFormatCount = 0;
+        ma_result result;
+        ma_format uniqueFormats[ma_format_count];
+        ma_uint32 uniqueFormatCount = 0;
+        ma_uint32 channels;
+        UInt32 streamDescriptionCount;
+        AudioStreamRangedDescription* pStreamDescriptions;
+        UInt32 iStreamDescription;
+
+        deviceInfo.nativeDataFormatCount = 0;
+
+        /* Channels. */
+        result = ma_get_AudioObject_channel_count(pContext, deviceObjectID, deviceType, &channels);
+        if (result != MA_SUCCESS) {
+            return MA_TRUE; /* Failed to get channel count. */
+        }
 
         /* Formats. */
-        {
-            ma_format uniqueFormats[ma_format_count];
-            ma_uint32 uniqueFormatCount = 0;
-            ma_uint32 channels;
+        result = ma_get_AudioObject_stream_descriptions(pContext, deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
+        if (result != MA_SUCCESS) {
+            return MA_TRUE;
+        }
 
-            /* Channels. */
-            result = ma_get_AudioObject_channel_count(pContext, deviceObjectID, deviceType, &channels);
+        for (iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
+            ma_format format;
+            ma_bool32 hasFormatBeenHandled = MA_FALSE;
+            ma_uint32 iOutputFormat;
+            ma_uint32 iSampleRate;
+            UInt32 sampleRateRangeCount;
+            AudioValueRange* pSampleRateRanges;
+
+            result = ma_format_from_AudioStreamBasicDescription(&pStreamDescriptions[iStreamDescription].mFormat, &format);
             if (result != MA_SUCCESS) {
-                return result;
+                continue;
             }
 
-            /* Formats. */
-            result = ma_get_AudioObject_stream_descriptions(pContext, deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
-            if (result != MA_SUCCESS) {
-                return result;
+            MA_ASSERT(format != ma_format_unknown);
+
+            /* Make sure the format isn't already in the output list. */
+            for (iOutputFormat = 0; iOutputFormat < uniqueFormatCount; ++iOutputFormat) {
+                if (uniqueFormats[iOutputFormat] == format) {
+                    hasFormatBeenHandled = MA_TRUE;
+                    break;
+                }
             }
 
-            for (iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
-                ma_format format;
-                ma_bool32 hasFormatBeenHandled = MA_FALSE;
-                ma_uint32 iOutputFormat;
-                ma_uint32 iSampleRate;
+            /* If we've already handled this format just skip it. */
+            if (hasFormatBeenHandled) {
+                continue;
+            }
 
-                result = ma_format_from_AudioStreamBasicDescription(&pStreamDescriptions[iStreamDescription].mFormat, &format);
-                if (result != MA_SUCCESS) {
-                    continue;
-                }
+            uniqueFormats[uniqueFormatCount] = format;
+            uniqueFormatCount += 1;
 
-                MA_ASSERT(format != ma_format_unknown);
+            /* Sample Rates */
+            result = ma_get_AudioObject_sample_rates(pContext, deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
+            if (result != MA_SUCCESS) {
+                return MA_TRUE; /* Failed to retrieve sample rates. */
+            }
 
-                /* Make sure the format isn't already in the output list. */
-                for (iOutputFormat = 0; iOutputFormat < uniqueFormatCount; ++iOutputFormat) {
-                    if (uniqueFormats[iOutputFormat] == format) {
-                        hasFormatBeenHandled = MA_TRUE;
-                        break;
-                    }
-                }
+            /*
+            Annoyingly Core Audio reports a sample rate range. We just get all the standard rates that are
+            between this range.
+            */
+            for (iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
+                ma_uint32 iStandardSampleRate;
+                for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(g_maStandardSampleRatePriorities); iStandardSampleRate += 1) {
+                    ma_uint32 standardSampleRate = g_maStandardSampleRatePriorities[iStandardSampleRate];
+                    if (standardSampleRate >= pSampleRateRanges[iSampleRate].mMinimum && standardSampleRate <= pSampleRateRanges[iSampleRate].mMaximum) {
+                        /* We have a new data format. Add it to the list. */
+                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = format;
+                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
+                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = standardSampleRate;
+                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].flags      = 0;
+                        deviceInfo.nativeDataFormatCount += 1;
 
-                /* If we've already handled this format just skip it. */
-                if (hasFormatBeenHandled) {
-                    continue;
-                }
-
-                uniqueFormats[uniqueFormatCount] = format;
-                uniqueFormatCount += 1;
-
-                /* Sample Rates */
-                result = ma_get_AudioObject_sample_rates(pContext, deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
-                if (result != MA_SUCCESS) {
-                    return result;
-                }
-
-                /*
-                Annoyingly Core Audio reports a sample rate range. We just get all the standard rates that are
-                between this range.
-                */
-                for (iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
-                    ma_uint32 iStandardSampleRate;
-                    for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(g_maStandardSampleRatePriorities); iStandardSampleRate += 1) {
-                        ma_uint32 standardSampleRate = g_maStandardSampleRatePriorities[iStandardSampleRate];
-                        if (standardSampleRate >= pSampleRateRanges[iSampleRate].mMinimum && standardSampleRate <= pSampleRateRanges[iSampleRate].mMaximum) {
-                            /* We have a new data format. Add it to the list. */
-                            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
-                            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
-                            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = standardSampleRate;
-                            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
-                            pDeviceInfo->nativeDataFormatCount += 1;
-
-                            if (pDeviceInfo->nativeDataFormatCount >= ma_countof(pDeviceInfo->nativeDataFormats)) {
-                                break;  /* No more room for any more formats. */
-                            }
+                        if (deviceInfo.nativeDataFormatCount >= ma_countof(deviceInfo.nativeDataFormats)) {
+                            break;  /* No more room for any more formats. */
                         }
                     }
                 }
-
-                ma_free(pSampleRateRanges, &pContext->allocationCallbacks);
-
-                if (pDeviceInfo->nativeDataFormatCount >= ma_countof(pDeviceInfo->nativeDataFormats)) {
-                    break;  /* No more room for any more formats. */
-                }
             }
 
-            ma_free(pStreamDescriptions, &pContext->allocationCallbacks);
+            ma_free(pSampleRateRanges, &pContext->allocationCallbacks);
+
+            if (deviceInfo.nativeDataFormatCount >= ma_countof(deviceInfo.nativeDataFormats)) {
+                break;  /* No more room for any more formats. */
+            }
         }
+
+        ma_free(pStreamDescriptions, &pContext->allocationCallbacks);
     }
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
 #else
-    /* Mobile */
-    {
-        ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(pContext);
-        AudioComponentDescription desc;
-        AudioComponent component;
-        AudioUnit audioUnit;
-        OSStatus status;
-        AudioUnitScope formatScope;
-        AudioUnitElement formatElement;
-        AudioStreamBasicDescription bestFormat;
-        UInt32 propSize;
+static ma_bool32 ma_context_enumerate_device_by_AVAudioSessionPortDescription__coreaudio(ma_context* pContext, AVAudioSessionPortDescription* pPortDesc, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(pContext);
+    ma_device_info deviceInfo;
+    AudioComponentDescription desc;
+    AudioComponent component;
+    AudioUnit audioUnit;
+    OSStatus status;
+    AudioUnitScope formatScope;
+    AudioUnitElement formatElement;
+    AudioStreamBasicDescription bestFormat;
+    UInt32 propSize;
 
-        /* We want to ensure we use a consistent device name to device enumeration. */
-        if (pDeviceID != NULL && pDeviceID->coreaudio[0] != '\0') {
-            ma_bool32 found = MA_FALSE;
-            if (deviceType == ma_device_type_playback) {
-                NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
-                for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
-                    if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
-                        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, pDeviceInfo);
-                        found = MA_TRUE;
-                        break;
-                    }
-                }
-            } else {
-                NSArray *pInputs = [[[AVAudioSession sharedInstance] currentRoute] inputs];
-                for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
-                    if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
-                        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, pDeviceInfo);
-                        found = MA_TRUE;
-                        break;
-                    }
-                }
-            }
+    MA_ZERO_OBJECT(&deviceInfo);
 
-            if (!found) {
-                return MA_DOES_NOT_EXIST;
-            }
-        } else {
-            if (deviceType == ma_device_type_playback) {
-                ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            } else {
-                ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            }
-        }
+    /* ID and Name. */
+    ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &deviceInfo);
 
+    /*
+    Default.
 
-        /*
-        Retrieving device information is more annoying on mobile than desktop. For simplicity I'm locking this down to whatever format is
-        reported on a temporary I/O unit. The problem, however, is that this doesn't return a value for the sample rate which we need to
-        retrieve from the AVAudioSession shared instance.
-        */
-        desc.componentType = kAudioUnitType_Output;
-        desc.componentSubType = kAudioUnitSubType_RemoteIO;
-        desc.componentManufacturer = kAudioUnitManufacturer_Apple;
-        desc.componentFlags = 0;
-        desc.componentFlagsMask = 0;
+    I'm not sure how to do this. I'm going to just assume it's the default device for now. Advice welcome!
+    */
+    deviceInfo.isDefault = MA_TRUE;
 
-        component = pContextStateCoreAudio->AudioComponentFindNext(NULL, &desc);
-        if (component == NULL) {
-            return MA_FAILED_TO_INIT_BACKEND;
-        }
+    /* Data Format. */
+    /*
+    Retrieving device information is more annoying on mobile than desktop. For simplicity I'm locking this down to whatever format is
+    reported on a temporary I/O unit. The problem, however, is that this doesn't return a value for the sample rate which we need to
+    retrieve from the AVAudioSession shared instance.
+    */
+    desc.componentType         = kAudioUnitType_Output;
+    desc.componentSubType      = kAudioUnitSubType_RemoteIO;
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    desc.componentFlags        = 0;
+    desc.componentFlagsMask    = 0;
 
-        status = pContextStateCoreAudio->AudioComponentInstanceNew(component, &audioUnit);
-        if (status != noErr) {
-            return ma_result_from_OSStatus(status);
-        }
+    component = pContextStateCoreAudio->AudioComponentFindNext(NULL, &desc);
+    if (component == NULL) {
+        return MA_TRUE;
+    }
 
-        formatScope   = (deviceType == ma_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
-        formatElement = (deviceType == ma_device_type_playback) ? MA_COREAUDIO_OUTPUT_BUS : MA_COREAUDIO_INPUT_BUS;
+    status = pContextStateCoreAudio->AudioComponentInstanceNew(component, &audioUnit);
+    if (status != noErr) {
+        return MA_TRUE;
+    }
 
-        propSize = sizeof(bestFormat);
-        status = pContextStateCoreAudio->AudioUnitGetProperty(audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
-        if (status != noErr) {
-            pContextStateCoreAudio->AudioComponentInstanceDispose(audioUnit);
-            return ma_result_from_OSStatus(status);
-        }
+    formatScope   = (deviceType == ma_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
+    formatElement = (deviceType == ma_device_type_playback) ? MA_COREAUDIO_OUTPUT_BUS : MA_COREAUDIO_INPUT_BUS;
 
+    propSize = sizeof(bestFormat);
+    status = pContextStateCoreAudio->AudioUnitGetProperty(audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
+    if (status != noErr) {
         pContextStateCoreAudio->AudioComponentInstanceDispose(audioUnit);
-        audioUnit = NULL;
+        return MA_TRUE;
+    }
 
-        /* Only a single format is being reported for iOS. */
-        pDeviceInfo->nativeDataFormatCount = 1;
+    pContextStateCoreAudio->AudioComponentInstanceDispose(audioUnit);
+    audioUnit = NULL;
 
-        result = ma_format_from_AudioStreamBasicDescription(&bestFormat, &pDeviceInfo->nativeDataFormats[0].format);
+    /* Only a single format is being reported for iOS. */
+    deviceInfo.nativeDataFormatCount = 1;
+
+    result = ma_format_from_AudioStreamBasicDescription(&bestFormat, &deviceInfo.nativeDataFormats[0].format);
+    if (result != MA_SUCCESS) {
+        return MA_TRUE;
+    }
+
+    deviceInfo.nativeDataFormats[0].channels = bestFormat.mChannelsPerFrame;
+
+    /*
+    It looks like Apple are wanting to push the whole AVAudioSession thing. Thus, we need to use that to determine device settings. To do
+    this we just get the shared instance and inspect.
+    */
+    @autoreleasepool {
+        AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+        MA_ASSERT(pAudioSession != NULL);
+
+        deviceInfo.nativeDataFormats[0].sampleRate = (ma_uint32)pAudioSession.sampleRate;
+    }
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+#endif
+
+static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    #if defined(MA_APPLE_DESKTOP)
+    {
+        UInt32 deviceCount;
+        AudioObjectID* pDeviceObjectIDs;
+        AudioObjectID defaultDeviceObjectIDPlayback;
+        AudioObjectID defaultDeviceObjectIDCapture;
+        ma_result result;
+        UInt32 iDevice;
+
+        ma_find_default_AudioObjectID(pContext, ma_device_type_playback, &defaultDeviceObjectIDPlayback);   /* OK if this fails. */
+        ma_find_default_AudioObjectID(pContext, ma_device_type_capture,  &defaultDeviceObjectIDCapture);    /* OK if this fails. */
+
+        result = ma_get_device_object_ids__coreaudio(pContext, &deviceCount, &pDeviceObjectIDs);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        pDeviceInfo->nativeDataFormats[0].channels = bestFormat.mChannelsPerFrame;
+        for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
+            AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
 
-        /*
-        It looks like Apple are wanting to push the whole AVAudioSession thing. Thus, we need to use that to determine device settings. To do
-        this we just get the shared instance and inspect.
-        */
-        @autoreleasepool {
-            AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
-            MA_ASSERT(pAudioSession != NULL);
+            if (ma_does_AudioObject_support_playback(pContext, deviceObjectID)) {
+                ma_bool32 cbResult = ma_context_enumerate_device_by_AudioObjectID__coreaudio(pContext, deviceObjectID, defaultDeviceObjectIDPlayback, ma_device_type_playback, callback, pUserData);
+                if (cbResult == MA_FALSE) {
+                    break;
+                }
+            }
 
-            pDeviceInfo->nativeDataFormats[0].sampleRate = (ma_uint32)pAudioSession.sampleRate;
+            if (ma_does_AudioObject_support_capture(pContext, deviceObjectID)) {
+                ma_bool32 cbResult = ma_context_enumerate_device_by_AudioObjectID__coreaudio(pContext, deviceObjectID, defaultDeviceObjectIDCapture, ma_device_type_capture, callback, pUserData);
+                if (cbResult == MA_FALSE) {
+                    break;
+                }
+            }
+        }
+
+        ma_free(pDeviceObjectIDs, &pContext->allocationCallbacks);
+    }
+    #else
+    {
+        NSArray *pInputs  = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+        NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
+
+        for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
+            ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
+
+            /* I'm not sure how to check for default devices. I'm just going to assume the first one is the default. */
+            if (pPortDesc == pOutputs[0]) {
+                info.isDefault = MA_TRUE;
+            }
+
+            if (!callback(ma_device_type_playback, &info, pUserData)) {
+                return MA_SUCCESS;
+            }
+        }
+
+        for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+            ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
+
+            /* I'm not sure how to check for default devices. I'm just going to assume the first one is the default. */
+            if (pPortDesc == pInputs[0]) {
+                info.isDefault = MA_TRUE;
+            }
+
+            if (!callback(ma_device_type_capture, &info, pUserData)) {
+                return MA_SUCCESS;
+            }
         }
     }
-#endif
+    #endif
 
-    (void)pDeviceInfo; /* Unused. */
     return MA_SUCCESS;
 }
 
@@ -37134,7 +37104,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
     ma_context_init__coreaudio,
     ma_context_uninit__coreaudio,
     ma_context_enumerate_devices__coreaudio,
-    ma_context_get_device_info__coreaudio,
+    NULL,
     ma_device_init__coreaudio,
     ma_device_uninit__coreaudio,
     ma_device_start__coreaudio,
