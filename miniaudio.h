@@ -27418,13 +27418,17 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
             ma_device_info deviceInfo;
 
             MA_ZERO_OBJECT(&deviceInfo);
-            deviceInfo.id.winmm = iPlaybackDevice;
 
+            /* Default. */
             /* The first enumerated device is the default device. */
             if (iPlaybackDevice == 0) {
                 deviceInfo.isDefault = MA_TRUE;
             }
 
+            /* ID. */
+            deviceInfo.id.winmm = iPlaybackDevice;
+
+            /* Name and Data Format. */
             if (ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
                 ma_bool32 cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
                 if (cbResult == MA_FALSE) {
@@ -27447,13 +27451,17 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
             ma_device_info deviceInfo;
 
             MA_ZERO_OBJECT(&deviceInfo);
-            deviceInfo.id.winmm = iCaptureDevice;
 
+            /* Defualt. */
             /* The first enumerated device is the default device. */
             if (iCaptureDevice == 0) {
                 deviceInfo.isDefault = MA_TRUE;
             }
 
+            /* ID. */
+            deviceInfo.id.winmm = iCaptureDevice;
+
+            /* Name and Data Format. */
             if (ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
                 ma_bool32 cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
                 if (cbResult == MA_FALSE) {
@@ -27465,51 +27473,6 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
     return MA_SUCCESS;
 }
-
-static ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    ma_context_state_winmm* pContextStateWinMM = ma_context_get_backend_state__winmm(pContext);
-    UINT winMMDeviceID;
-
-    MA_ASSERT(pContext != NULL);
-
-    winMMDeviceID = 0;
-    if (pDeviceID != NULL) {
-        winMMDeviceID = (UINT)pDeviceID->winmm;
-    }
-
-    pDeviceInfo->id.winmm = winMMDeviceID;
-
-    /* The first ID is the default device. */
-    if (winMMDeviceID == 0) {
-        pDeviceInfo->isDefault = MA_TRUE;
-    }
-
-    if (deviceType == ma_device_type_playback) {
-        MA_MMRESULT result;
-        MA_WAVEOUTCAPS2A caps;
-
-        MA_ZERO_OBJECT(&caps);
-
-        result = pContextStateWinMM->waveOutGetDevCapsA(winMMDeviceID, (MA_WAVEOUTCAPSA*)&caps, sizeof(caps));
-        if (result == MA_MMSYSERR_NOERROR) {
-            return ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, pDeviceInfo);
-        }
-    } else {
-        MA_MMRESULT result;
-        MA_WAVEINCAPS2A caps;
-
-        MA_ZERO_OBJECT(&caps);
-
-        result = pContextStateWinMM->waveInGetDevCapsA(winMMDeviceID, (MA_WAVEINCAPSA*)&caps, sizeof(caps));
-        if (result == MA_MMSYSERR_NOERROR) {
-            return ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, pDeviceInfo);
-        }
-    }
-
-    return MA_NO_DEVICE;
-}
-
 
 
 static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__winmm(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate)
@@ -28062,7 +28025,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
     ma_context_init__winmm,
     ma_context_uninit__winmm,
     ma_context_enumerate_devices__winmm,
-    ma_context_get_device_info__winmm,
+    NULL,
     ma_device_init__winmm,
     ma_device_uninit__winmm,
     ma_device_start__winmm,
