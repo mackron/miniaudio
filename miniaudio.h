@@ -28388,6 +28388,11 @@ typedef struct
 #define MA_SND_PCM_NO_AUTO_FORMAT              0x00040000
 #endif
 
+
+
+typedef void (* ma_snd_lib_error_handler_t)(const char* file, int line, const char* function, int err, const char* fmt, ...);
+
+typedef int                  (* ma_snd_lib_error_set_handler_proc)             (ma_snd_lib_error_handler_t handler);
 typedef int                  (* ma_snd_pcm_open_proc)                          (ma_snd_pcm_t **pcm, const char *name, ma_snd_pcm_stream_t stream, int mode);
 typedef int                  (* ma_snd_pcm_close_proc)                         (ma_snd_pcm_t *pcm);
 typedef size_t               (* ma_snd_pcm_hw_params_sizeof_proc)              (void);
@@ -28481,6 +28486,7 @@ typedef struct ma_context_state_alsa
     ma_bool32 useVerboseDeviceEnumeration;
 
     ma_handle asoundSO;
+    ma_snd_lib_error_set_handler_proc              snd_lib_error_set_handler;
     ma_snd_pcm_open_proc                           snd_pcm_open;
     ma_snd_pcm_close_proc                          snd_pcm_close;
     ma_snd_pcm_hw_params_sizeof_proc               snd_pcm_hw_params_sizeof;
@@ -28979,6 +28985,16 @@ static void ma_backend_info__alsa(ma_device_backend_info* pBackendInfo)
     pBackendInfo->pName = "ALSA";
 }
 
+static void ma_silence_error__alsa(const char* file, int line, const char* function, int err, const char* fmt, ...)
+{
+    /* Do nothing. */
+    (void)file;
+    (void)line;
+    (void)function;
+    (void)err;
+    (void)fmt;
+}
+
 static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
 {
     ma_context_state_alsa* pContextStateALSA;
@@ -29018,6 +29034,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
             return MA_NO_BACKEND;
         }
 
+        pContextStateALSA->snd_lib_error_set_handler              = (ma_snd_lib_error_set_handler_proc              )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_lib_error_set_handler");
         pContextStateALSA->snd_pcm_open                           = (ma_snd_pcm_open_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_open");
         pContextStateALSA->snd_pcm_close                          = (ma_snd_pcm_close_proc                          )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_close");
         pContextStateALSA->snd_pcm_hw_params_sizeof               = (ma_snd_pcm_hw_params_sizeof_proc               )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_sizeof");
@@ -29089,6 +29106,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
     #else
     {
         /* The system below is just for type safety. */
+        ma_snd_lib_error_set_handler_proc              _snd_lib_error_set_handler              = snd_lib_error_set_handler;
         ma_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
         ma_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
         ma_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;
@@ -29157,6 +29175,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         ma_snd_pcm_poll_descriptors_revents_proc       _snd_pcm_poll_descriptors_revents       = snd_pcm_poll_descriptors_revents;
         ma_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
 
+        pContextStateALSA->snd_lib_error_set_handler              = _snd_lib_error_set_handler;
         pContextStateALSA->snd_pcm_open                           = _snd_pcm_open;
         pContextStateALSA->snd_pcm_close                          = _snd_pcm_close;
         pContextStateALSA->snd_pcm_hw_params_sizeof               = _snd_pcm_hw_params_sizeof;
@@ -29235,6 +29254,9 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.");
         return result;
     }
+
+    /* ALSA will print errors. We want to shut this up. */
+    pContextStateALSA->snd_lib_error_set_handler(ma_silence_error__alsa);
 
     *ppContextState = pContextStateALSA;
 
