@@ -21979,8 +21979,10 @@ typedef struct ma_context_state_wasapi
     ma_handle hAvrt;
     MA_PFN_AvSetMmThreadCharacteristicsA AvSetMmThreadCharacteristicsA;
     MA_PFN_AvRevertMmThreadCharacteristics AvRevertMmThreadcharacteristics;
+    #if defined(MA_WIN32_UWP)
     ma_handle hMMDevapi;
-    ma_proc ActivateAudioInterfaceAsync;
+    MA_PFN_ActivateAudioInterfaceAsync ActivateAudioInterfaceAsync;
+    #endif
 } ma_context_state_wasapi;
 
 typedef struct ma_device_state_wasapi
@@ -21989,7 +21991,9 @@ typedef struct ma_device_state_wasapi
     ma_IAudioClient* pAudioClientCapture;
     ma_IAudioRenderClient* pRenderClient;
     ma_IAudioCaptureClient* pCaptureClient;
-    ma_IMMDeviceEnumerator* pDeviceEnumerator;              /* Used for IMMNotificationClient notifications. Required for detecting default device changes. */
+    #if defined(MA_WIN32_DESKTOP)
+    ma_IMMDeviceEnumerator* pDeviceEnumerator;              /* Used for IMMNotificationClient notifications. Required for detecting default device changes. Not used with the UWP build. */
+    #endif
     ma_IMMNotificationClient notificationClient;
     HANDLE hEventPlayback;                                  /* Auto reset. Initialized to signaled. */
     HANDLE hEventCapture;                                   /* Auto reset. Initialized to unsignaled. */
@@ -22486,13 +22490,11 @@ static ma_result ma_context_post_command__wasapi(ma_context* pContext, const ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_next_command__wasapi(ma_context* pContext, ma_context_command__wasapi* pCmd)
+static ma_result ma_context_next_command__wasapi(ma_context_state_wasapi* pContextStateWASAPI, ma_context_command__wasapi* pCmd)
 {
-    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(pContext);
     ma_result result = MA_SUCCESS;
 
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pCmd     != NULL);
+    MA_ASSERT(pCmd != NULL);
 
     result = ma_semaphore_wait(&pContextStateWASAPI->commandSem);
     if (result == MA_SUCCESS) {
@@ -22511,12 +22513,12 @@ static ma_result ma_context_next_command__wasapi(ma_context* pContext, ma_contex
 static ma_thread_result MA_THREADCALL ma_context_command_thread__wasapi(void* pUserData)
 {
     ma_result result;
-    ma_context* pContext = (ma_context*)pUserData;
-    MA_ASSERT(pContext != NULL);
+    ma_context_state_wasapi* pContextStateWASAPI = (ma_context_state_wasapi*)pUserData;
+    MA_ASSERT(pContextStateWASAPI != NULL);
 
     for (;;) {
         ma_context_command__wasapi cmd;
-        result = ma_context_next_command__wasapi(pContext, &cmd);
+        result = ma_context_next_command__wasapi(pContextStateWASAPI, &cmd);
         if (result != MA_SUCCESS) {
             break;
         }
@@ -22628,7 +22630,7 @@ static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const MA_
     pInfo->nativeDataFormatCount += 1;
 }
 
-static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/void* pMMDevice, ma_IAudioClient* pAudioClient, ma_device_info* pInfo)
+static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/ void* pMMDevice, ma_IAudioClient* pAudioClient, ma_device_info* pInfo)
 {
     HRESULT hr;
     MA_WAVEFORMATEX* pWF = NULL;
@@ -22637,7 +22639,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
     MA_ASSERT(pInfo != NULL);
 
     /* Shared Mode. We use GetMixFormat() here. */
-    hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pAudioClient, (MA_WAVEFORMATEX**)&pWF);
+    hr = ma_IAudioClient_GetMixFormat(pAudioClient, (MA_WAVEFORMATEX**)&pWF);
     if (SUCCEEDED(hr)) {
         ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_shared, pInfo);
     } else {
@@ -22671,7 +22673,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                 In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
                 first. If this fails, fall back to a search.
                 */
-                hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
+                hr = ma_IAudioClient_IsFormatSupported(pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
                 if (SUCCEEDED(hr)) {
                     /* The format returned by PKEY_AudioEngine_DeviceFormat is supported. */
                     ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_exclusive, pInfo);
@@ -22717,7 +22719,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
                             wf.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
 
-                            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
+                            hr = ma_IAudioClient_IsFormatSupported(pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
                                 ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((MA_WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
                                 found = MA_TRUE;
@@ -22920,7 +22922,7 @@ static ma_result ma_context_get_device_id_from_MMDevice__wasapi(ma_context* pCon
     return MA_ERROR;
 }
 
-static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, WCHAR* pDefaultDeviceID, ma_bool32 onlySimpleInfo, ma_device_info* pInfo)
+static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, WCHAR* pDefaultDeviceID, ma_device_info* pInfo)
 {
     ma_result result;
     HRESULT hr;
@@ -22929,7 +22931,7 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
     MA_ASSERT(pMMDevice != NULL);
     MA_ASSERT(pInfo != NULL);
 
-    /* ID. */
+    /* ID and Default. */
     result = ma_context_get_device_id_from_MMDevice__wasapi(pContext, pMMDevice, &pInfo->id);
     if (result == MA_SUCCESS) {
         if (pDefaultDeviceID != NULL) {
@@ -22958,7 +22960,7 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
     }
 
     /* Format */
-    if (!onlySimpleInfo) {
+    {
         ma_IAudioClient* pAudioClient;
         hr = ma_IMMDevice_Activate(pMMDevice, &MA_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pAudioClient);
         if (SUCCEEDED(hr)) {
@@ -23008,7 +23010,7 @@ static ma_result ma_context_enumerate_devices_by_type__wasapi(ma_context* pConte
 
             hr = ma_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pMMDevice);
             if (SUCCEEDED(hr)) {
-                result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, pDefaultDeviceID, MA_TRUE, &deviceInfo);   /* MA_TRUE = onlySimpleInfo. */
+                result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, pDefaultDeviceID, &deviceInfo);
 
                 ma_IMMDevice_Release(pMMDevice);
                 if (result == MA_SUCCESS) {
@@ -23059,6 +23061,7 @@ static ma_result ma_context_get_IAudioClient_Desktop__wasapi(ma_context* pContex
 #else
 static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, MA_PROPVARIANT* pActivationParams, ma_IAudioClient** ppAudioClient, ma_IUnknown** ppActivatedInterface)
 {
+    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(pContext);
     ma_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
     ma_completion_handler_uwp completionHandler;
     IID iid;
@@ -23098,7 +23101,7 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
         return result;
     }
 
-    hr = ((MA_PFN_ActivateAudioInterfaceAsync)pContextStateWASAPI->ActivateAudioInterfaceAsync)(iidStr, &MA_IID_IAudioClient, pActivationParams, (ma_IActivateAudioInterfaceCompletionHandler*)&completionHandler, (ma_IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
+    hr = pContextStateWASAPI->ActivateAudioInterfaceAsync(iidStr, &MA_IID_IAudioClient, pActivationParams, (ma_IActivateAudioInterfaceCompletionHandler*)&completionHandler, &pAsyncOp);
     if (FAILED(hr)) {
         ma_completion_handler_uwp_uninit(&completionHandler);
         ma_CoTaskMemFree(pContext, iidStr);
@@ -23317,7 +23320,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const void* pCont
         /* Link to mmdevapi so we can get access to ActivateAudioInterfaceAsync(). */
         pContextStateWASAPI->hMMDevapi = ma_dlopen(ma_context_get_log(pContext), "mmdevapi.dll");
         if (pContextStateWASAPI->hMMDevapi) {
-            pContextStateWASAPI->ActivateAudioInterfaceAsync = ma_dlsym(ma_context_get_log(pContext), pContextStateWASAPI->hMMDevapi, "ActivateAudioInterfaceAsync");
+            pContextStateWASAPI->ActivateAudioInterfaceAsync = (MA_PFN_ActivateAudioInterfaceAsync)ma_dlsym(ma_context_get_log(pContext), pContextStateWASAPI->hMMDevapi, "ActivateAudioInterfaceAsync");
             if (pContextStateWASAPI->ActivateAudioInterfaceAsync == NULL) {
                 /* ActivateAudioInterfaceAsync() could not be loaded. */
                 ma_free(pContextStateWASAPI, ma_context_get_allocation_callbacks(pContext));
@@ -23387,7 +23390,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const void* pCont
             return result;
         }
 
-        result = ma_thread_create(&pContextStateWASAPI->commandThread, ma_thread_priority_normal, 0, ma_context_command_thread__wasapi, pContext, &pContext->allocationCallbacks);
+        result = ma_thread_create(&pContextStateWASAPI->commandThread, ma_thread_priority_normal, 0, ma_context_command_thread__wasapi, pContextStateWASAPI, &pContext->allocationCallbacks);
         if (result != MA_SUCCESS) {
             ma_semaphore_uninit(&pContextStateWASAPI->commandSem);
             ma_mutex_uninit(&pContextStateWASAPI->commandLock);
@@ -23432,110 +23435,81 @@ static void ma_context_uninit__wasapi(ma_context* pContext)
     ma_free(pContextStateWASAPI, ma_context_get_allocation_callbacks(pContext));
 }
 
+#if defined(MA_WIN32_UWP)
+static ma_bool32 ma_context_enumerate_device_from_type_UWP__wasapi(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_device_info deviceInfo;
+    ma_IAudioClient* pAudioClient;
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
+
+    /* ID. */
+    /* Nothing to do. Always default. */
+
+    /* Name. */
+    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+
+    /* Data Format. */
+    if (ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, NULL, NULL, &pAudioClient, NULL) == MA_SUCCESS) {
+        ma_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, &deviceInfo);
+        ma_IAudioClient_Release(pAudioClient);
+    }
+
+    return callback(deviceType, &deviceInfo, pUserData);;
+}
+#endif
+
 static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     /* Different enumeration for desktop and UWP. */
-#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    /* Desktop */
-    HRESULT hr;
-    ma_IMMDeviceEnumerator* pDeviceEnumerator;
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    {
+        /* Desktop */
+        HRESULT hr;
+        ma_IMMDeviceEnumerator* pDeviceEnumerator;
 
-    hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
-        return ma_result_from_HRESULT(hr);
-    }
-
-    ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_playback, callback, pUserData);
-    ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_capture,  callback, pUserData);
-
-    ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-#else
-    /*
-    UWP
-
-    The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
-    over devices without using MMDevice, I'm restricting devices to defaults.
-
-    Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
-    */
-    if (callback) {
-        ma_bool32 cbResult = MA_TRUE;
-
-        /* Playback. */
-        if (cbResult) {
-            ma_device_info deviceInfo;
-            MA_ZERO_OBJECT(&deviceInfo);
-            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            deviceInfo.isDefault = MA_TRUE;
-            cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
+        hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+        if (FAILED(hr)) {
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
+            return ma_result_from_HRESULT(hr);
         }
 
-        /* Capture. */
-        if (cbResult) {
-            ma_device_info deviceInfo;
-            MA_ZERO_OBJECT(&deviceInfo);
-            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            deviceInfo.isDefault = MA_TRUE;
-            cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
+        ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_playback, callback, pUserData);
+        ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_capture,  callback, pUserData);
+
+        ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    }
+    #else
+    {
+        /*
+        UWP
+
+        The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
+        over devices without using MMDevice, I'm restricting devices to defaults.
+
+        Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
+        */
+        if (callback) {
+            ma_bool32 cbResult = MA_TRUE;
+
+            /* Playback. */
+            if (cbResult) {
+                cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pContext, ma_device_type_playback, callback, pUserData);
+            }
+
+            /* Capture. */
+            if (cbResult) {
+                cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pContext, ma_device_type_capture, callback, pUserData);
+            }
         }
     }
-#endif
+    #endif
 
     return MA_SUCCESS;
 }
-
-static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    ma_result result;
-    ma_IMMDevice* pMMDevice = NULL;
-    WCHAR* pDefaultDeviceID = NULL;
-
-    result = ma_context_get_MMDevice__wasapi(pContext, deviceType, pDeviceID, &pMMDevice);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* We need the default device ID so we can set the isDefault flag in the device info. */
-    pDefaultDeviceID = ma_context_get_default_device_id__wasapi(pContext, deviceType);
-
-    result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, pDefaultDeviceID, MA_FALSE, pDeviceInfo);   /* MA_FALSE = !onlySimpleInfo. */
-
-    if (pDefaultDeviceID != NULL) {
-        ma_CoTaskMemFree(pContext, pDefaultDeviceID);
-        pDefaultDeviceID = NULL;
-    }
-
-    ma_IMMDevice_Release(pMMDevice);
-
-    return result;
-#else
-    ma_IAudioClient* pAudioClient;
-    ma_result result;
-
-    /* UWP currently only uses default devices. */
-    if (deviceType == ma_device_type_playback) {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-    } else {
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-    }
-
-    result = ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, NULL, &pAudioClient, NULL);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, pDeviceInfo);
-
-    pDeviceInfo->isDefault = MA_TRUE;  /* UWP only supports default devices. */
-
-    ma_IAudioClient_Release(pAudioClient);
-    return result;
-#endif
-}
-
-
 
 
 typedef struct
@@ -25061,7 +25035,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WASAPI =
     ma_context_init__wasapi,
     ma_context_uninit__wasapi,
     ma_context_enumerate_devices__wasapi,
-    ma_context_get_device_info__wasapi,
+    NULL,
     ma_device_init__wasapi,
     ma_device_uninit__wasapi,
     ma_device_start__wasapi,
