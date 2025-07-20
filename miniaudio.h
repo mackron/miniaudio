@@ -32031,7 +32031,7 @@ typedef struct
     ma_uint32 defaultDeviceIndexCapture;
 } ma_context_enumerate_devices_callback_data__pulseaudio;
 
-static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context* pPulseContext, const ma_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
+static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     ma_context_enumerate_devices_callback_data__pulseaudio* pData = (ma_context_enumerate_devices_callback_data__pulseaudio*)pUserData;
     ma_device_info deviceInfo;
@@ -32044,26 +32044,34 @@ static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context
 
     MA_ZERO_OBJECT(&deviceInfo);
 
-    /* The name from PulseAudio is the ID for miniaudio. */
-    if (pSinkInfo->name != NULL) {
-        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
-    }
-
-    /* The description from PulseAudio is the name for miniaudio. */
-    if (pSinkInfo->description != NULL) {
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
-    }
-
-    if (pSinkInfo->index == pData->defaultDeviceIndexPlayback) {
+    /* Default. */
+    if (pInfo->index == pData->defaultDeviceIndexPlayback) {
         deviceInfo.isDefault = MA_TRUE;
     }
+
+    /* ID. The name from PulseAudio is the ID for miniaudio. */
+    if (pInfo->name != NULL) {
+        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pInfo->name, (size_t)-1);
+    }
+
+    /* Name. The description from PulseAudio is the name for miniaudio. */
+    if (pInfo->description != NULL) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pInfo->description, (size_t)-1);
+    }
+
+    /* Data Format. */
+    deviceInfo.nativeDataFormats[0].format     = ma_format_from_pulseaudio(pInfo->sample_spec.format);
+    deviceInfo.nativeDataFormats[0].channels   = pInfo->sample_spec.channels;
+    deviceInfo.nativeDataFormats[0].sampleRate = pInfo->sample_spec.rate;
+    deviceInfo.nativeDataFormats[0].flags      = 0;
+    deviceInfo.nativeDataFormatCount = 1;
 
     pData->isTerminated = !pData->callback(ma_device_type_playback, &deviceInfo, pData->pUserData);
 
     (void)pPulseContext; /* Unused. */
 }
 
-static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_context* pPulseContext, const ma_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
+static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
 {
     ma_context_enumerate_devices_callback_data__pulseaudio* pData = (ma_context_enumerate_devices_callback_data__pulseaudio*)pUserData;
     ma_device_info deviceInfo;
@@ -32076,20 +32084,28 @@ static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_conte
 
     MA_ZERO_OBJECT(&deviceInfo);
 
-    /* The name from PulseAudio is the ID for miniaudio. */
-    if (pSourceInfo->name != NULL) {
-        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSourceInfo->name, (size_t)-1);
-    }
-
-    /* The description from PulseAudio is the name for miniaudio. */
-    if (pSourceInfo->description != NULL) {
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSourceInfo->description, (size_t)-1);
-    }
-
-    if (pSourceInfo->index == pData->defaultDeviceIndexCapture) {
+    /* Default. */
+    if (pInfo->index == pData->defaultDeviceIndexCapture) {
         deviceInfo.isDefault = MA_TRUE;
     }
 
+    /* ID. The name from PulseAudio is the ID for miniaudio. */
+    if (pInfo->name != NULL) {
+        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pInfo->name, (size_t)-1);
+    }
+
+    /* Name. The description from PulseAudio is the name for miniaudio. */
+    if (pInfo->description != NULL) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pInfo->description, (size_t)-1);
+    }
+
+    /* Data Format. */
+    deviceInfo.nativeDataFormats[0].format     = ma_format_from_pulseaudio(pInfo->sample_spec.format);
+    deviceInfo.nativeDataFormats[0].channels   = pInfo->sample_spec.channels;
+    deviceInfo.nativeDataFormats[0].sampleRate = pInfo->sample_spec.rate;
+    deviceInfo.nativeDataFormats[0].flags      = 0;
+    deviceInfo.nativeDataFormatCount = 1;
+    
     pData->isTerminated = !pData->callback(ma_device_type_capture, &deviceInfo, pData->pUserData);
 
     (void)pPulseContext; /* Unused. */
@@ -32147,131 +32163,6 @@ static ma_result ma_context_enumerate_devices__pulseaudio(ma_context* pContext, 
         if (result != MA_SUCCESS) {
             goto done;
         }
-    }
-
-done:
-    return result;
-}
-
-
-typedef struct
-{
-    ma_device_info* pDeviceInfo;
-    ma_uint32 defaultDeviceIndex;
-    ma_bool32 foundDevice;
-} ma_context_get_device_info_callback_data__pulseaudio;
-
-static void ma_context_get_device_info_sink_callback__pulseaudio(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
-{
-    ma_context_get_device_info_callback_data__pulseaudio* pData = (ma_context_get_device_info_callback_data__pulseaudio*)pUserData;
-
-    if (endOfList > 0) {
-        return;
-    }
-
-    MA_ASSERT(pData != NULL);
-    pData->foundDevice = MA_TRUE;
-
-    if (pInfo->name != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
-    }
-
-    if (pInfo->description != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
-    }
-
-    /*
-    We're just reporting a single data format here. I think technically PulseAudio might support
-    all formats, but I don't trust that PulseAudio will do *anything* right, so I'm just going to
-    report the "native" device format.
-    */
-    pData->pDeviceInfo->nativeDataFormats[0].format     = ma_format_from_pulseaudio(pInfo->sample_spec.format);
-    pData->pDeviceInfo->nativeDataFormats[0].channels   = pInfo->sample_spec.channels;
-    pData->pDeviceInfo->nativeDataFormats[0].sampleRate = pInfo->sample_spec.rate;
-    pData->pDeviceInfo->nativeDataFormats[0].flags      = 0;
-    pData->pDeviceInfo->nativeDataFormatCount = 1;
-
-    if (pData->defaultDeviceIndex == pInfo->index) {
-        pData->pDeviceInfo->isDefault = MA_TRUE;
-    }
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static void ma_context_get_device_info_source_callback__pulseaudio(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
-{
-    ma_context_get_device_info_callback_data__pulseaudio* pData = (ma_context_get_device_info_callback_data__pulseaudio*)pUserData;
-
-    if (endOfList > 0) {
-        return;
-    }
-
-    MA_ASSERT(pData != NULL);
-    pData->foundDevice = MA_TRUE;
-
-    if (pInfo->name != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
-    }
-
-    if (pInfo->description != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
-    }
-
-    /*
-    We're just reporting a single data format here. I think technically PulseAudio might support
-    all formats, but I don't trust that PulseAudio will do *anything* right, so I'm just going to
-    report the "native" device format.
-    */
-    pData->pDeviceInfo->nativeDataFormats[0].format     = ma_format_from_pulseaudio(pInfo->sample_spec.format);
-    pData->pDeviceInfo->nativeDataFormats[0].channels   = pInfo->sample_spec.channels;
-    pData->pDeviceInfo->nativeDataFormats[0].sampleRate = pInfo->sample_spec.rate;
-    pData->pDeviceInfo->nativeDataFormats[0].flags      = 0;
-    pData->pDeviceInfo->nativeDataFormatCount = 1;
-
-    if (pData->defaultDeviceIndex == pInfo->index) {
-        pData->pDeviceInfo->isDefault = MA_TRUE;
-    }
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static ma_result ma_context_get_device_info__pulseaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    ma_context_state_pulseaudio* pContextStatePulseAudio = ma_context_get_backend_state__pulseaudio(pContext);
-    ma_result result = MA_SUCCESS;
-    ma_context_get_device_info_callback_data__pulseaudio callbackData;
-    ma_pa_operation* pOP = NULL;
-    const char* pDeviceName = NULL;
-
-    MA_ASSERT(pContextStatePulseAudio != NULL);
-
-    callbackData.pDeviceInfo = pDeviceInfo;
-    callbackData.foundDevice = MA_FALSE;
-
-    if (pDeviceID != NULL) {
-        pDeviceName = pDeviceID->pulse;
-    } else {
-        pDeviceName = NULL;
-    }
-
-    result = ma_context_get_default_device_index__pulseaudio(pContextStatePulseAudio, deviceType, &callbackData.defaultDeviceIndex);
-
-    if (deviceType == ma_device_type_playback) {
-        pOP = pContextStatePulseAudio->pa_context_get_sink_info_by_name(pContextStatePulseAudio->pPulseContext, pDeviceName, ma_context_get_device_info_sink_callback__pulseaudio, &callbackData);
-    } else {
-        pOP = pContextStatePulseAudio->pa_context_get_source_info_by_name(pContextStatePulseAudio->pPulseContext, pDeviceName, ma_context_get_device_info_source_callback__pulseaudio, &callbackData);
-    }
-
-    if (pOP != NULL) {
-        ma_wait_for_operation_and_unref__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pOP);
-    } else {
-        result = MA_ERROR;
-        goto done;
-    }
-
-    if (!callbackData.foundDevice) {
-        result = MA_NO_DEVICE;
-        goto done;
     }
 
 done:
@@ -33124,7 +33015,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PulseAudio =
     ma_context_init__pulseaudio,
     ma_context_uninit__pulseaudio,
     ma_context_enumerate_devices__pulseaudio,
-    ma_context_get_device_info__pulseaudio,
+    NULL,
     ma_device_init__pulseaudio,
     ma_device_uninit__pulseaudio,
     ma_device_start__pulseaudio,
