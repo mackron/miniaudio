@@ -25738,12 +25738,14 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
 {
     ma_context_enumerate_devices_callback_data__dsound* pData = (ma_context_enumerate_devices_callback_data__dsound*)lpContext;
     ma_device_info deviceInfo;
+    ma_result result;
+    HRESULT hr;
 
     (void)lpcstrModule;
 
     MA_ZERO_OBJECT(&deviceInfo);
 
-    /* ID. */
+    /* ID and Default. */
     if (lpGuid != NULL) {
         MA_COPY_MEMORY(deviceInfo.id.dsound, lpGuid, 16);
     } else {
@@ -25751,8 +25753,119 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         deviceInfo.isDefault = MA_TRUE;
     }
 
-    /* Name / Description */
+    /* Name. */
     ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), lpcstrDescription, (size_t)-1);
+
+    /* Data Format. */
+    if (pData->deviceType == ma_device_type_playback) {
+        /* Playback. */
+        ma_IDirectSound* pDirectSound;
+        MA_DSCAPS caps;
+        WORD channels;
+
+        result = ma_context_create_IDirectSound__dsound(pData->pContext, ma_share_mode_shared, &deviceInfo.id, &pDirectSound);
+        if (result != MA_SUCCESS) {
+            return MA_TRUE;
+        }
+
+        MA_ZERO_OBJECT(&caps);
+        caps.dwSize = sizeof(caps);
+        hr = ma_IDirectSound_GetCaps(pDirectSound, &caps);
+        if (FAILED(hr)) {
+            ma_log_postf(ma_context_get_log(pData->pContext), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.");
+            return MA_TRUE;
+        }
+
+
+        /* Channels. Only a single channel count is reported for DirectSound. */
+        if ((caps.dwFlags & MA_DSCAPS_PRIMARYSTEREO) != 0) {
+            /* It supports at least stereo, but could support more. */
+            DWORD speakerConfig;
+
+            channels = 2;
+
+            /* Look at the speaker configuration to get a better idea on the channel count. */
+            hr = ma_IDirectSound_GetSpeakerConfig(pDirectSound, &speakerConfig);
+            if (SUCCEEDED(hr)) {
+                ma_get_channels_from_speaker_config__dsound(speakerConfig, &channels, NULL);
+            }
+        } else {
+            /* It does not support stereo, which means we are stuck with mono. */
+            channels = 1;
+        }
+
+
+        /*
+        In DirectSound, our native formats are centered around sample rates. All formats are supported, and we're only reporting a single channel
+        count. However, DirectSound can report a range of supported sample rates. We're only going to include standard rates known by miniaudio
+        in order to keep the size of this within reason.
+        */
+        if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
+            /* Multiple sample rates are supported. We'll report in order of our preferred sample rates. */
+            size_t iStandardSampleRate;
+            for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(g_maStandardSampleRatePriorities); iStandardSampleRate += 1) {
+                ma_uint32 sampleRate = g_maStandardSampleRatePriorities[iStandardSampleRate];
+                if (sampleRate >= caps.dwMinSecondarySampleRate && sampleRate <= caps.dwMaxSecondarySampleRate) {
+                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
+                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
+                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = sampleRate;
+                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].flags      = 0;
+                    deviceInfo.nativeDataFormatCount += 1;
+                }
+            }
+        } else {
+            /* Only a single sample rate is supported. */
+            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
+            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
+            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = caps.dwMaxSecondarySampleRate;
+            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].flags      = 0;
+            deviceInfo.nativeDataFormatCount += 1;
+        }
+
+        ma_IDirectSound_Release(pDirectSound);
+    } else {
+        /*
+        Capture. This is a little different to playback due to the way the supported formats are reported. Technically capture
+        devices can support a number of different formats, but for simplicity and consistency with ma_device_init() I'm just
+        reporting the best format.
+        */
+        ma_IDirectSoundCapture* pDirectSoundCapture;
+        WORD channels;
+        WORD bitsPerSample;
+        DWORD sampleRate;
+        ma_bool32 isFormatSupported = MA_TRUE;
+
+        result = ma_context_create_IDirectSoundCapture__dsound(pData->pContext, ma_share_mode_shared, &deviceInfo.id, &pDirectSoundCapture);
+        if (result != MA_SUCCESS) {
+            return MA_TRUE;
+        }
+
+        result = ma_context_get_format_info_for_IDirectSoundCapture__dsound(pData->pContext, pDirectSoundCapture, &channels, &bitsPerSample, &sampleRate);
+        if (result != MA_SUCCESS) {
+            ma_IDirectSoundCapture_Release(pDirectSoundCapture);
+            return MA_TRUE;
+        }
+
+        ma_IDirectSoundCapture_Release(pDirectSoundCapture);
+
+        /* The format is always an integer format and is based on the bits per sample. */
+        if (bitsPerSample == 8) {
+            deviceInfo.nativeDataFormats[0].format = ma_format_u8;
+        } else if (bitsPerSample == 16) {
+            deviceInfo.nativeDataFormats[0].format = ma_format_s16;
+        } else if (bitsPerSample == 24) {
+            deviceInfo.nativeDataFormats[0].format = ma_format_s24;
+        } else if (bitsPerSample == 32) {
+            deviceInfo.nativeDataFormats[0].format = ma_format_s32;
+        } else {
+            deviceInfo.nativeDataFormats[0].format = ma_format_unknown;
+        }
+
+        deviceInfo.nativeDataFormats[0].channels   = channels;
+        deviceInfo.nativeDataFormats[0].sampleRate = sampleRate;
+        deviceInfo.nativeDataFormats[0].flags      = 0;
+        deviceInfo.nativeDataFormatCount = 1;
+    }
 
 
     /* Call the callback function, but make sure we stop enumerating if the callee requested so. */
@@ -25937,7 +26050,7 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
         ma_IDirectSound_Release(pDirectSound);
     } else {
         /*
-        Capture. This is a little different to playback due to the say the supported formats are reported. Technically capture
+        Capture. This is a little different to playback due to the way the supported formats are reported. Technically capture
         devices can support a number of different formats, but for simplicity and consistency with ma_device_init() I'm just
         reporting the best format.
         */
