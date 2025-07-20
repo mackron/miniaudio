@@ -257,31 +257,17 @@ void print_enabled_backends(void)
     printf("\n");
 }
 
-ma_result print_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pDeviceInfo)
+ma_result print_device_info(const ma_device_info* pDeviceInfo)
 {
-    ma_result result;
-    ma_device_info detailedDeviceInfo;
+    ma_uint32 iFormat;
 
     MA_ASSERT(pDeviceInfo != NULL);
 
-#if 1
-    result = ma_context_get_device_info(pContext, deviceType, &pDeviceInfo->id, &detailedDeviceInfo);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-#else
-    detailedDeviceInfo = *pDeviceInfo;
-#endif
-
-    {
-        ma_uint32 iFormat;
-
-        printf("%s\n", pDeviceInfo->name);
-        printf("    Default:      %s\n", (detailedDeviceInfo.isDefault) ? "Yes" : "No");
-        printf("    Format Count: %d\n", detailedDeviceInfo.nativeDataFormatCount);
-        for (iFormat = 0; iFormat < detailedDeviceInfo.nativeDataFormatCount; ++iFormat) {
-            printf("        %s, %d, %d\n", ma_get_format_name(detailedDeviceInfo.nativeDataFormats[iFormat].format), detailedDeviceInfo.nativeDataFormats[iFormat].channels, detailedDeviceInfo.nativeDataFormats[iFormat].sampleRate);
-        }
+    printf("%s\n", pDeviceInfo->name);
+    printf("    Default:      %s\n", (pDeviceInfo->isDefault) ? "Yes" : "No");
+    printf("    Format Count: %d\n", pDeviceInfo->nativeDataFormatCount);
+    for (iFormat = 0; iFormat < pDeviceInfo->nativeDataFormatCount; ++iFormat) {
+        printf("        %s, %d, %d\n", ma_get_format_name(pDeviceInfo->nativeDataFormats[iFormat].format), pDeviceInfo->nativeDataFormats[iFormat].channels, pDeviceInfo->nativeDataFormats[iFormat].sampleRate);
     }
 
     return MA_SUCCESS;
@@ -307,7 +293,7 @@ ma_result enumerate_devices(ma_context* pContext)
     printf("----------------\n");
     for (iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
         printf("%d: ", iDevice);
-        print_device_info(pContext, ma_device_type_playback, &pPlaybackDevices[iDevice]);
+        print_device_info(&pPlaybackDevices[iDevice]);
     }
     printf("\n");
 
@@ -315,7 +301,7 @@ ma_result enumerate_devices(ma_context* pContext)
     printf("---------------\n");
     for (iDevice = 0; iDevice < captureDeviceCount; iDevice += 1) {
         printf("%d: ", iDevice);
-        print_device_info(pContext, ma_device_type_capture, &pCaptureDevices[iDevice]);
+        print_device_info(&pCaptureDevices[iDevice]);
     }
     printf("\n");
 
