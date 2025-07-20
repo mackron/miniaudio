@@ -31114,7 +31114,7 @@ typedef void                     (* ma_pa_threaded_mainloop_unlock_proc       )(
 typedef void                     (* ma_pa_threaded_mainloop_wait_proc         )(ma_pa_threaded_mainloop* m);
 typedef void                     (* ma_pa_threaded_mainloop_signal_proc       )(ma_pa_threaded_mainloop* m, int wait_for_accept);
 typedef void                     (* ma_pa_threaded_mainloop_accept_proc       )(ma_pa_threaded_mainloop* m);
-typedef int                      (* ma_pa_threaded_mainloop_get_retval_proc   )(ma_pa_threaded_mainloop* m);
+typedef int                      (* ma_pa_threaded_mainloop_get_retval_proc   )(const ma_pa_threaded_mainloop* m);
 typedef ma_pa_mainloop_api*      (* ma_pa_threaded_mainloop_get_api_proc      )(ma_pa_threaded_mainloop* m);
 typedef int                      (* ma_pa_threaded_mainloop_in_thread_proc    )(ma_pa_threaded_mainloop* m);
 typedef void                     (* ma_pa_threaded_mainloop_set_name_proc     )(ma_pa_threaded_mainloop* m, const char* name);
@@ -31123,13 +31123,13 @@ typedef void                     (* ma_pa_context_unref_proc                  )(
 typedef int                      (* ma_pa_context_connect_proc                )(ma_pa_context* c, const char* server, ma_pa_context_flags_t flags, const ma_pa_spawn_api* api);
 typedef void                     (* ma_pa_context_disconnect_proc             )(ma_pa_context* c);
 typedef void                     (* ma_pa_context_set_state_callback_proc     )(ma_pa_context* c, ma_pa_context_notify_cb_t cb, void* userdata);
-typedef ma_pa_context_state_t    (* ma_pa_context_get_state_proc              )(ma_pa_context* c);
+typedef ma_pa_context_state_t    (* ma_pa_context_get_state_proc              )(const ma_pa_context* c);
 typedef ma_pa_operation*         (* ma_pa_context_get_sink_info_list_proc     )(ma_pa_context* c, ma_pa_sink_info_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_context_get_source_info_list_proc   )(ma_pa_context* c, ma_pa_source_info_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_context_get_sink_info_by_name_proc  )(ma_pa_context* c, const char* name, ma_pa_sink_info_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_context_get_source_info_by_name_proc)(ma_pa_context* c, const char* name, ma_pa_source_info_cb_t cb, void* userdata);
 typedef void                     (* ma_pa_operation_unref_proc                )(ma_pa_operation* o);
-typedef ma_pa_operation_state_t  (* ma_pa_operation_get_state_proc            )(ma_pa_operation* o);
+typedef ma_pa_operation_state_t  (* ma_pa_operation_get_state_proc            )(const ma_pa_operation* o);
 typedef ma_pa_channel_map*       (* ma_pa_channel_map_init_extend_proc        )(ma_pa_channel_map* m, unsigned channels, ma_pa_channel_map_def_t def);
 typedef int                      (* ma_pa_channel_map_valid_proc              )(const ma_pa_channel_map* m);
 typedef int                      (* ma_pa_channel_map_compatible_proc         )(const ma_pa_channel_map* m, const ma_pa_sample_spec* ss);
@@ -31138,12 +31138,12 @@ typedef void                     (* ma_pa_stream_unref_proc                   )(
 typedef int                      (* ma_pa_stream_connect_playback_proc        )(ma_pa_stream* s, const char* dev, const ma_pa_buffer_attr* attr, ma_pa_stream_flags_t flags, const ma_pa_cvolume* volume, ma_pa_stream* sync_stream);
 typedef int                      (* ma_pa_stream_connect_record_proc          )(ma_pa_stream* s, const char* dev, const ma_pa_buffer_attr* attr, ma_pa_stream_flags_t flags);
 typedef int                      (* ma_pa_stream_disconnect_proc              )(ma_pa_stream* s);
-typedef ma_pa_stream_state_t     (* ma_pa_stream_get_state_proc               )(ma_pa_stream* s);
+typedef ma_pa_stream_state_t     (* ma_pa_stream_get_state_proc               )(const ma_pa_stream* s);
 typedef const ma_pa_sample_spec* (* ma_pa_stream_get_sample_spec_proc         )(ma_pa_stream* s);
 typedef const ma_pa_channel_map* (* ma_pa_stream_get_channel_map_proc         )(ma_pa_stream* s);
 typedef const ma_pa_buffer_attr* (* ma_pa_stream_get_buffer_attr_proc         )(ma_pa_stream* s);
 typedef ma_pa_operation*         (* ma_pa_stream_set_buffer_attr_proc         )(ma_pa_stream* s, const ma_pa_buffer_attr* attr, ma_pa_stream_success_cb_t cb, void* userdata);
-typedef const char*              (* ma_pa_stream_get_device_name_proc         )(ma_pa_stream* s);
+typedef const char*              (* ma_pa_stream_get_device_name_proc         )(const ma_pa_stream* s);
 typedef void                     (* ma_pa_stream_set_write_callback_proc      )(ma_pa_stream* s, ma_pa_stream_request_cb_t cb, void* userdata);
 typedef void                     (* ma_pa_stream_set_read_callback_proc       )(ma_pa_stream* s, ma_pa_stream_request_cb_t cb, void* userdata);
 typedef void                     (* ma_pa_stream_set_suspended_callback_proc  )(ma_pa_stream* s, ma_pa_stream_notify_cb_t cb, void* userdata);
@@ -31151,15 +31151,15 @@ typedef void                     (* ma_pa_stream_set_moved_callback_proc      )(
 typedef int                      (* ma_pa_stream_is_suspended_proc            )(const ma_pa_stream* s);
 typedef ma_pa_operation*         (* ma_pa_stream_flush_proc                   )(ma_pa_stream* s, ma_pa_stream_success_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_stream_drain_proc                   )(ma_pa_stream* s, ma_pa_stream_success_cb_t cb, void* userdata);
-typedef int                      (* ma_pa_stream_is_corked_proc               )(ma_pa_stream* s);
+typedef int                      (* ma_pa_stream_is_corked_proc               )(const ma_pa_stream* s);
 typedef ma_pa_operation*         (* ma_pa_stream_cork_proc                    )(ma_pa_stream* s, int b, ma_pa_stream_success_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_stream_trigger_proc                 )(ma_pa_stream* s, ma_pa_stream_success_cb_t cb, void* userdata);
 typedef int                      (* ma_pa_stream_begin_write_proc             )(ma_pa_stream* s, void** data, size_t* nbytes);
 typedef int                      (* ma_pa_stream_write_proc                   )(ma_pa_stream* s, const void* data, size_t nbytes, ma_pa_free_cb_t free_cb, int64_t offset, ma_pa_seek_mode_t seek);
 typedef int                      (* ma_pa_stream_peek_proc                    )(ma_pa_stream* s, const void** data, size_t* nbytes);
 typedef int                      (* ma_pa_stream_drop_proc                    )(ma_pa_stream* s);
-typedef size_t                   (* ma_pa_stream_writable_size_proc           )(ma_pa_stream* s);
-typedef size_t                   (* ma_pa_stream_readable_size_proc           )(ma_pa_stream* s);
+typedef size_t                   (* ma_pa_stream_writable_size_proc           )(const ma_pa_stream* s);
+typedef size_t                   (* ma_pa_stream_readable_size_proc           )(const ma_pa_stream* s);
 
 
 typedef struct ma_context_state_pulseaudio
@@ -31547,7 +31547,7 @@ static ma_result ma_init_pa_mainloop_and_pa_context__pulseaudio(ma_context* pCon
     }
 
     /* Now we need to connect to the context. Everything is asynchronous so we need to wait for it to connect before returning. */
-    result = ma_result_from_pulseaudio(pContextStatePulseAudio->pa_context_connect(pPulseContext, pServerName, (tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
+    result = ma_result_from_pulseaudio(pContextStatePulseAudio->pa_context_connect(pPulseContext, pServerName, (tryAutoSpawn) ? MA_PA_CONTEXT_NOFLAGS : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
     if (result != MA_SUCCESS) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.");
         pContextStatePulseAudio->pa_mainloop_free(pMainLoop);
@@ -31802,6 +31802,8 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
     }
     #else
     {
+        (void)pLog;
+
         /* This strange assignment system is just for type safety. */
         ma_pa_mainloop_new_proc                    _pa_mainloop_new                    = pa_mainloop_new;
         ma_pa_mainloop_free_proc                   _pa_mainloop_free                   = pa_mainloop_free;
@@ -32429,7 +32431,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
     const ma_pa_buffer_attr* pActualAttr = NULL;
     const ma_pa_channel_map* pActualChannelMap = NULL;
     ma_uint32 iChannel;
-    ma_pa_stream_flags_t streamFlags;
+    int streamFlags;
 
     if (pDeviceConfigPulseAudio == NULL) {
         defaultConfigPulseAudio = ma_device_config_pulseaudio_init();
@@ -32493,7 +32495,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         }
 
         /* Use a default channel map. */
-        pContextStatePulseAudio->pa_channel_map_init_extend(&cmap, ss.channels, pDeviceConfigPulseAudio->channelMap);
+        pContextStatePulseAudio->pa_channel_map_init_extend(&cmap, ss.channels, (ma_pa_channel_map_def_t)pDeviceConfigPulseAudio->channelMap);
 
         /* Use the requested sample rate if one was specified. */
         if (pDescriptorCapture->sampleRate != 0) {
@@ -32550,7 +32552,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
 
-        error = pContextStatePulseAudio->pa_stream_connect_record(pDeviceStatePulseAudio->capture.pStream, devCapture, &attr, streamFlags);
+        error = pContextStatePulseAudio->pa_stream_connect_record(pDeviceStatePulseAudio->capture.pStream, devCapture, &attr, (ma_pa_stream_flags_t)streamFlags);
         if (error != MA_PA_OK) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio capture stream.");
             result = ma_result_from_pulseaudio(error);
@@ -32653,7 +32655,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         }
 
         /* Use a default channel map. */
-        pContextStatePulseAudio->pa_channel_map_init_extend(&cmap, ss.channels, pDeviceConfigPulseAudio->channelMap);
+        pContextStatePulseAudio->pa_channel_map_init_extend(&cmap, ss.channels, (ma_pa_channel_map_def_t)pDeviceConfigPulseAudio->channelMap);
 
 
         /* Use the requested sample rate if one was specified. */
@@ -32715,7 +32717,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
 
-        error = pContextStatePulseAudio->pa_stream_connect_playback(pDeviceStatePulseAudio->playback.pStream, devPlayback, &attr, streamFlags, NULL, NULL);
+        error = pContextStatePulseAudio->pa_stream_connect_playback(pDeviceStatePulseAudio->playback.pStream, devPlayback, &attr, (ma_pa_stream_flags_t)streamFlags, NULL, NULL);
         if (error != MA_PA_OK) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio playback stream.");
             result = ma_result_from_pulseaudio(error);
@@ -33033,6 +33035,7 @@ typedef JackProcessCallback         ma_JackProcessCallback;
 typedef JackBufferSizeCallback      ma_JackBufferSizeCallback;
 typedef JackShutdownCallback        ma_JackShutdownCallback;
 #define MA_JACK_DEFAULT_AUDIO_TYPE  JACK_DEFAULT_AUDIO_TYPE
+#define ma_JackNullOption           JackNullOption
 #define ma_JackNoStartServer        JackNoStartServer
 #define ma_JackPortIsInput          JackPortIsInput
 #define ma_JackPortIsOutput         JackPortIsOutput
@@ -33047,6 +33050,7 @@ typedef int  (* ma_JackProcessCallback)   (ma_jack_nframes_t nframes, void* arg)
 typedef int  (* ma_JackBufferSizeCallback)(ma_jack_nframes_t nframes, void* arg);
 typedef void (* ma_JackShutdownCallback)  (void* arg);
 #define MA_JACK_DEFAULT_AUDIO_TYPE "32 bit float mono audio"
+#define ma_JackNullOption          0
 #define ma_JackNoStartServer       1
 #define ma_JackPortIsInput         1
 #define ma_JackPortIsOutput        2
@@ -33123,7 +33127,7 @@ static ma_result ma_context_open_client__jack(ma_context_state_jack* pContextSta
     maxClientNameSize = pContextStateJACK->jack_client_name_size(); /* Includes null terminator. */
     ma_strncpy_s(clientName, ma_min(sizeof(clientName), maxClientNameSize), (pContextStateJACK->pClientName != NULL) ? pContextStateJACK->pClientName : "miniaudio", (size_t)-1);
 
-    pClient = pContextStateJACK->jack_client_open(clientName, (pContextStateJACK->tryStartServer) ? 0 : ma_JackNoStartServer, &status, NULL);
+    pClient = pContextStateJACK->jack_client_open(clientName, (pContextStateJACK->tryStartServer) ? ma_JackNullOption : ma_JackNoStartServer, &status, NULL);
     if (pClient == NULL) {
         return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
@@ -33214,6 +33218,8 @@ static ma_result ma_context_init__jack(ma_context* pContext, const void* pContex
     }
     #else
     {
+        (void)pLog;
+
         /*
         This strange assignment system is here just to ensure type safety of miniaudio's function pointer
         types. If anything differs slightly the compiler should throw a warning.
