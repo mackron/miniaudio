@@ -28924,13 +28924,13 @@ static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_context_stat
         /* May end up needing to make small adjustments to the ID, so make a copy. */
         ma_device_id deviceID = *pDeviceID;
         int resultALSA = -ENODEV;
+        char hwid[256];
 
         if (deviceID.alsa[0] != ':') {
             /* The ID is not in ":0,0" format. Use the ID exactly as-is. */
-            resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, deviceID.alsa, stream, openMode);
+            ma_strcpy_s(hwid, sizeof(hwid), deviceID.alsa);
+            resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, hwid, stream, openMode);
         } else {
-            char hwid[256];
-
             /* The ID is in ":0,0" format. Try different plugins depending on the shared mode. */
             if (deviceID.alsa[1] == '\0') {
                 deviceID.alsa[0] = '\0';  /* An ID of ":" should be converted to "". */
@@ -28958,7 +28958,7 @@ static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_context_stat
         }
 
         if (resultALSA < 0) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_open() failed.");
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_open() failed when trying to open \"%s\".", hwid);
             return ma_result_from_errno(-resultALSA);
         }
     }
