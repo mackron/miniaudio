@@ -312,7 +312,7 @@ void on_log(void* pUserData, ma_uint32 logLevel, const char* message)
 {
     (void)pUserData;
 
-    printf("%s: %s", ma_log_level_to_string(logLevel), message);
+    printf("%s: %s\n", ma_log_level_to_string(logLevel), message);
 }
 
 void on_notification(const ma_device_notification* pNotification)
