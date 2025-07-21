@@ -7657,7 +7657,6 @@ struct ma_device_backend_vtable
     ma_result (* onContextInit            )(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState);
     void      (* onContextUninit          )(ma_context* pContext);
     ma_result (* onContextEnumerateDevices)(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData);
-    ma_result (* onContextGetDeviceInfo   )(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
     ma_result (* onDeviceInit             )(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState);
     void      (* onDeviceUninit           )(ma_device* pDevice);
     ma_result (* onDeviceStart            )(ma_device* pDevice);
@@ -21103,7 +21102,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
     ma_context_init__null,
     ma_context_uninit__null,
     ma_context_enumerate_devices__null,
-    NULL,
     ma_device_init__null,
     ma_device_uninit__null,
     ma_device_start__null,
@@ -25049,7 +25047,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WASAPI =
     ma_context_init__wasapi,
     ma_context_uninit__wasapi,
     ma_context_enumerate_devices__wasapi,
-    NULL,
     ma_device_init__wasapi,
     ma_device_uninit__wasapi,
     ma_device_start__wasapi,
@@ -26837,7 +26834,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_DSound =
     ma_context_init__dsound,
     ma_context_uninit__dsound,
     ma_context_enumerate_devices__dsound,
-    NULL,
     ma_device_init__dsound,
     ma_device_uninit__dsound,
     NULL,   /* onDeviceStart. Started in onDeviceLoop. */
@@ -28006,7 +28002,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
     ma_context_init__winmm,
     ma_context_uninit__winmm,
     ma_context_enumerate_devices__winmm,
-    NULL,
     ma_device_init__winmm,
     ma_device_uninit__winmm,
     ma_device_start__winmm,
@@ -30328,7 +30323,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_ALSA =
     ma_context_init__alsa,
     ma_context_uninit__alsa,
     ma_context_enumerate_devices__alsa,
-    NULL,
     ma_device_init__alsa,
     ma_device_uninit__alsa,
     ma_device_start__alsa,
@@ -32873,7 +32867,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PulseAudio =
     ma_context_init__pulseaudio,
     ma_context_uninit__pulseaudio,
     ma_context_enumerate_devices__pulseaudio,
-    NULL,
     ma_device_init__pulseaudio,
     ma_device_uninit__pulseaudio,
     ma_device_start__pulseaudio,
@@ -33645,7 +33638,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
     ma_context_init__jack,
     ma_context_uninit__jack,
     ma_context_enumerate_devices__jack,
-    NULL,
     ma_device_init__jack,
     ma_device_uninit__jack,
     ma_device_start__jack,
@@ -36971,7 +36963,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
     ma_context_init__coreaudio,
     ma_context_uninit__coreaudio,
     ma_context_enumerate_devices__coreaudio,
-    NULL,
     ma_device_init__coreaudio,
     ma_device_uninit__coreaudio,
     ma_device_start__coreaudio,
@@ -37904,7 +37895,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
     ma_context_init__sndio,
     ma_context_uninit__sndio,
     ma_context_enumerate_devices__sndio,
-    NULL,
     ma_device_init__sndio,
     ma_device_uninit__sndio,
     ma_device_start__sndio,
@@ -38805,7 +38795,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Audio4 =
     ma_context_init__audio4,
     ma_context_uninit__audio4,
     ma_context_enumerate_devices__audio4,
-    NULL,
     ma_device_init__audio4,
     ma_device_uninit__audio4,
     ma_device_start__audio4,
@@ -39675,7 +39664,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OSS =
     ma_context_init__oss,
     ma_context_uninit__oss,
     ma_context_enumerate_devices__oss,
-    NULL,
     ma_device_init__oss,
     ma_device_uninit__oss,
     ma_device_start__oss,
@@ -40880,7 +40868,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
     ma_context_init__aaudio,
     ma_context_uninit__aaudio,
     ma_context_enumerate_devices__aaudio,
-    NULL,
     ma_device_init__aaudio,
     ma_device_uninit__aaudio,
     ma_device_start__aaudio,
@@ -42145,7 +42132,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
     ma_context_init__opensl,
     ma_context_uninit__opensl,
     ma_context_enumerate_devices__opensl,
-    NULL,
     ma_device_init__opensl,
     ma_device_uninit__opensl,
     ma_device_start__opensl,
@@ -43161,7 +43147,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WebAudio =
     ma_context_init__webaudio,
     ma_context_uninit__webaudio,
     ma_context_enumerate_devices__webaudio,
-    NULL,
     ma_device_init__webaudio,
     ma_device_uninit__webaudio,
     ma_device_start__webaudio,
@@ -44321,55 +44306,30 @@ static ma_device_enumeration_result ma_context_get_device_info_enum_callback(ma_
 MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_result result;
-    ma_device_info deviceInfo;
+    ma_context_get_device_info_enum_callback_data data;
 
     /* NOTE: Do not clear pDeviceInfo on entry. The reason is the pDeviceID may actually point to pDeviceInfo->id which will break things. */
     if (pContext == NULL || pDeviceInfo == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    MA_ZERO_OBJECT(&deviceInfo);
+    /* Device info retrieval can be implemented via device enumeration. */
+    MA_ZERO_OBJECT(&data);
+    data.deviceType  = deviceType;
+    data.pDeviceID   = pDeviceID;
+    data.pDeviceInfo = pDeviceInfo;
 
-    if (pContext->pVTable->onContextGetDeviceInfo != NULL) {
-        /* Help the backend out by copying over the device ID if we have one. */
-        if (pDeviceID != NULL) {
-            MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
-        }
-
-        if (pContext->pVTable->onContextGetDeviceInfo == NULL) {
-            return MA_INVALID_OPERATION;
-        }
-
-        ma_mutex_lock(&pContext->deviceInfoLock);
-        {
-            result = pContext->pVTable->onContextGetDeviceInfo(pContext, deviceType, pDeviceID, &deviceInfo);
-        }
-        ma_mutex_unlock(&pContext->deviceInfoLock);
-
-        *pDeviceInfo = deviceInfo;
+    /* We just enumerate over devices until we find one matching our ID. */
+    result = ma_context_enumerate_devices(pContext, ma_context_get_device_info_enum_callback, &data);
+    if (result != MA_SUCCESS) {
         return result;
-    } else {
-        /* Device info retrieval can be implemented via device enumeration. */
-        ma_result result;
-        ma_context_get_device_info_enum_callback_data data;
-
-        MA_ZERO_OBJECT(&data);
-        data.deviceType  = deviceType;
-        data.pDeviceID   = pDeviceID;
-        data.pDeviceInfo = pDeviceInfo;
-
-        /* We just enumerate over devices until we find one matching our ID. */
-        result = ma_context_enumerate_devices(pContext, ma_context_get_device_info_enum_callback, &data);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        if (data.foundDevice == MA_FALSE) {
-            return MA_NO_DEVICE;
-        }
-
-        return MA_SUCCESS;
     }
+
+    if (data.foundDevice == MA_FALSE) {
+        return MA_NO_DEVICE;
+    }
+
+    return MA_SUCCESS;
 }
 
 

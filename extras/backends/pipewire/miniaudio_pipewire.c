@@ -830,7 +830,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
     ma_context_init__pipewire,
     ma_context_uninit__pipewire,
     ma_context_enumerate_devices__pipewire,
-    NULL,
     ma_device_init__pipewire,
     ma_device_uninit__pipewire,
     ma_device_start__pipewire,

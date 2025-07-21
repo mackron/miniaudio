@@ -570,7 +570,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     ma_context_init__sdl,
     ma_context_uninit__sdl,
     ma_context_enumerate_devices__sdl,
-    NULL,
     ma_device_init__sdl,
     ma_device_uninit__sdl,
     ma_device_start__sdl,
