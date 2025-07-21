@@ -450,10 +450,12 @@ endif()
 set(COMMON_LINK_LIBRARIES)
 
 if (UNIX)
-    # Not all platforms actually use a separate "dl" library, notably NetBSD and OpenBSD.
-    find_library(LIB_DL "dl")
-    if(LIB_DL)
-        list(APPEND COMMON_LINK_LIBRARIES dl)  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+    if(NOT MINIAUDIO_NO_RUNTIME_LINKING)
+        # Not all platforms actually use a separate "dl" library, notably NetBSD and OpenBSD.
+        find_library(LIB_DL "dl")
+        if(LIB_DL)
+            list(APPEND COMMON_LINK_LIBRARIES dl)  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+        endif()
     endif()
     
     list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
