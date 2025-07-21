@@ -70,10 +70,10 @@ MA_ENABLE_ONLY_SPECIFIC_BACKENDS) and it's supported at compile time (MA_SUPPORT
         #include <SDL2/SDL.h>
     #endif
 
-    typedef SDL_AudioCallback   MA_SDL_AudioCallback;
-    typedef SDL_AudioSpec       MA_SDL_AudioSpec;
-    typedef SDL_AudioFormat     MA_SDL_AudioFormat;
-    typedef SDL_AudioDeviceID   MA_SDL_AudioDeviceID;
+    typedef SDL_AudioCallback MA_SDL_AudioCallback;
+    typedef SDL_AudioSpec     MA_SDL_AudioSpec;
+    typedef SDL_AudioFormat   MA_SDL_AudioFormat;
+    typedef SDL_AudioDeviceID MA_SDL_AudioDeviceID;
 #else
     typedef void (* MA_SDL_AudioCallback)(void* userdata, ma_uint8* stream, int len);
     typedef ma_uint16 MA_SDL_AudioFormat;
@@ -93,24 +93,28 @@ MA_ENABLE_ONLY_SPECIFIC_BACKENDS) and it's supported at compile time (MA_SUPPORT
     } MA_SDL_AudioSpec;
 #endif
 
-typedef int                  (* MA_PFN_SDL_InitSubSystem)(ma_uint32 flags);
-typedef void                 (* MA_PFN_SDL_QuitSubSystem)(ma_uint32 flags);
-typedef int                  (* MA_PFN_SDL_GetNumAudioDevices)(int iscapture);
-typedef const char*          (* MA_PFN_SDL_GetAudioDeviceName)(int index, int iscapture);
-typedef void                 (* MA_PFN_SDL_CloseAudioDevice)(MA_SDL_AudioDeviceID dev);
-typedef MA_SDL_AudioDeviceID (* MA_PFN_SDL_OpenAudioDevice)(const char* device, int iscapture, const MA_SDL_AudioSpec* desired, MA_SDL_AudioSpec* obtained, int allowed_changes);
-typedef void                 (* MA_PFN_SDL_PauseAudioDevice)(MA_SDL_AudioDeviceID dev, int pause_on);
+typedef int                  (* MA_PFN_SDL_InitSubSystem      )(ma_uint32 flags);
+typedef void                 (* MA_PFN_SDL_QuitSubSystem      )(ma_uint32 flags);
+typedef int                  (* MA_PFN_SDL_GetDefaultAudioInfo)(char** name, MA_SDL_AudioSpec* spec, int iscapture);
+typedef int                  (* MA_PFN_SDL_GetNumAudioDevices )(int iscapture);
+typedef const char*          (* MA_PFN_SDL_GetAudioDeviceName )(int index, int iscapture);
+typedef int                  (* MA_PFN_SDL_GetAudioDeviceSpec )(int index, int iscapture, MA_SDL_AudioSpec* spec);
+typedef void                 (* MA_PFN_SDL_CloseAudioDevice   )(MA_SDL_AudioDeviceID dev);
+typedef MA_SDL_AudioDeviceID (* MA_PFN_SDL_OpenAudioDevice    )(const char* device, int iscapture, const MA_SDL_AudioSpec* desired, MA_SDL_AudioSpec* obtained, int allowed_changes);
+typedef void                 (* MA_PFN_SDL_PauseAudioDevice   )(MA_SDL_AudioDeviceID dev, int pause_on);
 
 typedef struct
 {
     ma_handle hSDL; /* A handle to the SDL2 shared object. We dynamically load function pointers at runtime so we can avoid linking. */
-    MA_PFN_SDL_InitSubSystem      SDL_InitSubSystem;
-    MA_PFN_SDL_QuitSubSystem      SDL_QuitSubSystem;
-    MA_PFN_SDL_GetNumAudioDevices SDL_GetNumAudioDevices;
-    MA_PFN_SDL_GetAudioDeviceName SDL_GetAudioDeviceName;
-    MA_PFN_SDL_CloseAudioDevice   SDL_CloseAudioDevice;
-    MA_PFN_SDL_OpenAudioDevice    SDL_OpenAudioDevice;
-    MA_PFN_SDL_PauseAudioDevice   SDL_PauseAudioDevice;
+    MA_PFN_SDL_InitSubSystem       SDL_InitSubSystem;
+    MA_PFN_SDL_QuitSubSystem       SDL_QuitSubSystem;
+    MA_PFN_SDL_GetDefaultAudioInfo SDL_GetDefaultAudioInfo;
+    MA_PFN_SDL_GetNumAudioDevices  SDL_GetNumAudioDevices;
+    MA_PFN_SDL_GetAudioDeviceName  SDL_GetAudioDeviceName;
+    MA_PFN_SDL_GetAudioDeviceSpec  SDL_GetAudioDeviceSpec;
+    MA_PFN_SDL_CloseAudioDevice    SDL_CloseAudioDevice;
+    MA_PFN_SDL_OpenAudioDevice     SDL_OpenAudioDevice;
+    MA_PFN_SDL_PauseAudioDevice    SDL_PauseAudioDevice;
 } ma_context_state_sdl;
 
 typedef struct
@@ -219,23 +223,27 @@ static ma_result ma_context_init__sdl(ma_context* pContext, const void* pContext
         }
 
         /* Now that we have the handle to the shared object we can go ahead and load some function pointers. */
-        pContextStateSDL->SDL_InitSubSystem      = (MA_PFN_SDL_InitSubSystem     )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_InitSubSystem");
-        pContextStateSDL->SDL_QuitSubSystem      = (MA_PFN_SDL_QuitSubSystem     )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_QuitSubSystem");
-        pContextStateSDL->SDL_GetNumAudioDevices = (MA_PFN_SDL_GetNumAudioDevices)ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetNumAudioDevices");
-        pContextStateSDL->SDL_GetAudioDeviceName = (MA_PFN_SDL_GetAudioDeviceName)ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetAudioDeviceName");
-        pContextStateSDL->SDL_CloseAudioDevice   = (MA_PFN_SDL_CloseAudioDevice  )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_CloseAudioDevice");
-        pContextStateSDL->SDL_OpenAudioDevice    = (MA_PFN_SDL_OpenAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_OpenAudioDevice");
-        pContextStateSDL->SDL_PauseAudioDevice   = (MA_PFN_SDL_PauseAudioDevice  )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_PauseAudioDevice");
+        pContextStateSDL->SDL_InitSubSystem       = (MA_PFN_SDL_InitSubSystem      )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_InitSubSystem");
+        pContextStateSDL->SDL_QuitSubSystem       = (MA_PFN_SDL_QuitSubSystem      )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_QuitSubSystem");
+        pContextStateSDL->SDL_GetDefaultAudioInfo = (MA_PFN_SDL_GetDefaultAudioInfo)ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetDefaultAudioInfo");
+        pContextStateSDL->SDL_GetNumAudioDevices  = (MA_PFN_SDL_GetNumAudioDevices )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetNumAudioDevices");
+        pContextStateSDL->SDL_GetAudioDeviceName  = (MA_PFN_SDL_GetAudioDeviceName )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetAudioDeviceName");
+        pContextStateSDL->SDL_GetAudioDeviceSpec  = (MA_PFN_SDL_GetAudioDeviceSpec )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetAudioDeviceSpec");
+        pContextStateSDL->SDL_CloseAudioDevice    = (MA_PFN_SDL_CloseAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_CloseAudioDevice");
+        pContextStateSDL->SDL_OpenAudioDevice     = (MA_PFN_SDL_OpenAudioDevice    )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_OpenAudioDevice");
+        pContextStateSDL->SDL_PauseAudioDevice    = (MA_PFN_SDL_PauseAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_PauseAudioDevice");
     }
     #else
     {
-        pContextStateSDL->SDL_InitSubSystem      = SDL_InitSubSystem;
-        pContextStateSDL->SDL_QuitSubSystem      = SDL_QuitSubSystem;
-        pContextStateSDL->SDL_GetNumAudioDevices = SDL_GetNumAudioDevices;
-        pContextStateSDL->SDL_GetAudioDeviceName = SDL_GetAudioDeviceName;
-        pContextStateSDL->SDL_CloseAudioDevice   = SDL_CloseAudioDevice;
-        pContextStateSDL->SDL_OpenAudioDevice    = SDL_OpenAudioDevice;
-        pContextStateSDL->SDL_PauseAudioDevice   = SDL_PauseAudioDevice;
+        pContextStateSDL->SDL_InitSubSystem       = SDL_InitSubSystem;
+        pContextStateSDL->SDL_QuitSubSystem       = SDL_QuitSubSystem;
+        pContextStateSDL->SDL_GetDefaultAudioInfo = SDL_GetDefaultAudioInfo;
+        pContextStateSDL->SDL_GetNumAudioDevices  = SDL_GetNumAudioDevices;
+        pContextStateSDL->SDL_GetAudioDeviceName  = SDL_GetAudioDeviceName;
+        pContextStateSDL->SDL_GetAudioDeviceSpec  = SDL_GetAudioDeviceSpec;
+        pContextStateSDL->SDL_CloseAudioDevice    = SDL_CloseAudioDevice;
+        pContextStateSDL->SDL_OpenAudioDevice     = SDL_OpenAudioDevice;
+        pContextStateSDL->SDL_PauseAudioDevice    = SDL_PauseAudioDevice;
     }
     #endif  /* MA_NO_RUNTIME_LINKING */
 
@@ -266,6 +274,21 @@ static void ma_context_uninit__sdl(ma_context* pContext)
     ma_free(pContextStateSDL, ma_context_get_allocation_callbacks(pContext));
 }
 
+static void ma_add_native_format_from_AudioSpec__sdl(ma_device_info* pDeviceInfo, const MA_SDL_AudioSpec* pAudioSpec)
+{
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = ma_format_from_sdl(pAudioSpec->format);
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = pAudioSpec->channels;
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = pAudioSpec->freq;
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
+
+    /* If miniaudio does not support the format, just use f32 as the native format (SDL will do the necessary conversions for us). */
+    if (pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format == ma_format_unknown) {
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format = ma_format_f32;
+    }
+
+    pDeviceInfo->nativeDataFormatCount = 1;
+}
+
 static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
 {
     ma_context_state_sdl* pContextStateSDL = ma_context_get_backend_state__sdl(pContext);
@@ -280,13 +303,24 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
         int deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(0);
         for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
             ma_device_info deviceInfo;
+            MA_SDL_AudioSpec audioSpec;
+
             memset(&deviceInfo, 0, sizeof(deviceInfo));
 
+            /* Default. */
+            if (iDevice == 0) { /* <-- Is this correct? Should we instead compare against the name from SDL_GetDefaultAudioInfo()? */
+                deviceInfo.isDefault = MA_TRUE;
+            }
+
+            /* ID. */
             deviceInfo.id.custom.i = iDevice;
+
+            /* Name. */
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0), (size_t)-1);
 
-            if (iDevice == 0) {
-                deviceInfo.isDefault = MA_TRUE;
+            /* Data Format. */
+            if (pContextStateSDL->SDL_GetAudioDeviceSpec(iDevice, 0, &audioSpec) == 0) {
+                ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &audioSpec);
             }
 
             cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
@@ -302,13 +336,24 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
         int deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(1);
         for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
             ma_device_info deviceInfo;
+            MA_SDL_AudioSpec audioSpec;
+
             memset(&deviceInfo, 0, sizeof(deviceInfo));
 
+            /* Default. */
+            if (iDevice == 0) { /* <-- Is this correct? Should we instead compare against the name from SDL_GetDefaultAudioInfo()? */
+                deviceInfo.isDefault = MA_TRUE;
+            }
+
+            /* ID. */
             deviceInfo.id.custom.i = iDevice;
+
+            /* Name. */
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1), (size_t)-1);
 
-            if (iDevice == 0) {
-                deviceInfo.isDefault = MA_TRUE;
+            /* Data Format. */
+            if (pContextStateSDL->SDL_GetAudioDeviceSpec(iDevice, 1, &audioSpec) == 0) {
+                ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &audioSpec);
             }
 
             cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
@@ -318,91 +363,6 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             }
         }
     }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    ma_context_state_sdl* pContextStateSDL = ma_context_get_backend_state__sdl(pContext);
-
-#if !defined(__EMSCRIPTEN__)
-    MA_SDL_AudioSpec desiredSpec;
-    MA_SDL_AudioSpec obtainedSpec;
-    MA_SDL_AudioDeviceID tempDeviceID;
-    const char* pDeviceName;
-#endif
-
-    if (pDeviceID == NULL) {
-        if (deviceType == ma_device_type_playback) {
-            pDeviceInfo->id.custom.i = 0;
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "Default Playback Device", (size_t)-1);
-        } else {
-            pDeviceInfo->id.custom.i = 0;
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "Default Capture Device", (size_t)-1);
-        }
-    } else {
-        pDeviceInfo->id.custom.i = pDeviceID->custom.i;
-        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), pContextStateSDL->SDL_GetAudioDeviceName(pDeviceID->custom.i, (deviceType == ma_device_type_playback) ? 0 : 1), (size_t)-1);
-    }
-
-    if (pDeviceInfo->id.custom.i == 0) {
-        pDeviceInfo->isDefault = MA_TRUE;
-    }
-
-    /*
-    To get an accurate idea on the backend's native format we need to open the device. Not ideal, but it's the only way. An
-    alternative to this is to report all channel counts, sample rates and formats, but that doesn't offer a good representation
-    of the device's _actual_ ideal format.
-    
-    Note: With Emscripten, it looks like non-zero values need to be specified for desiredSpec. Whatever is specified in
-    desiredSpec will be used by SDL since it uses it just does it's own format conversion internally. Therefore, from what
-    I can tell, there's no real way to know the device's actual format which means I'm just going to fall back to the full
-    range of channels and sample rates on Emscripten builds.
-    */
-#if defined(__EMSCRIPTEN__)
-    /* Good practice to prioritize the best format first so that the application can use the first data format as their chosen one if desired. */
-    pDeviceInfo->nativeDataFormatCount = 3;
-    pDeviceInfo->nativeDataFormats[0].format     = ma_format_s16;
-    pDeviceInfo->nativeDataFormats[0].channels   = 0;   /* All channel counts supported. */
-    pDeviceInfo->nativeDataFormats[0].sampleRate = 0;   /* All sample rates supported. */
-    pDeviceInfo->nativeDataFormats[0].flags      = 0;
-    pDeviceInfo->nativeDataFormats[1].format     = ma_format_s32;
-    pDeviceInfo->nativeDataFormats[1].channels   = 0;   /* All channel counts supported. */
-    pDeviceInfo->nativeDataFormats[1].sampleRate = 0;   /* All sample rates supported. */
-    pDeviceInfo->nativeDataFormats[1].flags      = 0;
-    pDeviceInfo->nativeDataFormats[2].format     = ma_format_u8;
-    pDeviceInfo->nativeDataFormats[2].channels   = 0;   /* All channel counts supported. */
-    pDeviceInfo->nativeDataFormats[2].sampleRate = 0;   /* All sample rates supported. */
-    pDeviceInfo->nativeDataFormats[2].flags      = 0;
-#else
-    memset(&desiredSpec, 0, sizeof(desiredSpec));
-
-    pDeviceName = NULL;
-    if (pDeviceID != NULL) {
-        pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(pDeviceID->custom.i, (deviceType == ma_device_type_playback) ? 0 : 1);
-    }
-
-    tempDeviceID = pContextStateSDL->SDL_OpenAudioDevice(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &desiredSpec, &obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
-    if (tempDeviceID == 0) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "Failed to open SDL device.");
-        return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-    }
-
-    pContextStateSDL->SDL_CloseAudioDevice(tempDeviceID);
-
-    /* Only reporting a single native data format. It'll be whatever SDL decides is the best. */
-    pDeviceInfo->nativeDataFormatCount = 1;
-    pDeviceInfo->nativeDataFormats[0].format     = ma_format_from_sdl(obtainedSpec.format);
-    pDeviceInfo->nativeDataFormats[0].channels   = obtainedSpec.channels;
-    pDeviceInfo->nativeDataFormats[0].sampleRate = obtainedSpec.freq;
-    pDeviceInfo->nativeDataFormats[0].flags      = 0;
-
-    /* If miniaudio does not support the format, just use f32 as the native format (SDL will do the necessary conversions for us). */
-    if (pDeviceInfo->nativeDataFormats[0].format == ma_format_unknown) {
-        pDeviceInfo->nativeDataFormats[0].format = ma_format_f32;
-    }
-#endif  /* __EMSCRIPTEN__ */
 
     return MA_SUCCESS;
 }
@@ -472,7 +432,7 @@ static ma_result ma_device_init_internal__sdl(ma_device* pDevice, ma_context_sta
     desiredSpec.channels = (ma_uint8)pDescriptor->channels;
     desiredSpec.samples  = (ma_uint16)pDescriptor->periodSizeInFrames;
     desiredSpec.callback = (deviceType == ma_device_type_capture) ? ma_audio_callback_capture__sdl : ma_audio_callback_playback__sdl;
-    desiredSpec.userdata = pDeviceStateSDL;
+    desiredSpec.userdata = pDevice;
 
     /* We'll fall back to f32 if we don't have an appropriate mapping between SDL and miniaudio. */
     if (desiredSpec.format == 0) {
@@ -613,7 +573,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     ma_context_init__sdl,
     ma_context_uninit__sdl,
     ma_context_enumerate_devices__sdl,
-    ma_context_get_device_info__sdl,
+    NULL,
     ma_device_init__sdl,
     ma_device_uninit__sdl,
     ma_device_start__sdl,
