@@ -7006,7 +7006,6 @@ typedef struct ma_device_config_aaudio
     ma_aaudio_allowed_capture_policy allowedCapturePolicy;
     ma_aaudio_performance_mode performanceMode;
     ma_bool32 noAutoStartAfterReroute;
-    ma_bool32 enableCompatibilityWorkarounds;
     ma_bool32 allowSetBufferCapacity;
 } ma_device_config_aaudio;
 
@@ -7054,7 +7053,6 @@ typedef struct ma_device_config_opensl
 {
     ma_opensl_stream_type streamType;
     ma_opensl_recording_preset recordingPreset;
-    ma_bool32 enableCompatibilityWorkarounds;
 } ma_device_config_opensl;
 
 MA_API ma_device_config_opensl ma_device_config_opensl_init(void);
@@ -40244,7 +40242,7 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         can still be set if it's explicitly requested via the aaudio.allowSetBufferCapacity variable in the
         device config.
         */
-        if ((!pDeviceConfigAAudio->enableCompatibilityWorkarounds || ma_android_sdk_version() > 30) && pDeviceConfigAAudio->allowSetBufferCapacity) {
+        if (pDeviceConfigAAudio->allowSetBufferCapacity) {
             /*
             AAudio is annoying when it comes to its buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
