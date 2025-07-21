@@ -484,7 +484,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         /* Now update the PipeWire buffer properties. */
         podBuilder = SPA_POD_BUILDER_INIT(podBuilderBuffer, sizeof(podBuilderBuffer));
 
-        pBufferParameters[0] = (const spa_pod*)spa_pod_builder_add_object(&podBuilder,
+        pBufferParameters[0] = (const struct spa_pod*)spa_pod_builder_add_object(&podBuilder,
             SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
             SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(pDeviceStatePipeWire->paramChangedCallbackData.pDescriptor->periodCount, 2, 8),
             SPA_PARAM_BUFFERS_blocks,  SPA_POD_Int(1),
@@ -643,7 +643,7 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
         We also can't use INACTIVE because without it, the param_changed callback will not get called, but we depend on that
         so we can get access to the internal format/channels/rate.
         */
-        streamFlags = (ma_pw_stream_flags)(MA_PW_STREAM_FLAG_AUTOCONNECT | /*MA_PW_STREAM_FLAG_INACTIVE |*/ MA_PW_STREAM_FLAG_MAP_BUFFERS);
+        streamFlags = (enum ma_pw_stream_flags)(MA_PW_STREAM_FLAG_AUTOCONNECT | /*MA_PW_STREAM_FLAG_INACTIVE |*/ MA_PW_STREAM_FLAG_MAP_BUFFERS);
 
         connectResult = pContextStatePipeWire->pw_stream_connect(pStream, (deviceType == ma_device_type_playback) ? SPA_DIRECTION_OUTPUT : SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
         if (connectResult < 0) {
