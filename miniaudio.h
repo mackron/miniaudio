@@ -59383,7 +59383,7 @@ static ma_result ma_pcm_rb_data_source__on_get_data_format(ma_data_source* pData
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable ma_gRBDataSourceVTable =
+static ma_data_source_vtable ma_gDataSourceVTable_RB =
 {
     ma_pcm_rb_data_source__on_read,
     NULL,   /* onSeek */
@@ -59429,7 +59429,7 @@ MA_API ma_result ma_pcm_rb_init_ex(ma_format format, ma_uint32 channels, ma_uint
     /* The PCM ring buffer is a data source. We need to get that set up as well. */
     {
         ma_data_source_config dataSourceConfig = ma_data_source_config_init();
-        dataSourceConfig.vtable = &ma_gRBDataSourceVTable;
+        dataSourceConfig.vtable = &ma_gDataSourceVTable_RB;
 
         result = ma_data_source_init(&dataSourceConfig, &pRB->ds);
         if (result != MA_SUCCESS) {
@@ -60778,7 +60778,7 @@ static ma_result ma_audio_buffer_ref__data_source_on_get_length(ma_data_source* 
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable g_ma_audio_buffer_ref_data_source_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_AudioBufferRef =
 {
     ma_audio_buffer_ref__data_source_on_read,
     ma_audio_buffer_ref__data_source_on_seek,
@@ -60801,7 +60801,7 @@ MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, 
     MA_ZERO_OBJECT(pAudioBufferRef);
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_audio_buffer_ref_data_source_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_AudioBufferRef;
 
     result = ma_data_source_init(&dataSourceConfig, &pAudioBufferRef->ds);
     if (result != MA_SUCCESS) {
@@ -61458,7 +61458,7 @@ static ma_result ma_paged_audio_buffer__data_source_on_get_length(ma_data_source
     return ma_paged_audio_buffer_get_length_in_pcm_frames((ma_paged_audio_buffer*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_paged_audio_buffer_data_source_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_PagedAudioBuffer =
 {
     ma_paged_audio_buffer__data_source_on_read,
     ma_paged_audio_buffer__data_source_on_seek,
@@ -61490,7 +61490,7 @@ MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* 
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_paged_audio_buffer_data_source_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_PagedAudioBuffer;
 
     result = ma_data_source_init(&dataSourceConfig, &pPagedAudioBuffer->ds);
     if (result != MA_SUCCESS) {
@@ -63551,7 +63551,7 @@ static ma_result ma_wav_ds_get_length(ma_data_source* pDataSource, ma_uint64* pL
     return ma_wav_get_length_in_pcm_frames((ma_wav*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_wav_ds_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_WAV =
 {
     ma_wav_ds_read,
     ma_wav_ds_seek,
@@ -63641,7 +63641,7 @@ static ma_result ma_wav_init_internal(const ma_decoding_backend_config* pConfig,
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_wav_ds_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_WAV;
 
     result = ma_data_source_init(&dataSourceConfig, &pWav->ds);
     if (result != MA_SUCCESS) {
@@ -64249,7 +64249,7 @@ static ma_result ma_flac_ds_get_length(ma_data_source* pDataSource, ma_uint64* p
     return ma_flac_get_length_in_pcm_frames((ma_flac*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_flac_ds_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_FLAC =
 {
     ma_flac_ds_read,
     ma_flac_ds_seek,
@@ -64339,7 +64339,7 @@ static ma_result ma_flac_init_internal(const ma_decoding_backend_config* pConfig
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_flac_ds_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_FLAC;
 
     result = ma_data_source_init(&dataSourceConfig, &pFlac->ds);
     if (result != MA_SUCCESS) {
@@ -64887,7 +64887,7 @@ static ma_result ma_mp3_ds_get_length(ma_data_source* pDataSource, ma_uint64* pL
     return ma_mp3_get_length_in_pcm_frames((ma_mp3*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_mp3_ds_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_MP3 =
 {
     ma_mp3_ds_read,
     ma_mp3_ds_seek,
@@ -64973,7 +64973,7 @@ static ma_result ma_mp3_init_internal(const ma_decoding_backend_config* pConfig,
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_mp3_ds_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_MP3;
 
     result = ma_data_source_init(&dataSourceConfig, &pMP3->ds);
     if (result != MA_SUCCESS) {
@@ -65592,7 +65592,7 @@ static ma_result ma_stbvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint
     return ma_stbvorbis_get_length_in_pcm_frames((ma_stbvorbis*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_stbvorbis_ds_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_stbvorbis =
 {
     ma_stbvorbis_ds_read,
     ma_stbvorbis_ds_seek,
@@ -65619,7 +65619,7 @@ static ma_result ma_stbvorbis_init_internal(const ma_decoding_backend_config* pC
     pVorbis->format = ma_format_f32;    /* Only supporting f32. */
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_stbvorbis_ds_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_stbvorbis;
 
     result = ma_data_source_init(&dataSourceConfig, &pVorbis->ds);
     if (result != MA_SUCCESS) {
@@ -66913,7 +66913,7 @@ static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSour
     return ma_decoder_get_length_in_pcm_frames((ma_decoder*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_decoder_data_source_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_Decoder =
 {
     ma_decoder__data_source_on_read,
     ma_decoder__data_source_on_seek,
@@ -66938,7 +66938,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     MA_ZERO_OBJECT(pDecoder);
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_decoder_data_source_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_Decoder;
 
     result = ma_data_source_init(&dataSourceConfig, &pDecoder->ds);
     if (result != MA_SUCCESS) {
@@ -68371,7 +68371,7 @@ static void ma_waveform__update_advance(ma_waveform* pWaveform)
     pWaveform->advance = ma_waveform__calculate_advance(pWaveform->config.sampleRate, pWaveform->config.frequency);
 }
 
-static ma_data_source_vtable g_ma_waveform_data_source_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_Waveform =
 {
     ma_waveform__data_source_on_read,
     ma_waveform__data_source_on_seek,
@@ -68394,7 +68394,7 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     MA_ZERO_OBJECT(pWaveform);
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_waveform_data_source_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_Waveform;
 
     result = ma_data_source_init(&dataSourceConfig, &pWaveform->ds);
     if (result != MA_SUCCESS) {
@@ -68930,7 +68930,7 @@ static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataS
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable g_ma_noise_data_source_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_Noise =
 {
     ma_noise__data_source_on_read,
     ma_noise__data_source_on_seek,  /* No-op for noise. */
@@ -69049,7 +69049,7 @@ MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void
     MA_ZERO_MEMORY(pNoise->_pHeap, heapLayout.sizeInBytes);
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_noise_data_source_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_Noise;
 
     result = ma_data_source_init(&dataSourceConfig, &pNoise->ds);
     if (result != MA_SUCCESS) {
@@ -71262,7 +71262,7 @@ static ma_result ma_resource_manager_data_buffer_cb__set_looping(ma_data_source*
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataBuffer =
 {
     ma_resource_manager_data_buffer_cb__read_pcm_frames,
     ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
@@ -71332,7 +71332,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         }
 
         dataSourceConfig = ma_data_source_config_init();
-        dataSourceConfig.vtable = &g_ma_resource_manager_data_buffer_vtable;
+        dataSourceConfig.vtable = &ma_gDataSourceVTable_ResourceManagerDataBuffer;
 
         result = ma_data_source_init(&dataSourceConfig, &pDataBuffer->ds);
         if (result != MA_SUCCESS) {
@@ -71996,7 +71996,7 @@ static ma_result ma_resource_manager_data_stream_cb__set_looping(ma_data_source*
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataStream =
 {
     ma_resource_manager_data_stream_cb__read_pcm_frames,
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
@@ -72050,7 +72050,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_resource_manager_data_stream_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_ResourceManagerDataStream;
 
     result = ma_data_source_init(&dataSourceConfig, &pDataStream->ds);
     if (result != MA_SUCCESS) {
@@ -73763,7 +73763,7 @@ static ma_result ma_node_graph_data_source__on_get_data_format(ma_data_source* p
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable ma_gNodeGraphDataSourceVTable = 
+static ma_data_source_vtable ma_gDataSourceVTable_NodeGraph = 
 {
     ma_node_graph_data_source__on_read,
     NULL,   /* onSeek */
@@ -73816,7 +73816,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 
     /* Data source. */
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &ma_gNodeGraphDataSourceVTable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_NodeGraph;
 
     result = ma_data_source_init(&dataSourceConfig, &pNodeGraph->ds);
     if (result != MA_SUCCESS) {
