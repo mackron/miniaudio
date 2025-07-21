@@ -1,5 +1,5 @@
 /*
-USAGE: ma_test_deviceio [input/output file] [mode] [backend] [waveform] [noise] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -26,6 +26,8 @@ will receive the captured audio.
     opensl
     webaudio
     null
+    sdl2
+    pipewire
 
 "waveform" can be one of the following:
     sine
@@ -42,6 +44,11 @@ If multiple backends are specified, the priority will be based on the order in w
 are specified the last one on the command line will have priority.
 */
 #include "../common/common.c"
+#include "../../extras/backends/sdl/backend_sdl.c"
+
+#if defined(MA_TESTS_INCLUDE_PIPEWIRE)
+#include "../../extras/backends/pipewire/miniaudio_pipewire.h"
+#endif
 
 #ifndef AUTO_CLOSE_TIME_IN_MILLISECONDS
 #define AUTO_CLOSE_TIME_IN_MILLISECONDS 5000
@@ -179,6 +186,18 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
     }
     if (strcmp(arg, "null") == 0) {
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_null, NULL);
+        goto done;
+    }
+    if (strcmp(arg, "sdl2") == 0) {
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl, NULL);
+        goto done;
+    }
+    if (strcmp(arg, "pipewire") == 0) {
+        #if defined(MA_TESTS_INCLUDE_PIPEWIRE)
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_pipewire, NULL);
+        #else
+        printf("ERROR: Attempting to use PipeWire, but it was not compiled in. Compile with MA_TESTS_INCLUDE_PIPEWIRE.");
+        #endif
         goto done;
     }
 
@@ -509,7 +528,7 @@ int main(int argc, char** argv)
     deviceConfig.notificationCallback = on_notification;
     result = ma_device_init(&g_State.context, &deviceConfig, &g_State.device);
     if (result != MA_SUCCESS) {
-        printf("Failed to initialize device.\n");
+        printf("Failed to initialize device: %s.\n", ma_result_description(result));
         ma_context_uninit(&g_State.context);
         return -1;
     }

@@ -603,6 +603,10 @@ if(MINIAUDIO_BUILD_TESTS)
     function(add_miniaudio_test name source)
         add_executable(${name} ${TESTS_DIR}/${source})
         target_link_libraries(${name} PRIVATE miniaudio_common_options)
+        if(TARGET miniaudio_pipewire)
+            target_link_libraries(${name} PRIVATE miniaudio_pipewire)
+            target_compile_definitions(${name} PRIVATE MA_TESTS_INCLUDE_PIPEWIRE)
+        endif()
     endfunction()
 
     # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
