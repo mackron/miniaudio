@@ -191,6 +191,7 @@ typedef int                       (* ma_pw_stream_update_params_proc )(struct ma
 
 typedef struct
 {
+    ma_log* pLog;
     ma_handle hPipeWire;
     ma_pw_init_proc                  pw_init;
     ma_pw_deinit_proc                pw_deinit;
@@ -218,6 +219,9 @@ typedef struct
 
 typedef struct
 {
+    ma_context_state_pipewire* pContextStatePipeWire;
+    ma_device_type deviceType;
+    ma_device* pDevice; /* Only needed for ma_stream_event_process__pipewire(). We may change this later in which case we can delete this. */
     struct ma_pw_thread_loop* pThreadLoop;
     struct ma_pw_context* pContext;
     struct ma_pw_core* pCore;
@@ -300,6 +304,8 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     if (pContextStatePipeWire == NULL) {
         return MA_OUT_OF_MEMORY;
     }
+
+    pContextStatePipeWire->pLog = pLog;
 
 
     /* Check if we have a PipeWire SO. If we can't find this we need to abort. */
@@ -422,9 +428,8 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 
 static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 id, const struct spa_pod* pParam)
 {
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_device_state_pipewire*  pDeviceStatePipeWire  = ma_device_get_backend_state__pipewire(pDevice);
-    ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+    ma_device_state_pipewire*  pDeviceStatePipeWire  = (ma_device_state_pipewire*)pUserData;
+    ma_context_state_pipewire* pContextStatePipeWire = pDeviceStatePipeWire->pContextStatePipeWire;
 
     if (pParam != NULL && id == SPA_PARAM_Format) {
         struct spa_audio_info_raw audioInfo;
@@ -435,7 +440,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         ma_uint32 bytesPerFrame;
 
         if (pDeviceStatePipeWire->isInternalFormatFinalised) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "PipeWire format parameter changed after device has been initialized.");
+            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_WARNING, "PipeWire format parameter changed after device has been initialized.");
             return;
         }
 
@@ -494,23 +499,19 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
 
 static void ma_stream_event_process__pipewire(void* pUserData)
 {
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_device_state_pipewire*  pDeviceStatePipeWire  = ma_device_get_backend_state__pipewire(pDevice);
-    ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+    ma_device_state_pipewire*  pDeviceStatePipeWire  = (ma_device_state_pipewire*)pUserData;
+    ma_context_state_pipewire* pContextStatePipeWire = pDeviceStatePipeWire->pContextStatePipeWire;
     struct ma_pw_stream* pStream;
     struct ma_pw_buffer* pBuffer;
     ma_uint32 bytesPerFrame;
     ma_uint32 frameCount;
-    ma_device_type deviceType;
 
     if (!pDeviceStatePipeWire->isInitialized) {
         printf("Not initialized\n");
         return;
     }
 
-    deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+    if (pDeviceStatePipeWire->deviceType == ma_device_type_playback || pDeviceStatePipeWire->deviceType == ma_device_type_duplex) {
         pStream = pDeviceStatePipeWire->pStreamPlayback;
         bytesPerFrame = ma_get_bytes_per_frame(pDeviceStatePipeWire->format, pDeviceStatePipeWire->channels);
     } else {
@@ -533,15 +534,15 @@ static void ma_stream_event_process__pipewire(void* pUserData)
         if (frameCount > 0) {
             if (pStream == pDeviceStatePipeWire->pStreamPlayback) {
                 printf("(Playback) Processing %d frames... %d %d\n", (int)frameCount, (int)pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);
-                ma_device_handle_backend_data_callback(pDevice, pBuffer->buffer->datas[0].data, NULL, frameCount);
+                ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, pBuffer->buffer->datas[0].data, NULL, frameCount);
             } else {
                 printf("(Capture) Processing %d frames...\n", (int)frameCount);
-                ma_device_handle_backend_data_callback(pDevice, NULL, pBuffer->buffer->datas[0].data, frameCount);
+                ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, NULL, pBuffer->buffer->datas[0].data, frameCount);
             }
 
             //printf("Done...\n");
         } else {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "(PipeWire) No frames to process.\n");
+            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_WARNING, "(PipeWire) No frames to process.\n");
         }
 
         pBuffer->buffer->datas[0].chunk->offset = 0;
@@ -604,19 +605,24 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
         }
 
         /* This installs callbacks for process and param_changed. "process" is for queuing audio data, and "param_changed" is for getting the internal format/channels/rate. */
-        pContextStatePipeWire->pw_stream_add_listener(pStream, &pDeviceStatePipeWire->eventListener, &ma_gStreamEventsPipeWire, pDevice);
+        pContextStatePipeWire->pw_stream_add_listener(pStream, &pDeviceStatePipeWire->eventListener, &ma_gStreamEventsPipeWire, pDeviceStatePipeWire);
 
         /* Set the stream in the device data so that we can use it in the param_changed callback. This will be cleared later. */
         pDeviceStatePipeWire->paramChangedCallbackData.pStream = pStream;
 
-
-
+        
         podBuilder = SPA_POD_BUILDER_INIT(podBuilderBuffer, sizeof(podBuilderBuffer));
 
         memset(&audioInfo, 0, sizeof(audioInfo));
         audioInfo.format   = ma_format_to_pipewire(pDescriptor->format);
         audioInfo.channels = pDescriptor->channels;
         audioInfo.rate     = pDescriptor->sampleRate;
+
+        /* If the format is SPA_AUDIO_FORMAT_UNKNOWN, PipeWire can pick a planar data layout (de-interleaved) which breaks things for us. Just force interleaved F32 in this case. */
+        if (audioInfo.format == SPA_AUDIO_FORMAT_UNKNOWN) {
+            audioInfo.format =  SPA_AUDIO_FORMAT_F32;
+        }
+
         /* We're going to leave the channel map alone and just do a conversion ourselves if it differs from the native map. */
         /* TODO: It looks like the params_changed callback does not have a filled out channel map? We might need to do a miniaudio-to-PipeWire channel map conversion and do it that way. Was hoping to just use the native channel map. */
 
@@ -732,6 +738,9 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
         return MA_OUT_OF_MEMORY;
     }
 
+    pDeviceStatePipeWire->pContextStatePipeWire = pContextStatePipeWire;
+    pDeviceStatePipeWire->deviceType  = deviceType;
+    pDeviceStatePipeWire->pDevice     = pDevice;
     pDeviceStatePipeWire->pThreadLoop = pThreadLoop;
     pDeviceStatePipeWire->pContext    = pPipeWireContext;
     pDeviceStatePipeWire->pCore       = pCore;
