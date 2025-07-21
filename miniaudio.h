@@ -4392,8 +4392,10 @@ typedef enum
 
     ma_standard_sample_rate_min    = ma_standard_sample_rate_8000,
     ma_standard_sample_rate_max    = ma_standard_sample_rate_384000,
-    ma_standard_sample_rate_count  = 14         /* Need to maintain the count manually. Make sure this is updated if items are added to enum. */
 } ma_standard_sample_rate;
+
+MA_API const ma_uint32 ma_standard_sample_rates[];
+MA_API const ma_uint32 ma_standard_sample_rate_count;
 
 
 typedef enum
@@ -11844,8 +11846,8 @@ int ma_android_sdk_version()
     #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
 
-/* Standard sample rates, in order of priority. */
-static ma_uint32 g_maStandardSampleRatePriorities[] = {
+const ma_uint32 ma_standard_sample_rates[] =
+{
     (ma_uint32)ma_standard_sample_rate_48000,
     (ma_uint32)ma_standard_sample_rate_44100,
 
@@ -11866,12 +11868,15 @@ static ma_uint32 g_maStandardSampleRatePriorities[] = {
     (ma_uint32)ma_standard_sample_rate_384000
 };
 
+const ma_uint32 ma_standard_sample_rate_count = ma_countof(ma_standard_sample_rates);
+
+
 static MA_INLINE ma_bool32 ma_is_standard_sample_rate(ma_uint32 sampleRate)
 {
     ma_uint32 iSampleRate;
 
-    for (iSampleRate = 0; iSampleRate < sizeof(g_maStandardSampleRatePriorities) / sizeof(g_maStandardSampleRatePriorities[0]); iSampleRate += 1) {
-        if (g_maStandardSampleRatePriorities[iSampleRate] == sampleRate) {
+    for (iSampleRate = 0; iSampleRate < ma_standard_sample_rate_count; iSampleRate += 1) {
+        if (ma_standard_sample_rates[iSampleRate] == sampleRate) {
             return MA_TRUE;
         }
     }
@@ -19802,8 +19807,8 @@ static ma_uint32 ma_get_closest_standard_sample_rate(ma_uint32 sampleRateIn)
     ma_uint32 closestDiff = 0xFFFFFFFF;
     size_t iStandardRate;
 
-    for (iStandardRate = 0; iStandardRate < ma_countof(g_maStandardSampleRatePriorities); ++iStandardRate) {
-        ma_uint32 standardRate = g_maStandardSampleRatePriorities[iStandardRate];
+    for (iStandardRate = 0; iStandardRate < ma_countof(ma_standard_sample_rates); ++iStandardRate) {
+        ma_uint32 standardRate = ma_standard_sample_rates[iStandardRate];
         ma_uint32 diff;
 
         if (sampleRateIn > standardRate) {
@@ -22729,8 +22734,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                             wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
                         }
 
-                        for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
-                            wf.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
+                        for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); ++iSampleRate) {
+                            wf.nSamplesPerSec = ma_standard_sample_rates[iSampleRate];
 
                             hr = ma_IAudioClient_IsFormatSupported(pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
@@ -25513,8 +25518,8 @@ static ma_uint32 ma_get_best_sample_rate_within_range(ma_uint32 sampleRateMin, m
         return sampleRateMax;
     } else {
         size_t iStandardRate;
-        for (iStandardRate = 0; iStandardRate < ma_countof(g_maStandardSampleRatePriorities); ++iStandardRate) {
-            ma_uint32 standardRate = g_maStandardSampleRatePriorities[iStandardRate];
+        for (iStandardRate = 0; iStandardRate < ma_countof(ma_standard_sample_rates); ++iStandardRate) {
+            ma_uint32 standardRate = ma_standard_sample_rates[iStandardRate];
             if (standardRate >= sampleRateMin && standardRate <= sampleRateMax) {
                 return standardRate;
             }
@@ -25817,8 +25822,8 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
             /* Multiple sample rates are supported. We'll report in order of our preferred sample rates. */
             size_t iStandardSampleRate;
-            for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(g_maStandardSampleRatePriorities); iStandardSampleRate += 1) {
-                ma_uint32 sampleRate = g_maStandardSampleRatePriorities[iStandardSampleRate];
+            for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(ma_standard_sample_rates); iStandardSampleRate += 1) {
+                ma_uint32 sampleRate = ma_standard_sample_rates[iStandardSampleRate];
                 if (sampleRate >= caps.dwMinSecondarySampleRate && sampleRate <= caps.dwMaxSecondarySampleRate) {
                     deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
                     deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
@@ -29188,8 +29193,8 @@ static void ma_context_iterate_rates_and_add_native_data_format__alsa(ma_context
     minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
     maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
 
-    for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); iSampleRate += 1) {
-        ma_uint32 standardSampleRate = g_maStandardSampleRatePriorities[iSampleRate];
+    for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); iSampleRate += 1) {
+        ma_uint32 standardSampleRate = ma_standard_sample_rates[iSampleRate];
 
         if (standardSampleRate >= minSampleRate && standardSampleRate <= maxSampleRate) {
             ma_context_test_rate_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, standardSampleRate, flags, pDeviceInfo);
@@ -34496,8 +34501,8 @@ static ma_result ma_get_AudioObject_get_closest_sample_rate(ma_context* pContext
     if (sampleRateIn == 0) {
         /* Search in order of miniaudio's preferred priority. */
         UInt32 iMALSampleRate;
-        for (iMALSampleRate = 0; iMALSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iMALSampleRate) {
-            ma_uint32 malSampleRate = g_maStandardSampleRatePriorities[iMALSampleRate];
+        for (iMALSampleRate = 0; iMALSampleRate < ma_countof(ma_standard_sample_rates); ++iMALSampleRate) {
+            ma_uint32 malSampleRate = ma_standard_sample_rates[iMALSampleRate];
             UInt32 iCASampleRate;
             for (iCASampleRate = 0; iCASampleRate < sampleRateRangeCount; ++iCASampleRate) {
                 AudioValueRange caSampleRate = pSampleRateRanges[iCASampleRate];
@@ -35524,8 +35529,8 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
             */
             for (iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
                 ma_uint32 iStandardSampleRate;
-                for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(g_maStandardSampleRatePriorities); iStandardSampleRate += 1) {
-                    ma_uint32 standardSampleRate = g_maStandardSampleRatePriorities[iStandardSampleRate];
+                for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(ma_standard_sample_rates); iStandardSampleRate += 1) {
+                    ma_uint32 standardSampleRate = ma_standard_sample_rates[iStandardSampleRate];
                     if (standardSampleRate >= pSampleRateRanges[iSampleRate].mMinimum && standardSampleRate <= pSampleRateRanges[iSampleRate].mMaximum) {
                         /* We have a new data format. Add it to the list. */
                         deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = format;
@@ -37197,8 +37202,8 @@ static void ma_context_uninit__sndio(ma_context* pContext)
 static ma_uint32 ma_get_standard_sample_rate_priority_index__sndio(ma_uint32 sampleRate)   /* Lower = higher priority */
 {
     ma_uint32 i;
-    for (i = 0; i < ma_countof(g_maStandardSampleRatePriorities); ++i) {
-        if (g_maStandardSampleRatePriorities[i] == sampleRate) {
+    for (i = 0; i < ma_countof(ma_standard_sample_rates); ++i) {
+        if (ma_standard_sample_rates[i] == sampleRate) {
             return i;
         }
     }
@@ -39070,8 +39075,8 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
             }
         }
     } else {
-        for (iRate = 0; iRate < ma_countof(g_maStandardSampleRatePriorities); iRate += 1) {
-            ma_uint32 standardRate = g_maStandardSampleRatePriorities[iRate];
+        for (iRate = 0; iRate < ma_countof(ma_standard_sample_rates); iRate += 1) {
+            ma_uint32 standardRate = ma_standard_sample_rates[iRate];
 
             if (standardRate >= (ma_uint32)pAudioInfo->min_rate && standardRate <= (ma_uint32)pAudioInfo->max_rate) {
                 if (minChannels == MA_MIN_CHANNELS && maxChannels == MA_MAX_CHANNELS) {
@@ -39124,8 +39129,8 @@ static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pCont
 
             if (ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &channelsHave) >= 0 && channelsHave == channelsWant) {
                 /* The device supports this channel count. */
-                for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); iSampleRate += 1) {
-                    int sampleRateWant = (int)g_maStandardSampleRatePriorities[iSampleRate];
+                for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); iSampleRate += 1) {
+                    int sampleRateWant = (int)ma_standard_sample_rates[iSampleRate];
                     int sampleRateHave = sampleRateWant;
 
                     if (ioctl(fdDevice, SNDCTL_DSP_SPEED, &sampleRateHave) >= 0 && sampleRateHave == sampleRateWant) {
@@ -41407,8 +41412,8 @@ static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format f
     rates (up to 48000). A better solution would be to somehow find a native sample rate.
     */
     for (iChannel = minChannels; iChannel < maxChannels; iChannel += 1) {
-        for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); iSampleRate += 1) {
-            ma_uint32 standardSampleRate = g_maStandardSampleRatePriorities[iSampleRate];
+        for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); iSampleRate += 1) {
+            ma_uint32 standardSampleRate = ma_standard_sample_rates[iSampleRate];
             if (standardSampleRate >= minSampleRate && standardSampleRate <= maxSampleRate) {
                 ma_context_add_data_format_ex__opensl(pContext, format, iChannel, standardSampleRate, pDeviceInfo);
             }
