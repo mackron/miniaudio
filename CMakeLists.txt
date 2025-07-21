@@ -61,6 +61,7 @@ option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types" 
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
 
 
+include(GNUInstallDirs)
 
 # Construct compiler options.
 set(COMPILE_OPTIONS)
@@ -155,6 +156,8 @@ if(MINIAUDIO_NO_PIPEWIRE)
     list(APPEND COMPILE_DEFINES MA_NO_PIPEWIRE)
 endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
+    list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
+
     if(MINIAUDIO_ENABLE_WASAPI)
         list(APPEND COMPILE_DEFINES MA_ENABLE_WASAPI)
     endif()
@@ -474,13 +477,13 @@ endif()
 
 
 # Static Libraries
-add_library(miniaudio STATIC
+add_library(miniaudio
     miniaudio.c
     miniaudio.h
 )
 
 list(APPEND LIBS_TO_INSTALL miniaudio)
-install(FILES miniaudio.h DESTINATION include/miniaudio)
+install(FILES miniaudio.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio)
 
 target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
@@ -515,13 +518,13 @@ if(HAS_LIBVORBIS)
 endif()
 
 if(HAS_LIBVORBIS)
-    add_library(miniaudio_libvorbis STATIC
+    add_library(miniaudio_libvorbis
         extras/decoders/libvorbis/miniaudio_libvorbis.c
         extras/decoders/libvorbis/miniaudio_libvorbis.h
     )
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
-    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION include/miniaudio/extras/decoders/libvorbis)
+    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
 
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
@@ -539,14 +542,14 @@ if(HAS_LIBOPUS)
 endif()
 
 if(HAS_LIBOPUS)
-    add_library(miniaudio_libopus STATIC
+    add_library(miniaudio_libopus
         extras/decoders/libopus/miniaudio_libopus.c
         extras/decoders/libopus/miniaudio_libopus.h
     )
 
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libopus)
-    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION include/miniaudio/extras/decoders/libopus)
+    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libopus)
 
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
@@ -556,7 +559,7 @@ endif()
 
 if(NOT MINIAUDIO_NO_EXTRA_NODES)
     function(add_extra_node name)
-        add_library(miniaudio_${name}_node STATIC
+        add_library(miniaudio_${name}_node
             extras/nodes/ma_${name}_node/ma_${name}_node.c
             extras/nodes/ma_${name}_node/ma_${name}_node.h
         )
@@ -565,7 +568,7 @@ if(NOT MINIAUDIO_NO_EXTRA_NODES)
 
         list(APPEND libs miniaudio_${name}_node)
         set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
-        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION include/miniaudio/extras/nodes/ma_${name}_node)
+        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
 
         target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
         target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
@@ -713,8 +716,6 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
 endif()
-
-include(GNUInstallDirs)
 
 message(STATUS "Library list: ${LIBS_TO_INSTALL}")
 install(TARGETS ${LIBS_TO_INSTALL}
