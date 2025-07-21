@@ -86,9 +86,12 @@ which can then be stored in the backend state?
 #if defined(MA_HAS_PIPEWIRE)
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wc99-extensions"
-    #pragma GCC diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
-    #pragma GCC diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+    #pragma GCC diagnostic ignored "-Wpedantic"
+    #if defined(__clang__)
+        #pragma GCC diagnostic ignored "-Wc99-extensions"
+        #pragma GCC diagnostic ignored "-Wgnu-statement-expression-from-macro-expansion"
+        #pragma GCC diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+    #endif
 #endif
 /*#include <pipewire/pipewire.h>*/
 #include <spa/param/audio/format-utils.h>   /* For spa_format_audio_raw_build() */
