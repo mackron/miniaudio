@@ -62,6 +62,7 @@ option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types" 
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
 
 
+include(GNUInstallDirs)
 
 # Construct compiler options.
 set(COMPILE_OPTIONS)
@@ -467,7 +468,7 @@ add_library(miniaudio
 )
 
 list(APPEND LIBS_TO_INSTALL miniaudio)
-install(FILES miniaudio.h DESTINATION include/miniaudio)
+install(FILES miniaudio.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio)
 
 target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
@@ -490,7 +491,7 @@ if(HAS_LIBVORBIS)
     )
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
-    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION include/miniaudio/extras/decoders/libvorbis)
+    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
 
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
@@ -516,7 +517,7 @@ if(HAS_LIBOPUS)
 
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libopus)
-    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION include/miniaudio/extras/decoders/libopus)
+    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libopus)
 
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
@@ -535,7 +536,7 @@ if (NOT MINIAUDIO_NO_EXTRA_NODES)
 
         list(APPEND libs miniaudio_${name}_node)
         set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
-        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION include/miniaudio/extras/nodes/ma_${name}_node)
+        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
 
         target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
         target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
@@ -670,8 +671,6 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
 endif()
-
-include(GNUInstallDirs)
 
 message(STATUS "Library list: ${LIBS_TO_INSTALL}")
 install(TARGETS ${LIBS_TO_INSTALL}
