@@ -1,0 +1,37 @@
+name: Linux
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ master, dev, dev-0.12 ]
+    paths:
+    - '**'
+    - '!**.md'
+
+  pull_request:
+    branches: [ master, dev, dev-0.12 ]
+    paths:
+    - '**'
+    - '!**.md'
+
+jobs:
+  Ubuntu:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: sudo apt install -y libspa-0.2-dev
+
+    - name: CMake setup
+      run: cmake -B build -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON
+
+    - name: Build
+      run: make VERBOSE=1 -j$(nproc) -C build
