@@ -292,14 +292,13 @@ static void ma_add_native_format_from_AudioSpec__sdl(ma_device_info* pDeviceInfo
 static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
 {
     ma_context_state_sdl* pContextStateSDL = ma_context_get_backend_state__sdl(pContext);
-    ma_bool32 isTerminated = MA_FALSE;
-    ma_bool32 cbResult;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
     int iDevice;
 
     MA_SDL_ASSERT(pContextStateSDL != NULL);
 
     /* Playback */
-    if (!isTerminated) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         int deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(0);
         for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
             ma_device_info deviceInfo;
@@ -324,15 +323,14 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             }
 
             cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
-            if (cbResult == MA_FALSE) {
-                isTerminated = MA_TRUE;
+            if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                 break;
             }
         }
     }
 
     /* Capture */
-    if (!isTerminated) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         int deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(1);
         for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
             ma_device_info deviceInfo;
@@ -357,8 +355,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             }
 
             cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
-            if (cbResult == MA_FALSE) {
-                isTerminated = MA_TRUE;
+            if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                 break;
             }
         }

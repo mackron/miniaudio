@@ -363,7 +363,7 @@ static void ma_context_uninit__pipewire(ma_context* pContext)
     ma_free(pContextStatePipeWire, ma_context_get_allocation_callbacks(pContext));
 }
 
-static ma_bool32 ma_context_enumerate_device_from_type__pipewire(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_type__pipewire(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
 
@@ -396,7 +396,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__pipewire(ma_context* pCo
 static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(pContext);
-    ma_bool32 cbResult = MA_TRUE;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
     MA_PIPEWIRE_ASSERT(pContextStatePipeWire != NULL);
     MA_PIPEWIRE_ASSERT(callback != NULL);
@@ -404,12 +404,12 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     /* TODO: Proper device enumeration. */
 
     /* Playback. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__pipewire(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__pipewire(pContext, ma_device_type_capture, callback, pUserData);
     }
 

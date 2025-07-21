@@ -7553,6 +7553,13 @@ struct ma_device_config
 };
 
 
+typedef enum ma_device_enumeration_result
+{
+    MA_DEVICE_ENUMERATION_ABORT    = 0,
+    MA_DEVICE_ENUMERATION_CONTINUE = 1
+} ma_device_enumeration_result;
+
+
 /*
 The callback for handling device enumeration. This is fired from `ma_context_enumerate_devices()`.
 
@@ -7569,8 +7576,13 @@ pInfo (in)
 
 pUserData (in)
     The user data pointer passed into `ma_context_enumerate_devices()`.
+
+
+Return Value
+------------
+Implementations should return `MA_DEVICE_ENUMERATION_CONTINUE` to continue enumeration, or `MA_DEVICE_ENUMERATION_ABORT` to abort enumeration.
 */
-typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
+typedef ma_device_enumeration_result (* ma_enum_devices_callback_proc)(ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
 
 
 /* TODO: THIS SECTION NEEDS TO BE UPDATED FOR THE NEW BACKEND SYSTEM. */
@@ -20732,7 +20744,7 @@ static void ma_context_uninit__null(ma_context* pContext)
     ma_free(pContextStateNull, ma_context_get_allocation_callbacks(pContext));
 }
 
-static ma_bool32 ma_context_enumerate_device_from_type__null(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_type__null(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
 
@@ -20766,7 +20778,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__null(ma_context* pContex
 static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_null* pContextStateNull = ma_context_get_backend_state__null(pContext);
-    ma_bool32 cbResult = MA_TRUE;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
     MA_ASSERT(pContextStateNull != NULL);
     MA_ASSERT(callback != NULL);
@@ -20774,12 +20786,12 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
     (void)pContextStateNull;
 
     /* Playback. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__null(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__null(pContext, ma_device_type_capture, callback, pUserData);
     }
 
@@ -23014,8 +23026,8 @@ static ma_result ma_context_enumerate_devices_by_type__wasapi(ma_context* pConte
 
                 ma_IMMDevice_Release(pMMDevice);
                 if (result == MA_SUCCESS) {
-                    ma_bool32 cbResult = callback(deviceType, &deviceInfo, pUserData);
-                    if (cbResult == MA_FALSE) {
+                    ma_device_enumeration_result cbResult = callback(deviceType, &deviceInfo, pUserData);
+                    if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                         break;
                     }
                 }
@@ -23436,7 +23448,7 @@ static void ma_context_uninit__wasapi(ma_context* pContext)
 }
 
 #if defined(MA_WIN32_UWP)
-static ma_bool32 ma_context_enumerate_device_from_type_UWP__wasapi(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_type_UWP__wasapi(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
     ma_IAudioClient* pAudioClient;
@@ -23493,17 +23505,19 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
         Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
         */
         if (callback) {
-            ma_bool32 cbResult = MA_TRUE;
+            ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
             /* Playback. */
-            if (cbResult) {
+            if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
                 cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pContext, ma_device_type_playback, callback, pUserData);
             }
 
             /* Capture. */
-            if (cbResult) {
+            if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
                 cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pContext, ma_device_type_capture, callback, pUserData);
             }
+
+            (void)cbResult;
         }
     }
     #endif
@@ -25870,7 +25884,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
 
     /* Call the callback function, but make sure we stop enumerating if the callee requested so. */
     MA_ASSERT(pData != NULL);
-    pData->terminated = (pData->callback(pData->deviceType, &deviceInfo, pData->pUserData) == MA_FALSE);
+    pData->terminated = (pData->callback(pData->deviceType, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
     if (pData->terminated) {
         return FALSE;   /* Stop enumeration. */
     } else {
@@ -25906,39 +25920,6 @@ static ma_result ma_context_enumerate_devices__dsound(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-
-typedef struct
-{
-    const ma_device_id* pDeviceID;
-    ma_device_info* pDeviceInfo;
-    ma_bool32 found;
-} ma_context_get_device_info_callback_data__dsound;
-
-static BOOL CALLBACK ma_context_get_device_info_callback__dsound(GUID* lpGuid, const char* lpcstrDescription, const char* lpcstrModule, void* lpContext)
-{
-    ma_context_get_device_info_callback_data__dsound* pData = (ma_context_get_device_info_callback_data__dsound*)lpContext;
-    MA_ASSERT(pData != NULL);
-
-    if ((pData->pDeviceID == NULL || ma_is_guid_null(pData->pDeviceID->dsound)) && (lpGuid == NULL || ma_is_guid_null(lpGuid))) {
-        /* Default device. */
-        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
-        pData->pDeviceInfo->isDefault = MA_TRUE;
-        pData->found = MA_TRUE;
-        return FALSE;   /* Stop enumeration. */
-    } else {
-        /* Not the default device. */
-        if (lpGuid != NULL && pData->pDeviceID != NULL) {
-            if (memcmp(pData->pDeviceID->dsound, lpGuid, sizeof(pData->pDeviceID->dsound)) == 0) {
-                ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
-                pData->found = MA_TRUE;
-                return FALSE;   /* Stop enumeration. */
-            }
-        }
-    }
-
-    (void)lpcstrModule;
-    return TRUE;
-}
 
 static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const ma_channel* pChannelMap, MA_WAVEFORMATEXTENSIBLE* pWF)
 {
@@ -27430,8 +27411,8 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
             /* Name and Data Format. */
             if (ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
-                ma_bool32 cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
-                if (cbResult == MA_FALSE) {
+                ma_device_enumeration_result cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
+                if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                     return MA_SUCCESS; /* Enumeration was stopped. */
                 }
             }
@@ -27463,8 +27444,8 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
             /* Name and Data Format. */
             if (ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
-                ma_bool32 cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
-                if (cbResult == MA_FALSE) {
+                ma_device_enumeration_result cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
+                if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                     return MA_SUCCESS; /* Enumeration was stopped. */
                 }
             }
@@ -29232,7 +29213,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
 {
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(pContext);
     int resultALSA;
-    ma_bool32 cbResult = MA_TRUE;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
     char** ppDeviceHints;
     ma_device_id* pUniqueIDs = NULL;
     ma_uint32 uniqueIDCount = 0;
@@ -29484,7 +29465,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         again for the other device type in this case. We do this for known devices and where the IOID hint is NULL, which
         means both Input and Output.
         */
-        if (cbResult) {
+        if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
             if (ma_is_common_device_name__alsa(NAME) || IOID == NULL) {
                 if (deviceType == ma_device_type_playback) {
                     if (!ma_is_capture_device_blacklisted__alsa(NAME)) {
@@ -29498,7 +29479,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             }
         }
 
-        if (cbResult == MA_FALSE) {
+        if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
             stopEnumeration = MA_TRUE;
         }
 
@@ -31943,7 +31924,7 @@ static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context
     deviceInfo.nativeDataFormats[0].flags      = 0;
     deviceInfo.nativeDataFormatCount = 1;
 
-    pData->isTerminated = !pData->callback(ma_device_type_playback, &deviceInfo, pData->pUserData);
+    pData->isTerminated = (pData->callback(ma_device_type_playback, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
 
     (void)pPulseContext; /* Unused. */
 }
@@ -31983,7 +31964,7 @@ static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_conte
     deviceInfo.nativeDataFormats[0].flags      = 0;
     deviceInfo.nativeDataFormatCount = 1;
     
-    pData->isTerminated = !pData->callback(ma_device_type_capture, &deviceInfo, pData->pUserData);
+    pData->isTerminated = (pData->callback(ma_device_type_capture, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
 
     (void)pPulseContext; /* Unused. */
 }
@@ -33205,7 +33186,7 @@ static void ma_context_uninit__jack(ma_context* pContext)
     ma_free(pContextStateJACK, ma_context_get_allocation_callbacks(pContext));
 }
 
-static ma_bool32 ma_context_enumerate_device_from_client__jack(ma_context* pContext, ma_jack_client_t* pClient, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_client__jack(ma_context* pContext, ma_jack_client_t* pClient, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(pContext);
     ma_device_info deviceInfo;
@@ -33239,7 +33220,7 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(pContext);
     ma_jack_client_t* pClient;
     ma_result result;
-    ma_bool32 cbResult = MA_TRUE;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
     MA_ASSERT(callback != NULL);
     (void)pContext;
@@ -33252,12 +33233,12 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
     }
 
     /* Playback. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_client__jack(pContext, pClient, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_client__jack(pContext, pClient, ma_device_type_capture, callback, pUserData);
     }
 
@@ -35452,7 +35433,7 @@ static void ma_AVAudioSessionPortDescription_to_device_info(AVAudioSessionPortDe
 #endif
 
 #if defined(MA_APPLE_DESKTOP)
-static ma_bool32 ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, AudioObjectID defaultDeviceObjectID, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, AudioObjectID defaultDeviceObjectID, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
 
@@ -35465,12 +35446,12 @@ static ma_bool32 ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_cont
 
     /* ID. */
     if (ma_get_AudioObject_uid(pContext, deviceObjectID, sizeof(deviceInfo.id.coreaudio), deviceInfo.id.coreaudio) != MA_SUCCESS) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     /* Name. */
     if (ma_get_AudioObject_name(pContext, deviceObjectID, sizeof(deviceInfo.name), deviceInfo.name) != MA_SUCCESS) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     /* Data Format. */
@@ -35496,13 +35477,13 @@ static ma_bool32 ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_cont
         /* Channels. */
         result = ma_get_AudioObject_channel_count(pContext, deviceObjectID, deviceType, &channels);
         if (result != MA_SUCCESS) {
-            return MA_TRUE; /* Failed to get channel count. */
+            return MA_DEVICE_ENUMERATION_CONTINUE; /* Failed to get channel count. */
         }
 
         /* Formats. */
         result = ma_get_AudioObject_stream_descriptions(pContext, deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
         if (result != MA_SUCCESS) {
-            return MA_TRUE;
+            return MA_DEVICE_ENUMERATION_CONTINUE;
         }
 
         for (iStreamDescription = 0; iStreamDescription < streamDescriptionCount; ++iStreamDescription) {
@@ -35539,7 +35520,7 @@ static ma_bool32 ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_cont
             /* Sample Rates */
             result = ma_get_AudioObject_sample_rates(pContext, deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
             if (result != MA_SUCCESS) {
-                return MA_TRUE; /* Failed to retrieve sample rates. */
+                return MA_DEVICE_ENUMERATION_CONTINUE;  /* Failed to retrieve sample rates. */
             }
 
             /*
@@ -35578,7 +35559,7 @@ static ma_bool32 ma_context_enumerate_device_by_AudioObjectID__coreaudio(ma_cont
     return callback(deviceType, &deviceInfo, pUserData);
 }
 #else
-static ma_bool32 ma_context_enumerate_device_by_AVAudioSessionPortDescription__coreaudio(ma_context* pContext, AVAudioSessionPortDescription* pPortDesc, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_by_AVAudioSessionPortDescription__coreaudio(ma_context* pContext, AVAudioSessionPortDescription* pPortDesc, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(pContext);
     ma_device_info deviceInfo;
@@ -35617,12 +35598,12 @@ static ma_bool32 ma_context_enumerate_device_by_AVAudioSessionPortDescription__c
 
     component = pContextStateCoreAudio->AudioComponentFindNext(NULL, &desc);
     if (component == NULL) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     status = pContextStateCoreAudio->AudioComponentInstanceNew(component, &audioUnit);
     if (status != noErr) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     formatScope   = (deviceType == ma_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
@@ -35632,7 +35613,7 @@ static ma_bool32 ma_context_enumerate_device_by_AVAudioSessionPortDescription__c
     status = pContextStateCoreAudio->AudioUnitGetProperty(audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
     if (status != noErr) {
         pContextStateCoreAudio->AudioComponentInstanceDispose(audioUnit);
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     pContextStateCoreAudio->AudioComponentInstanceDispose(audioUnit);
@@ -35643,7 +35624,7 @@ static ma_bool32 ma_context_enumerate_device_by_AVAudioSessionPortDescription__c
 
     result = ma_format_from_AudioStreamBasicDescription(&bestFormat, &deviceInfo.nativeDataFormats[0].format);
     if (result != MA_SUCCESS) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     deviceInfo.nativeDataFormats[0].channels = bestFormat.mChannelsPerFrame;
@@ -35686,15 +35667,15 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
             AudioObjectID deviceObjectID = pDeviceObjectIDs[iDevice];
 
             if (ma_does_AudioObject_support_playback(pContext, deviceObjectID)) {
-                ma_bool32 cbResult = ma_context_enumerate_device_by_AudioObjectID__coreaudio(pContext, deviceObjectID, defaultDeviceObjectIDPlayback, ma_device_type_playback, callback, pUserData);
-                if (cbResult == MA_FALSE) {
+                ma_device_enumeration_result cbResult = ma_context_enumerate_device_by_AudioObjectID__coreaudio(pContext, deviceObjectID, defaultDeviceObjectIDPlayback, ma_device_type_playback, callback, pUserData);
+                if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                     break;
                 }
             }
 
             if (ma_does_AudioObject_support_capture(pContext, deviceObjectID)) {
-                ma_bool32 cbResult = ma_context_enumerate_device_by_AudioObjectID__coreaudio(pContext, deviceObjectID, defaultDeviceObjectIDCapture, ma_device_type_capture, callback, pUserData);
-                if (cbResult == MA_FALSE) {
+                ma_device_enumeration_result cbResult = ma_context_enumerate_device_by_AudioObjectID__coreaudio(pContext, deviceObjectID, defaultDeviceObjectIDCapture, ma_device_type_capture, callback, pUserData);
+                if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                     break;
                 }
             }
@@ -35708,27 +35689,13 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
         NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
 
         for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
-            ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
-
-            /* I'm not sure how to check for default devices. I'm just going to assume the first one is the default. */
-            if (pPortDesc == pOutputs[0]) {
-                info.isDefault = MA_TRUE;
-            }
-
-            if (!callback(ma_device_type_playback, &info, pUserData)) {
+            if (ma_context_enumerate_device_by_AVAudioSessionPortDescription__coreaudio(pContext, pPortDesc, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT) {
                 return MA_SUCCESS;
             }
         }
 
         for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
-            ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
-
-            /* I'm not sure how to check for default devices. I'm just going to assume the first one is the default. */
-            if (pPortDesc == pInputs[0]) {
-                info.isDefault = MA_TRUE;
-            }
-
-            if (!callback(ma_device_type_capture, &info, pUserData)) {
+            if (ma_context_enumerate_device_by_AVAudioSessionPortDescription__coreaudio(pContext, pPortDesc, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT) {
                 return MA_SUCCESS;
             }
         }
@@ -37480,7 +37447,7 @@ static ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap*
     return bestSampleRate;
 }
 
-static ma_bool32 ma_context_enumeate_device_from_handle__sndio(ma_context* pContext, struct ma_sio_hdl* handle, const char* name, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_handle__sndio(ma_context* pContext, struct ma_sio_hdl* handle, const char* name, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(pContext);
     ma_device_info deviceInfo;
@@ -37507,7 +37474,7 @@ static ma_bool32 ma_context_enumeate_device_from_handle__sndio(ma_context* pCont
 
     /* Format. */
     if (pContextStateSndio->sio_getcap(handle, &caps) == 0) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     deviceInfo.nativeDataFormatCount = 0;
@@ -37591,7 +37558,7 @@ static ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_en
     if (!isTerminating) {
         handle = pContextStateSndio->sio_open(MA_SIO_DEVANY, MA_SIO_PLAY, 0);
         if (handle != NULL) {
-            isTerminating = !ma_context_enumeate_device_from_handle__sndio(pContext, handle, MA_SIO_DEVANY, ma_device_type_playback, callback, pUserData);
+            isTerminating = (ma_context_enumerate_device_from_handle__sndio(pContext, handle, MA_SIO_DEVANY, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
             pContextStateSndio->sio_close(handle);
         }
     }
@@ -37600,7 +37567,7 @@ static ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_en
     if (!isTerminating) {
         handle = pContextStateSndio->sio_open(MA_SIO_DEVANY, MA_SIO_REC, 0);
         if (handle != NULL) {
-            isTerminating = !ma_context_enumeate_device_from_handle__sndio(pContext, handle, MA_SIO_DEVANY, ma_device_type_capture, callback, pUserData);
+            isTerminating = (ma_context_enumerate_device_from_handle__sndio(pContext, handle, MA_SIO_DEVANY, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
             pContextStateSndio->sio_close(handle);
         }
     }
@@ -38295,14 +38262,14 @@ static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIn
     return MA_SUCCESS;
 }
 
-static ma_bool32 ma_context_enumerate_device_from_fd___audio4(int fd, int deviceIndex, struct stat* stDevice, struct stat* stDefault, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_fd___audio4(int fd, int deviceIndex, struct stat* stDevice, struct stat* stDefault, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_result result;
     ma_device_info deviceInfo;
 
     result = ma_context_get_device_info_from_fd__audio4(fd, deviceIndex, stDevice, stDefault, deviceType, &deviceInfo);
     if (result != MA_SUCCESS) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     return callback(deviceType, &deviceInfo, pUserData);
@@ -38345,7 +38312,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
         if (!isTerminating) {
             fd = open(devpath, O_RDONLY, 0);
             if (fd >= 0) {
-                isTerminating = !ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_playback, callback, pUserData);
+                isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                 close(fd);
             }
         }
@@ -38354,7 +38321,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
         if (!isTerminating) {
             fd = open(devpath, O_WRONLY, 0);
             if (fd >= 0) {
-                isTerminating = !ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_capture, callback, pUserData);
+                isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                 close(fd);
             }
         }
@@ -39191,7 +39158,7 @@ static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pCont
     return MA_SUCCESS;
 }
 
-static ma_bool32 ma_context_enumerate_device_from_fd_legacy__oss(ma_context* pContext, int fd, const char* devnode, struct stat* stDefault, ma_device_type deviceType, ma_device_info* pDeviceInfo, ma_enum_devices_callback_proc callback, void* pUserData) /* Returns the result of the callback. */
+static ma_device_enumeration_result ma_context_enumerate_device_from_fd_legacy__oss(ma_context* pContext, int fd, const char* devnode, struct stat* stDefault, ma_device_type deviceType, ma_device_info* pDeviceInfo, ma_enum_devices_callback_proc callback, void* pUserData) /* Returns the result of the callback. */
 {
     struct stat stDevice;
     int formats;
@@ -39213,13 +39180,13 @@ static ma_bool32 ma_context_enumerate_device_from_fd_legacy__oss(ma_context* pCo
     formats = 0;
     if (ioctl(fd, SNDCTL_DSP_GETFMTS, &formats) < 0) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] Failed to retrieve formats for \"%s\" during device enumeration. Skipping", devnode);
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     /* We need to support at least u8 or s16. */
     if ((formats & AFMT_U8) == 0 && (formats & (AFMT_S16_LE | AFMT_S16_BE)) == 0) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] \"%s\" does not support u8 or s16 formats. Skipping", devnode);
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     if (((formats & AFMT_S16_LE) != 0 && ma_is_little_endian()) || ((formats & AFMT_S16_BE) != 0 && ma_is_big_endian())) {
@@ -39274,7 +39241,7 @@ static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, 
                     fdDevice = open(devnode, O_WRONLY);
                     if (fdDevice >= 0) {
                         if (ioctl(fdDevice, SNDCTL_DSP_GETOSPACE, &bufInfo) >= 0) {
-                            isTerminating = !ma_context_enumerate_device_from_fd_legacy__oss(pContext, fdDevice, devnode, &stDefault, ma_device_type_playback, &deviceInfo, callback, pUserData);
+                            isTerminating = (ma_context_enumerate_device_from_fd_legacy__oss(pContext, fdDevice, devnode, &stDefault, ma_device_type_playback, &deviceInfo, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                         }
 
                         close(fdDevice);
@@ -39287,7 +39254,7 @@ static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, 
                     fdDevice = open(devnode, O_RDONLY);
                     if (fdDevice >= 0) {
                         if (ioctl(fdDevice, SNDCTL_DSP_GETISPACE, &bufInfo) >= 0) {
-                            isTerminating = !ma_context_enumerate_device_from_fd_legacy__oss(pContext, fdDevice, devnode, &stDefault, ma_device_type_capture, &deviceInfo, callback, pUserData);
+                            isTerminating = (ma_context_enumerate_device_from_fd_legacy__oss(pContext, fdDevice, devnode, &stDefault, ma_device_type_capture, &deviceInfo, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                         }
 
                         close(fdDevice);
@@ -39383,10 +39350,10 @@ static ma_result ma_context_enumerate_devices_modern__oss(ma_context* pContext, 
 
                         /* The device can be both playback and capture. */
                         if (!isTerminating && (ai.caps & PCM_CAP_OUTPUT) != 0) {
-                            isTerminating = !callback(ma_device_type_playback, &deviceInfo, pUserData);
+                            isTerminating = (callback(ma_device_type_playback, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                         }
                         if (!isTerminating && (ai.caps & PCM_CAP_INPUT) != 0) {
-                            isTerminating = !callback(ma_device_type_capture, &deviceInfo, pUserData);
+                            isTerminating = (callback(ma_device_type_capture, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                         }
 
                         if (isTerminating) {
@@ -40430,7 +40397,7 @@ static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_conte
     ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_s16, flags, pDeviceInfo);
 }
 
-static ma_bool32 ma_context_enumerate_device_from_type__aaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_type__aaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_result result;
     ma_AAudioStream* pStream;
@@ -40438,7 +40405,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__aaudio(ma_context* pCont
 
     result = ma_open_stream_basic__aaudio(pContext, NULL, deviceType, ma_share_mode_shared, &pStream);
     if (result != MA_SUCCESS) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     MA_ZERO_OBJECT(&deviceInfo);
@@ -40467,7 +40434,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__aaudio(ma_context* pCont
 
 static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    ma_bool32 cbResult = MA_TRUE;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
@@ -40479,14 +40446,16 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_e
     */
 
     /* Playback. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__aaudio(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__aaudio(pContext, ma_device_type_capture, callback, pUserData);
     }
+
+    (void)cbResult;
 
     return MA_SUCCESS;
 }
@@ -41457,7 +41426,7 @@ static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format f
     }
 }
 
-static ma_bool32 ma_context_enumerate_device_from_type__opensl(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_type__opensl(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
 
@@ -41498,7 +41467,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__opensl(ma_context* pCont
 
 static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    ma_bool32 cbResult;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
@@ -41508,17 +41477,17 @@ static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_e
         return MA_INVALID_OPERATION;
     }
 
-    cbResult = MA_TRUE;
-
     /* Playback. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__opensl(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__opensl(pContext, ma_device_type_capture, callback, pUserData);
     }
+
+    (void)cbResult;
 
     return MA_SUCCESS;
 }
@@ -42456,7 +42425,7 @@ static void ma_context_uninit__webaudio(ma_context* pContext)
     ma_free(pContextStateWebAudio, ma_context_get_allocation_callbacks(pContext));
 }
 
-static ma_bool32 ma_context_enumerate_device_from_type__webaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_device_from_type__webaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
 
@@ -42494,7 +42463,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__webaudio(ma_context* pCo
     }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
 
     if (deviceInfo.nativeDataFormats[0].sampleRate == 0) {
-        return MA_TRUE;
+        return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
     deviceInfo.nativeDataFormatCount = 1;
@@ -42504,7 +42473,7 @@ static ma_bool32 ma_context_enumerate_device_from_type__webaudio(ma_context* pCo
 
 static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    ma_bool32 cbResult = MA_TRUE;
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
@@ -42512,16 +42481,18 @@ static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma
     /* Only supporting default devices for now. */
 
     /* Playback. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         cbResult = ma_context_enumerate_device_from_type__webaudio(pContext, ma_device_type_playback, callback, pUserData);
     }
 
     /* Capture. */
-    if (cbResult) {
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
         if (ma_is_capture_supported__webaudio()) {
             cbResult = ma_context_enumerate_device_from_type__webaudio(pContext, ma_device_type_capture, callback, pUserData);
         }
     }
+
+    (void)cbResult;
 
     return MA_SUCCESS;
 }
@@ -44200,7 +44171,7 @@ MA_API ma_result ma_context_enumerate_devices(ma_context* pContext, ma_enum_devi
 }
 
 
-static ma_bool32 ma_context_get_devices__enum_callback(ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData)
+static ma_device_enumeration_result ma_context_get_devices__enum_callback(ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData)
 {
     /*
     We need to insert the device info into our main internal buffer. Where it goes depends on the device type. If it's a capture device
@@ -44219,7 +44190,7 @@ static ma_bool32 ma_context_get_devices__enum_callback(ma_device_type deviceType
         ma_uint32 newCapacity = pContext->deviceInfoCapacity + bufferExpansionCount;
         ma_device_info* pNewInfos = (ma_device_info*)ma_realloc(pContext->pDeviceInfos, sizeof(*pContext->pDeviceInfos)*newCapacity, &pContext->allocationCallbacks);
         if (pNewInfos == NULL) {
-            return MA_FALSE;   /* Out of memory. */
+            return MA_DEVICE_ENUMERATION_ABORT;   /* Out of memory. */
         }
 
         pContext->pDeviceInfos = pNewInfos;
@@ -44246,7 +44217,7 @@ static ma_bool32 ma_context_get_devices__enum_callback(ma_device_type deviceType
     }
 
     (void)pUserData;
-    return MA_TRUE;
+    return MA_DEVICE_ENUMERATION_CONTINUE;
 }
 
 MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** ppPlaybackDeviceInfos, ma_uint32* pPlaybackDeviceCount, ma_device_info** ppCaptureDeviceInfos, ma_uint32* pCaptureDeviceCount)
@@ -44313,7 +44284,7 @@ typedef struct ma_context_get_device_info_enum_callback_data
     ma_bool32 foundDevice;
 } ma_context_get_device_info_enum_callback_data;
 
-static ma_bool32 ma_context_get_device_info_enum_callback(ma_device_type deviceType, const ma_device_info* pDeviceInfo, void* pUserData)
+static ma_device_enumeration_result ma_context_get_device_info_enum_callback(ma_device_type deviceType, const ma_device_info* pDeviceInfo, void* pUserData)
 {
     ma_context_get_device_info_enum_callback_data* pData = (ma_context_get_device_info_enum_callback_data*)pUserData;
 
@@ -44341,10 +44312,10 @@ static ma_bool32 ma_context_get_device_info_enum_callback(ma_device_type deviceT
 
     /* Abort enumeration once we've found our info. */
     if (pData->foundDevice) {
-        return MA_FALSE;
+        return MA_DEVICE_ENUMERATION_ABORT;
     }
 
-    return MA_TRUE;
+    return MA_DEVICE_ENUMERATION_CONTINUE;
 }
 
 MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
