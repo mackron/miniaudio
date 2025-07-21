@@ -6663,102 +6663,6 @@ typedef struct ma_device_backend_vtable ma_device_backend_vtable;
 BACKENDS
 
 ************************************************************************************************************************************************************/
-/* Some backends are only supported on certain platforms. */
-#if defined(MA_WIN32)
-    #define MA_SUPPORT_WASAPI
-
-    #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
-        #define MA_SUPPORT_DSOUND
-        #define MA_SUPPORT_WINMM
-
-        /* Don't enable JACK here if compiling with Cosmopolitan. It'll be enabled in the Linux section below. */
-        #if !defined(__COSMOPOLITAN__)
-            #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
-        #endif
-    #endif
-#endif
-#if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
-    #if defined(MA_LINUX)
-        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__)   /* ALSA is not supported on Android. */
-            #define MA_SUPPORT_ALSA
-        #endif
-    #endif
-    #if !defined(MA_BSD) && !defined(MA_ANDROID) && !defined(MA_EMSCRIPTEN)
-        #define MA_SUPPORT_PULSEAUDIO
-        #define MA_SUPPORT_JACK
-    #endif
-    #if defined(__OpenBSD__)        /* <-- Change this to "#if defined(MA_BSD)" to enable sndio on all BSD flavors. */
-        #define MA_SUPPORT_SNDIO    /* sndio is only supported on OpenBSD for now. May be expanded later if there's demand. */
-    #endif
-    #if defined(__NetBSD__) || defined(__OpenBSD__)
-        #define MA_SUPPORT_AUDIO4   /* Only support audio(4) on platforms with known support. */
-    #endif
-    #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(MA_LINUX) && !defined(MA_ANDROID)
-        #define MA_SUPPORT_OSS      /* Only support OSS on specific platforms with known support. */
-    #endif
-#endif
-#if defined(MA_ANDROID)
-    #define MA_SUPPORT_AAUDIO
-    #define MA_SUPPORT_OPENSL
-#endif
-#if defined(MA_APPLE)
-    #define MA_SUPPORT_COREAUDIO
-#endif
-#if defined(MA_EMSCRIPTEN)
-    #define MA_SUPPORT_WEBAUDIO
-#endif
-
-/* All platforms should support custom backends. */
-#define MA_SUPPORT_CUSTOM
-
-/* Explicitly disable the Null backend for Emscripten because it uses a background thread which is not properly supported right now. */
-#if !defined(MA_EMSCRIPTEN)
-#define MA_SUPPORT_NULL
-#endif
-
-
-#if defined(MA_SUPPORT_WASAPI) && !defined(MA_NO_WASAPI) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_WASAPI))
-    #define MA_HAS_WASAPI
-#endif
-#if defined(MA_SUPPORT_DSOUND) && !defined(MA_NO_DSOUND) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_DSOUND))
-    #define MA_HAS_DSOUND
-#endif
-#if defined(MA_SUPPORT_WINMM) && !defined(MA_NO_WINMM) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_WINMM))
-    #define MA_HAS_WINMM
-#endif
-#if defined(MA_SUPPORT_COREAUDIO) && !defined(MA_NO_COREAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_COREAUDIO))
-    #define MA_HAS_COREAUDIO
-#endif
-#if defined(MA_SUPPORT_PULSEAUDIO) && !defined(MA_NO_PULSEAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_PULSEAUDIO))
-    #define MA_HAS_PULSEAUDIO
-#endif
-#if defined(MA_SUPPORT_ALSA) && !defined(MA_NO_ALSA) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_ALSA))
-    #define MA_HAS_ALSA
-#endif
-#if defined(MA_SUPPORT_JACK) && !defined(MA_NO_JACK) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_JACK))
-    #define MA_HAS_JACK
-#endif
-#if defined(MA_SUPPORT_SNDIO) && !defined(MA_NO_SNDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_SNDIO))
-    #define MA_HAS_SNDIO
-#endif
-#if defined(MA_SUPPORT_AUDIO4) && !defined(MA_NO_AUDIO4) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AUDIO4))
-    #define MA_HAS_AUDIO4
-#endif
-#if defined(MA_SUPPORT_OSS) && !defined(MA_NO_OSS) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_OSS))
-    #define MA_HAS_OSS
-#endif
-#if defined(MA_SUPPORT_AAUDIO) && !defined(MA_NO_AAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AAUDIO))
-    #define MA_HAS_AAUDIO
-#endif
-#if defined(MA_SUPPORT_OPENSL) && !defined(MA_NO_OPENSL) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_OPENSL))
-    #define MA_HAS_OPENSL
-#endif
-#if defined(MA_SUPPORT_WEBAUDIO) && !defined(MA_NO_WEBAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_WEBAUDIO))
-    #define MA_HAS_WEBAUDIO
-#endif
-#if defined(MA_SUPPORT_NULL) && !defined(MA_NO_NULL) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_NULL))
-    #define MA_HAS_NULL
-#endif
 
 /* BEG WASAPI */
 /* WASAPI audio thread priority characteristics. */
@@ -7213,6 +7117,7 @@ extern ma_device_backend_vtable* ma_device_backend_null;
 END BACKENDS
 
 ************************************************************************************************************************************************************/
+
 typedef struct ma_device_backend_info
 {
     const char* pName;
@@ -19093,6 +18998,104 @@ DEVICE I/O
 BACKENDS
 
 ************************************************************************************************************************************************************/
+/* Some backends are only supported on certain platforms. */
+#if defined(MA_WIN32)
+    #define MA_SUPPORT_WASAPI
+
+    #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
+        #define MA_SUPPORT_DSOUND
+        #define MA_SUPPORT_WINMM
+
+        /* Don't enable JACK here if compiling with Cosmopolitan. It'll be enabled in the Linux section below. */
+        #if !defined(__COSMOPOLITAN__)
+            #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
+        #endif
+    #endif
+#endif
+#if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
+    #if defined(MA_LINUX)
+        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__)   /* ALSA is not supported on Android. */
+            #define MA_SUPPORT_ALSA
+        #endif
+    #endif
+    #if !defined(MA_BSD) && !defined(MA_ANDROID) && !defined(MA_EMSCRIPTEN)
+        #define MA_SUPPORT_PULSEAUDIO
+        #define MA_SUPPORT_JACK
+    #endif
+    #if defined(__OpenBSD__)        /* <-- Change this to "#if defined(MA_BSD)" to enable sndio on all BSD flavors. */
+        #define MA_SUPPORT_SNDIO    /* sndio is only supported on OpenBSD for now. May be expanded later if there's demand. */
+    #endif
+    #if defined(__NetBSD__) || defined(__OpenBSD__)
+        #define MA_SUPPORT_AUDIO4   /* Only support audio(4) on platforms with known support. */
+    #endif
+    #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(MA_LINUX) && !defined(MA_ANDROID)
+        #define MA_SUPPORT_OSS      /* Only support OSS on specific platforms with known support. */
+    #endif
+#endif
+#if defined(MA_ANDROID)
+    #define MA_SUPPORT_AAUDIO
+    #define MA_SUPPORT_OPENSL
+#endif
+#if defined(MA_APPLE)
+    #define MA_SUPPORT_COREAUDIO
+#endif
+#if defined(MA_EMSCRIPTEN)
+    #define MA_SUPPORT_WEBAUDIO
+#endif
+
+/* All platforms should support custom backends. */
+#define MA_SUPPORT_CUSTOM
+
+/* Explicitly disable the Null backend for Emscripten because it uses a background thread which is not properly supported right now. */
+#if !defined(MA_EMSCRIPTEN)
+#define MA_SUPPORT_NULL
+#endif
+
+
+#if defined(MA_SUPPORT_WASAPI) && !defined(MA_NO_WASAPI) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_WASAPI))
+    #define MA_HAS_WASAPI
+#endif
+#if defined(MA_SUPPORT_DSOUND) && !defined(MA_NO_DSOUND) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_DSOUND))
+    #define MA_HAS_DSOUND
+#endif
+#if defined(MA_SUPPORT_WINMM) && !defined(MA_NO_WINMM) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_WINMM))
+    #define MA_HAS_WINMM
+#endif
+#if defined(MA_SUPPORT_COREAUDIO) && !defined(MA_NO_COREAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_COREAUDIO))
+    #define MA_HAS_COREAUDIO
+#endif
+#if defined(MA_SUPPORT_PULSEAUDIO) && !defined(MA_NO_PULSEAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_PULSEAUDIO))
+    #define MA_HAS_PULSEAUDIO
+#endif
+#if defined(MA_SUPPORT_ALSA) && !defined(MA_NO_ALSA) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_ALSA))
+    #define MA_HAS_ALSA
+#endif
+#if defined(MA_SUPPORT_JACK) && !defined(MA_NO_JACK) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_JACK))
+    #define MA_HAS_JACK
+#endif
+#if defined(MA_SUPPORT_SNDIO) && !defined(MA_NO_SNDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_SNDIO))
+    #define MA_HAS_SNDIO
+#endif
+#if defined(MA_SUPPORT_AUDIO4) && !defined(MA_NO_AUDIO4) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AUDIO4))
+    #define MA_HAS_AUDIO4
+#endif
+#if defined(MA_SUPPORT_OSS) && !defined(MA_NO_OSS) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_OSS))
+    #define MA_HAS_OSS
+#endif
+#if defined(MA_SUPPORT_AAUDIO) && !defined(MA_NO_AAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AAUDIO))
+    #define MA_HAS_AAUDIO
+#endif
+#if defined(MA_SUPPORT_OPENSL) && !defined(MA_NO_OPENSL) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_OPENSL))
+    #define MA_HAS_OPENSL
+#endif
+#if defined(MA_SUPPORT_WEBAUDIO) && !defined(MA_NO_WEBAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_WEBAUDIO))
+    #define MA_HAS_WEBAUDIO
+#endif
+#if defined(MA_SUPPORT_NULL) && !defined(MA_NO_NULL) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_NULL))
+    #define MA_HAS_NULL
+#endif
+
+
 /* BEG WASAPI */
 MA_API ma_context_config_wasapi ma_context_config_wasapi_init(void)
 {
