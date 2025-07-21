@@ -7599,20 +7599,20 @@ struct ma_context_config
 
 struct ma_context
 {
-    ma_device_backend_vtable* pVTable; /* New new system. */
-    void* pBackendState;                /* Backend state created by the backend. This will be passed to the relevant backend functions. */
+    ma_device_backend_vtable* pVTable;              /* New new system. */
+    MA_ATOMIC(MA_SIZEOF_PTR, void*) pBackendState;  /* Backend state created by the backend. This will be passed to the relevant backend functions. */
     ma_log* pLog;
-    ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
+    ma_log log;                                     /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
     ma_thread_priority threadPriority;
     size_t threadStackSize;
     void* pUserData;
     ma_allocation_callbacks allocationCallbacks;
-    ma_mutex deviceEnumLock;            /* Used to make ma_context_get_devices() thread safe. */
-    ma_mutex deviceInfoLock;            /* Used to make ma_context_get_device_info() thread safe. */
-    ma_uint32 deviceInfoCapacity;       /* Total capacity of pDeviceInfos. */
+    ma_mutex deviceEnumLock;                        /* Used to make ma_context_get_devices() thread safe. */
+    ma_mutex deviceInfoLock;                        /* Used to make ma_context_get_device_info() thread safe. */
+    ma_uint32 deviceInfoCapacity;                   /* Total capacity of pDeviceInfos. */
     ma_uint32 playbackDeviceInfoCount;
     ma_uint32 captureDeviceInfoCount;
-    ma_device_info* pDeviceInfos;       /* Playback devices first, then capture. */
+    ma_device_info* pDeviceInfos;                   /* Playback devices first, then capture. */
 
 #if defined(MA_WIN32)
     struct
@@ -7645,24 +7645,24 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    ma_atomic_device_status state;               /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
-    ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
-    ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
-    void* pUserData;                            /* Application defined data. */
-    void* pBackendState;                        /* Backend state created by the backend. This will be passed to the relevant backend functions. */
+    ma_atomic_device_status state;                  /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
+    ma_device_data_proc onData;                     /* Set once at initialization time and should not be changed after. */
+    ma_device_notification_proc onNotification;     /* Set once at initialization time and should not be changed after. */
+    void* pUserData;                                /* Application defined data. */
+    MA_ATOMIC(MA_SIZEOF_PTR, void*) pBackendState;  /* Backend state created by the backend. This will be passed to the relevant backend functions. */
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
     ma_event stopEvent;
     ma_thread thread;
-    ma_result workResult;                       /* This is set by the worker thread after it's finished doing a job. */
-    ma_bool8 isOwnerOfContext;                  /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
+    ma_result workResult;                           /* This is set by the worker thread after it's finished doing a job. */
+    ma_bool8 isOwnerOfContext;                      /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
     ma_bool8 noFixedSizedCallback;
-    ma_atomic_float masterVolumeFactor;         /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
-    ma_duplex_rb duplexRB;                      /* Intermediary buffer for duplex devices on asynchronous backends. */
+    ma_atomic_float masterVolumeFactor;             /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
+    ma_duplex_rb duplexRB;                          /* Intermediary buffer for duplex devices on asynchronous backends. */
     struct
     {
         ma_resample_algorithm algorithm;
@@ -44034,7 +44034,7 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Successfully initialized %s backend.", backendInfo.pName);
 
         pContext->pVTable = backend.pVTable;
-        pContext->pBackendState = pContextState;
+        ma_atomic_store_explicit_ptr((volatile void**)&pContext->pBackendState, pContextState, ma_atomic_memory_order_relaxed);
 
         result = ma_mutex_init(&pContext->deviceEnumLock);
         if (result != MA_SUCCESS) {
@@ -44122,7 +44122,7 @@ MA_API void* ma_context_get_backend_state(ma_context* pContext)
         return NULL;
     }
 
-    return pContext->pBackendState;
+    return ma_atomic_load_explicit_ptr((volatile void**)&pContext->pBackendState, ma_atomic_memory_order_relaxed);
 }
 
 
@@ -44414,6 +44414,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_result result;
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
+    void* pBackendState;
 
     /* The context can be null, in which case we self-manage it. */
     if (pContext == NULL) {
@@ -44568,13 +44569,15 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
-    result = pContext->pVTable->onDeviceInit(pDevice, ma_device_config_find_backend_config(pConfig, pContext->pVTable), &descriptorPlayback, &descriptorCapture, &pDevice->pBackendState);
+    result = pContext->pVTable->onDeviceInit(pDevice, ma_device_config_find_backend_config(pConfig, pContext->pVTable), &descriptorPlayback, &descriptorCapture, &pBackendState);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
         ma_mutex_uninit(&pDevice->startStopLock);
         return result;
     }
+
+    ma_atomic_store_explicit_ptr((volatile void**)&pDevice->pBackendState, pBackendState, ma_atomic_memory_order_relaxed);
 
 
     result = ma_device_post_init(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
@@ -44930,7 +44933,7 @@ MA_API void* ma_device_get_backend_state(ma_device* pDevice)
         return NULL;
     }
 
-    return pDevice->pBackendState;
+    return ma_atomic_load_explicit_ptr((volatile void**)&pDevice->pBackendState, ma_atomic_memory_order_relaxed);
 }
 
 
