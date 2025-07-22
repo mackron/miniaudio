@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.22 - 2025-02-24
+miniaudio - v0.11.23 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -12,18 +12,10 @@ GitHub:        https://github.com/mackron/miniaudio
 /*
 1. Introduction
 ===============
-To use miniaudio, include "miniaudio.h":
-
-    ```c
-    #include "miniaudio.h"
-    ```
-
-The implementation is contained in "miniaudio.c". Just compile this like any other source file. You
-can include miniaudio.c if you want to compile your project as a single translation unit:
-
-    ```c
-    #include "miniaudio.c"
-    ```
+To use miniaudio, just include "miniaudio.h" like any other header and add "miniaudio.c" to your
+source tree. If you don't want to add it to your source tree you can compile and link to it like
+any other library. Note that ABI compatiblity is not guaranteed between versions, even with bug
+fix releases, so take care if compiling as a shared object.
 
 miniaudio includes both low level and high level APIs. The low level API is good for those who want
 to do all of their mixing themselves and only require a light weight interface to the underlying
@@ -462,6 +454,11 @@ is at the end, use `ma_sound_at_end()`. Looping of a sound can be controlled wit
 ===========
 miniaudio should work cleanly out of the box without the need to download or install any
 dependencies. See below for platform-specific details.
+
+This library has been designed to be added directly to your source tree which is the preferred way
+of using it, but you can compile it as a normal library if that's your preference. Be careful if
+compiling as a shared object because miniaudio is not ABI compatible between any release, including
+bug fix releases. It's recommended you link statically.
 
 Note that GCC and Clang require `-msse2`, `-mavx2`, etc. for SIMD optimizations.
 
@@ -3750,7 +3747,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 22
+#define MA_VERSION_REVISION 23
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
