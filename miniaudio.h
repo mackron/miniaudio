@@ -3921,6 +3921,12 @@ typedef ma_uint16 wchar_t;
     #if defined(__NX__)
         #define MA_NX
     #endif
+    #if defined(__3DS__)
+        #define MA_3DS
+    #endif
+    #if defined(__SWITCH__)
+        #define MA_SWITCH
+    #endif
     #if defined(__BEOS__) || defined(__HAIKU__)
         #define MA_BEOS
     #endif
@@ -17463,7 +17469,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     int result;
     pthread_attr_t* pAttr = NULL;
 
-#if !defined(__EMSCRIPTEN__) && !defined(__3DS__)
+#if !defined(MA_EMSCRIPTEN) && !defined(MA_3DS) && !defined(MA_SWITCH)
     /* Try setting the thread priority. It's not critical if anything fails here. */
     pthread_attr_t attr;
     if (pthread_attr_init(&attr) == 0) {
@@ -19213,6 +19219,13 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
 Dynamic Linking
 
 *******************************************************************************/
+/* Disable run-time linking on certain backends and platforms. */
+#ifndef MA_NO_RUNTIME_LINKING
+    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO) || defined(MA_SWITCH)
+        #define MA_NO_RUNTIME_LINKING
+    #endif
+#endif
+
 #ifdef MA_POSIX
     /* No need for dlfcn.h if we're not using runtime linking. */
     #ifndef MA_NO_RUNTIME_LINKING
@@ -19333,13 +19346,6 @@ DEVICE I/O
 *************************************************************************************************************************************************************
 ************************************************************************************************************************************************************/
 
-/* Disable run-time linking on certain backends and platforms. */
-#ifndef MA_NO_RUNTIME_LINKING
-    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO)
-        #define MA_NO_RUNTIME_LINKING
-    #endif
-#endif
-
 #ifdef MA_APPLE
     #include <AvailabilityMacros.h>
 #endif
@@ -19352,11 +19358,6 @@ DEVICE I/O
 
 #ifdef MA_POSIX
     #include <sys/types.h>
-
-    /* No need for dlfcn.h if we're not using runtime linking. */
-    #ifndef MA_NO_RUNTIME_LINKING
-        #include <dlfcn.h>
-    #endif
 #endif
 
 /* This must be set to at least 26. */
