@@ -6830,10 +6830,11 @@ MA_API ma_context_config_alsa ma_context_config_alsa_init(void);
 
 typedef struct ma_device_config_alsa
 {
-    ma_bool32 noMMap;           /* Disables MMap mode. */
-    ma_bool32 noAutoFormat;     /* Opens the ALSA device with SND_PCM_NO_AUTO_FORMAT. */
-    ma_bool32 noAutoChannels;   /* Opens the ALSA device with SND_PCM_NO_AUTO_CHANNELS. */
-    ma_bool32 noAutoResample;   /* Opens the ALSA device with SND_PCM_NO_AUTO_RESAMPLE. */
+    ma_bool32 noMMap;                       /* Disables MMap mode. */
+    ma_bool32 noAutoFormat;                 /* Opens the ALSA device with SND_PCM_NO_AUTO_FORMAT. */
+    ma_bool32 noAutoChannels;               /* Opens the ALSA device with SND_PCM_NO_AUTO_CHANNELS. */
+    ma_bool32 noAutoResample;               /* Opens the ALSA device with SND_PCM_NO_AUTO_RESAMPLE. */
+    ma_bool32 assumeDefaultChannelLayout;   /* Forces the use of the "default" ALSA channel layout. */
 } ma_device_config_alsa;
 
 MA_API ma_device_config_alsa ma_device_config_alsa_init(void);
@@ -29801,58 +29802,63 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
 
     /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
     {
-        ma_snd_pcm_chmap_t* pChmap = NULL;
-        if (pContextStateALSA->snd_pcm_get_chmap != NULL) {
-            pChmap = pContextStateALSA->snd_pcm_get_chmap(pPCM);
-        }
+        if (pDeviceConfigALSA->assumeDefaultChannelLayout) {
+            ma_snd_pcm_chmap_t* pChmap = NULL;
+            if (pContextStateALSA->snd_pcm_get_chmap != NULL) {
+                pChmap = pContextStateALSA->snd_pcm_get_chmap(pPCM);
+            }
 
-        if (pChmap != NULL) {
-            ma_uint32 iChannel;
+            if (pChmap != NULL) {
+                ma_uint32 iChannel;
 
-            /* There are cases where the returned channel map can have a different channel count than was returned by snd_pcm_hw_params_set_channels_near(). */
-            if (pChmap->channels >= internalChannels) {
-                /* Drop excess channels. */
-                for (iChannel = 0; iChannel < internalChannels; ++iChannel) {
-                    internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
-                }
-            } else {
-                ma_uint32 i;
+                /* There are cases where the returned channel map can have a different channel count than was returned by snd_pcm_hw_params_set_channels_near(). */
+                if (pChmap->channels >= internalChannels) {
+                    /* Drop excess channels. */
+                    for (iChannel = 0; iChannel < internalChannels; ++iChannel) {
+                        internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
+                    }
+                } else {
+                    ma_uint32 i;
 
-                /*
-                Excess channels use defaults. Do an initial fill with defaults, overwrite the first pChmap->channels, validate to ensure there are no duplicate
-                channels. If validation fails, fall back to defaults.
-                */
-                ma_bool32 isValid = MA_TRUE;
+                    /*
+                    Excess channels use defaults. Do an initial fill with defaults, overwrite the first pChmap->channels, validate to ensure there are no duplicate
+                    channels. If validation fails, fall back to defaults.
+                    */
+                    ma_bool32 isValid = MA_TRUE;
 
-                /* Fill with defaults. */
-                ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
+                    /* Fill with defaults. */
+                    ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
 
-                /* Overwrite first pChmap->channels channels. */
-                for (iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
-                    internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
-                }
+                    /* Overwrite first pChmap->channels channels. */
+                    for (iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
+                        internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
+                    }
 
-                /* Validate. */
-                for (i = 0; i < internalChannels && isValid; ++i) {
-                    ma_uint32 j;
-                    for (j = i+1; j < internalChannels; ++j) {
-                        if (internalChannelMap[i] == internalChannelMap[j]) {
-                            isValid = MA_FALSE;
-                            break;
+                    /* Validate. */
+                    for (i = 0; i < internalChannels && isValid; ++i) {
+                        ma_uint32 j;
+                        for (j = i+1; j < internalChannels; ++j) {
+                            if (internalChannelMap[i] == internalChannelMap[j]) {
+                                isValid = MA_FALSE;
+                                break;
+                            }
                         }
+                    }
+
+                    /* If our channel map is invalid, fall back to defaults. */
+                    if (!isValid) {
+                        ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
                     }
                 }
 
-                /* If our channel map is invalid, fall back to defaults. */
-                if (!isValid) {
-                    ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
-                }
+                free(pChmap);
+                pChmap = NULL;
+            } else {
+                /* Could not retrieve the channel map. Fall back to a hard-coded assumption. */
+                ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
             }
-
-            free(pChmap);
-            pChmap = NULL;
         } else {
-            /* Could not retrieve the channel map. Fall back to a hard-coded assumption. */
+            /* The caller has requested that we always use the default ALSA channel layout. */
             ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
         }
     }
