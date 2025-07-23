@@ -82737,12 +82737,12 @@ MA_API ma_uint64 ma_dr_wav_write_pcm_frames(ma_dr_wav* pWav, ma_uint64 framesToW
 MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__msadpcm(ma_dr_wav* pWav, ma_uint64 framesToRead, ma_int16* pBufferOut)
 {
     ma_uint64 totalFramesRead = 0;
-    static ma_int32 adaptationTable[] = {
+    static const ma_int32 adaptationTable[] = {
         230, 230, 230, 230, 307, 409, 512, 614,
         768, 614, 512, 409, 307, 230, 230, 230
     };
-    static ma_int32 coeff1Table[] = { 256, 512, 0, 192, 240, 460,  392 };
-    static ma_int32 coeff2Table[] = { 0,  -256, 0, 64,  0,  -208, -232 };
+    static const ma_int32 coeff1Table[] = { 256, 512, 0, 192, 240, 460,  392 };
+    static const ma_int32 coeff2Table[] = { 0,  -256, 0, 64,  0,  -208, -232 };
     MA_DR_WAV_ASSERT(pWav != NULL);
     MA_DR_WAV_ASSERT(framesToRead > 0);
     while (pWav->readCursorInPCMFrames < pWav->totalPCMFrameCount) {
@@ -82875,11 +82875,11 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__ima(ma_dr_wav* pWav, ma_uint
 {
     ma_uint64 totalFramesRead = 0;
     ma_uint32 iChannel;
-    static ma_int32 indexTable[16] = {
+    static const ma_int32 indexTable[16] = {
         -1, -1, -1, -1, 2, 4, 6, 8,
         -1, -1, -1, -1, 2, 4, 6, 8
     };
-    static ma_int32 stepTable[89] = {
+    static const ma_int32 stepTable[89] = {
         7,     8,     9,     10,    11,    12,    13,    14,    16,    17,
         19,    21,    23,    25,    28,    31,    34,    37,    41,    45,
         50,    55,    60,    66,    73,    80,    88,    97,    107,   118,
@@ -82992,7 +82992,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__ima(ma_dr_wav* pWav, ma_uint
     return totalFramesRead;
 }
 #ifndef MA_DR_WAV_NO_CONVERSION_API
-static unsigned short ma_dr_wav_gAlawTable[256] = {
+static const unsigned short ma_dr_wav_gAlawTable[256] = {
     0xEA80, 0xEB80, 0xE880, 0xE980, 0xEE80, 0xEF80, 0xEC80, 0xED80, 0xE280, 0xE380, 0xE080, 0xE180, 0xE680, 0xE780, 0xE480, 0xE580,
     0xF540, 0xF5C0, 0xF440, 0xF4C0, 0xF740, 0xF7C0, 0xF640, 0xF6C0, 0xF140, 0xF1C0, 0xF040, 0xF0C0, 0xF340, 0xF3C0, 0xF240, 0xF2C0,
     0xAA00, 0xAE00, 0xA200, 0xA600, 0xBA00, 0xBE00, 0xB200, 0xB600, 0x8A00, 0x8E00, 0x8200, 0x8600, 0x9A00, 0x9E00, 0x9200, 0x9600,
@@ -83010,7 +83010,7 @@ static unsigned short ma_dr_wav_gAlawTable[256] = {
     0x0560, 0x0520, 0x05E0, 0x05A0, 0x0460, 0x0420, 0x04E0, 0x04A0, 0x0760, 0x0720, 0x07E0, 0x07A0, 0x0660, 0x0620, 0x06E0, 0x06A0,
     0x02B0, 0x0290, 0x02F0, 0x02D0, 0x0230, 0x0210, 0x0270, 0x0250, 0x03B0, 0x0390, 0x03F0, 0x03D0, 0x0330, 0x0310, 0x0370, 0x0350
 };
-static unsigned short ma_dr_wav_gMulawTable[256] = {
+static const unsigned short ma_dr_wav_gMulawTable[256] = {
     0x8284, 0x8684, 0x8A84, 0x8E84, 0x9284, 0x9684, 0x9A84, 0x9E84, 0xA284, 0xA684, 0xAA84, 0xAE84, 0xB284, 0xB684, 0xBA84, 0xBE84,
     0xC184, 0xC384, 0xC584, 0xC784, 0xC984, 0xCB84, 0xCD84, 0xCF84, 0xD184, 0xD384, 0xD584, 0xD784, 0xD984, 0xDB84, 0xDD84, 0xDF84,
     0xE104, 0xE204, 0xE304, 0xE404, 0xE504, 0xE604, 0xE704, 0xE804, 0xE904, 0xEA04, 0xEB04, 0xEC04, 0xED04, 0xEE04, 0xEF04, 0xF004,
