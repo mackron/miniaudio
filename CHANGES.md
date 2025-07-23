@@ -1,3 +1,20 @@
+v0.11.23 - TBD
+=====================
+* Fixed an error in `ma_channel_map_to_string()` where the output string is not null terminated correctly.
+* Fixed an error with logging due to mishandling of va_list.
+* Fixed some errors when compiling with `MA_NO_RUNTIME_LINKING`.
+* Fixed an alignment error with the ring buffer.
+* Fixed a memory leak in the resource manager when opening a file fails.
+* Fixed an assertion failure in the resource manager when opening a file fails.
+* Improved compatibility with old versions of GCC.
+* WAV, FLAC and MP3 decoders have been brought up to date with dr_libs. Of particular note, this should fix some long outstanding bugs with MP3 due to metadata not being handled correctly.
+* POSIX: Added a fallback for when creation of a real-time thread fails. This fallback can be disabled with `MA_NO_PTHREAD_REALTIME_PRIORITY_FALLBACK` if you need an explicit failure.
+* POSIX: pthread.h is no longer included when `MA_NO_THREADING` is defined.
+* WASAPI: Improved handling of COM initialization and shutdown to make it a bit more robust.
+* PulseAudio: Fixed a crash when requesting a channel count greater than 32.
+* AAudio: Fixed a crash when uninitializing the device while in the middle of rerouting.
+
+
 v0.11.22 - 2025-02-24
 =====================
 * Starting from version 0.12, miniaudio will be switching to a split .c/h pair, away from a single header. In preparation for this, a file named "miniaudio.c" has been added to repository. Currently this is just a simple wrapper around miniaudio.h and `MINIAUDIO_IMPLEMENTATION`. Nothing has changed in miniaudio.h, however when version 0.12 is released you will need to use miniaudio.c for the implementation. It's recommended you start the transition away from `MINIAUDIO_IMPLEMENTATION` and towards miniaudio.c. If you want to keep building your project as a single translation unit, you can do `#include "miniaudio.c"` which will continue to be supported with version 0.12 and beyond.
