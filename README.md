@@ -50,7 +50,7 @@ Examples
 This example shows one way to play a sound using the high level API.
 
 ```c
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 
 #include <stdio.h>
 
@@ -78,7 +78,7 @@ int main()
 This example shows how to decode and play a sound using the low level API.
 
 ```c
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 
 #include <stdio.h>
 
