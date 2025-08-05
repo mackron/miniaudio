@@ -445,7 +445,9 @@ endif()
 set(COMMON_LINK_LIBRARIES)
 
 if (UNIX)
-    list(APPEND COMMON_LINK_LIBRARIES dl)      # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+    if (NOT CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
+        list(APPEND COMMON_LINK_LIBRARIES dl)      # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+    endif()
     list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
     list(APPEND COMMON_LINK_LIBRARIES m)
 
