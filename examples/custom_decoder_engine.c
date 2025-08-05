@@ -72,5 +72,8 @@ int main(int argc, char** argv)
     printf("Press Enter to quit...");
     getchar();
 
+    ma_engine_uninit(&engine);
+    ma_resource_manager_uninit(&resourceManager);
+
     return 0;
 }

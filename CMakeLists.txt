@@ -67,8 +67,16 @@ if (CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
     include_directories(${OPENBSD_LOCALBASE}/include)
 endif()
 
+include(GNUInstallDirs)
+
 # Construct compiler options.
 set(COMPILE_OPTIONS)
+
+# Store libraries to install
+# When installing any header that imports miniaudio.h from a relative path, we
+# need to maintain its place in the directory tree so it can find Miniaudio
+set(LIBS_TO_INSTALL)
+
 
 if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
     message(FATAL_ERROR "MINIAUDIO_FORCE_CXX and MINIAUDIO_FORCE_C89 cannot be enabled at the same time.")
@@ -93,7 +101,7 @@ if(MINIAUDIO_FORCE_C89)
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         message(WARNING "MSVC does not support forcing C89. MINIAUDIO_FORCE_C89 ignored.")
     else()
-        message(WARNING "MINIAUDIO_FORCE_C89 is enabled but the compiler does not support it. Ingoring.")
+        message(WARNING "MINIAUDIO_FORCE_C89 is enabled but the compiler does not support it. Ignoring.")
     endif()
 endif()
 
@@ -154,6 +162,8 @@ if(MINIAUDIO_NO_NULL)
     list(APPEND COMPILE_DEFINES MA_NO_NULL)
 endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
+    list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
+
     if(MINIAUDIO_ENABLE_WASAPI)
         list(APPEND COMPILE_DEFINES MA_ENABLE_WASAPI)
     endif()
@@ -445,8 +455,12 @@ endif()
 set(COMMON_LINK_LIBRARIES)
 
 if (UNIX)
-    if (NOT CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
-        list(APPEND COMMON_LINK_LIBRARIES dl)      # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+    if(NOT MINIAUDIO_NO_RUNTIME_LINKING)
+        # Not all platforms actually use a separate "dl" library, notably NetBSD and OpenBSD.
+        find_library(LIB_DL "dl")
+        if(LIB_DL)
+            list(APPEND COMMON_LINK_LIBRARIES dl)  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+        endif()
     endif()
     list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
     list(APPEND COMMON_LINK_LIBRARIES m)
@@ -459,10 +473,13 @@ endif()
 
 
 # Static Libraries
-add_library(miniaudio STATIC
+add_library(miniaudio
     miniaudio.c
     miniaudio.h
 )
+
+list(APPEND LIBS_TO_INSTALL miniaudio)
+install(FILES miniaudio.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio)
 
 target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
@@ -479,10 +496,13 @@ if(HAS_LIBVORBIS)
 endif()
 
 if(HAS_LIBVORBIS)
-    add_library(miniaudio_libvorbis STATIC
+    add_library(miniaudio_libvorbis
         extras/decoders/libvorbis/miniaudio_libvorbis.c
         extras/decoders/libvorbis/miniaudio_libvorbis.h
     )
+
+    list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
+    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
 
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
@@ -501,10 +521,14 @@ if(HAS_LIBOPUS)
 endif()
 
 if(HAS_LIBOPUS)
-    add_library(miniaudio_libopus STATIC
+    add_library(miniaudio_libopus
         extras/decoders/libopus/miniaudio_libopus.c
         extras/decoders/libopus/miniaudio_libopus.h
     )
+
+
+    list(APPEND LIBS_TO_INSTALL miniaudio_libopus)
+    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libopus)
 
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
@@ -514,10 +538,16 @@ endif()
 
 if (NOT MINIAUDIO_NO_EXTRA_NODES)
     function(add_extra_node name)
-        add_library(miniaudio_${name}_node STATIC
+        add_library(miniaudio_${name}_node
             extras/nodes/ma_${name}_node/ma_${name}_node.c
             extras/nodes/ma_${name}_node/ma_${name}_node.h
         )
+        
+        set(libs "${LIBS_TO_INSTALL}")
+
+        list(APPEND libs miniaudio_${name}_node)
+        set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
+        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
 
         target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
         target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
@@ -652,3 +682,10 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
 endif()
+
+message(STATUS "Library list: ${LIBS_TO_INSTALL}")
+install(TARGETS ${LIBS_TO_INSTALL}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
