@@ -61,6 +61,11 @@ option(MINIAUDIO_NO_RUNTIME_LINKING            "Disable runtime linking"        
 option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types"      OFF)
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
 
+# /usr/local/include is not included in the base includes by default
+# add it to prevent header not found errors
+if (CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
+    include_directories(${OPENBSD_LOCALBASE}/include)
+endif()
 
 # Construct compiler options.
 set(COMPILE_OPTIONS)
