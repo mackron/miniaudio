@@ -3879,7 +3879,20 @@ typedef ma_uint16 wchar_t;
         #endif
     #endif
 #endif
-#if !defined(_WIN32)    /* If it's not Win32, assume POSIX. */
+#if defined(__MSDOS__) || defined(MSDOS) || defined(_MSDOS) || defined(__DOS__)
+    #define MA_DOS
+
+    /* No threading allowed on DOS. */
+    #ifndef MA_NO_THREADING
+    #define MA_NO_THREADING
+    #endif
+
+    /* No runtime linking allowed on DOS. */
+    #ifndef MA_NO_RUNTIME_LINKING
+    #define MA_NO_RUNTIME_LINKING
+    #endif
+#endif
+#if !defined(MA_WIN32) && !defined(MA_DOS)    /* If it's not Win32, assume POSIX. */
     #define MA_POSIX
 
     #if !defined(MA_NO_THREADING)
@@ -12742,6 +12755,29 @@ MA_API MA_NO_INLINE int ma_strcmp(const char* str1, const char* str2)
     return ((unsigned char*)str1)[0] - ((unsigned char*)str2)[0];
 }
 
+MA_API MA_NO_INLINE int ma_wcscmp(const wchar_t* str1, const wchar_t* str2)
+{
+    if (str1 == str2) return  0;
+
+    /* These checks differ from the standard implementation. It's not important, but I prefer it just for sanity. */
+    if (str1 == NULL) return -1;
+    if (str2 == NULL) return  1;
+
+    for (;;) {
+        if (str1[0] == L'\0') {
+            break;
+        }
+        if (str1[0] != str2[0]) {
+            break;
+        }
+
+        str1 += 1;
+        str2 += 1;
+    }
+
+    return ((unsigned short*)str1)[0] - ((unsigned short*)str2)[0];
+}
+
 MA_API MA_NO_INLINE int ma_strappend(char* dst, size_t dstSize, const char* srcA, const char* srcB)
 {
     int result;
@@ -12757,6 +12793,22 @@ MA_API MA_NO_INLINE int ma_strappend(char* dst, size_t dstSize, const char* srcA
     }
 
     return result;
+}
+
+MA_API MA_NO_INLINE size_t ma_wcslen(const wchar_t* str)
+{
+    const wchar_t* end;
+
+    if (str == NULL) {
+        return 0;
+    }
+
+    end = str;
+    while (end[0] != '\0') {
+        end += 1;
+    }
+
+    return end - str;
 }
 
 MA_API MA_NO_INLINE char* ma_copy_string(const char* src, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -12781,7 +12833,7 @@ MA_API MA_NO_INLINE char* ma_copy_string(const char* src, const ma_allocation_ca
 
 MA_API MA_NO_INLINE wchar_t* ma_copy_string_w(const wchar_t* src, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-    size_t sz = wcslen(src)+1;
+    size_t sz = ma_wcslen(src)+1;
     wchar_t* dst = (wchar_t*)ma_malloc(sz * sizeof(*dst), pAllocationCallbacks);
     if (dst == NULL) {
         return NULL;
@@ -13291,7 +13343,7 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
 
         (void)pAllocationCallbacks;
     }
-    #elif !defined(MA_XBOX_NXDK)    /* If your compiler does not support wcsrtombs(), add it here. */
+    #elif !defined(MA_XBOX_NXDK) && !defined(MA_DOS)    /* If your compiler does not support wcsrtombs(), add it here. */
     {
         /*
         Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
@@ -19241,7 +19293,7 @@ Dynamic Linking
 *******************************************************************************/
 /* Disable run-time linking on certain backends and platforms. */
 #ifndef MA_NO_RUNTIME_LINKING
-    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO) || defined(MA_SWITCH)
+    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO) || defined(MA_SWITCH) || defined(MA_DOS)
         #define MA_NO_RUNTIME_LINKING
     #endif
 #endif
@@ -19255,104 +19307,124 @@ Dynamic Linking
 
 MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename)
 {
-#ifndef MA_NO_RUNTIME_LINKING
-    ma_handle handle;
+    #ifndef MA_NO_RUNTIME_LINKING
+    {
+        ma_handle handle;
 
-    ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
+        ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
 
-    #ifdef MA_WIN32
-        /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
-        #if !defined(MA_WIN32_UWP) || !(defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
-            handle = (ma_handle)LoadLibraryA(filename);
+        #ifdef MA_WIN32
+            /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
+            #if !defined(MA_WIN32_UWP) || !(defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
+                handle = (ma_handle)LoadLibraryA(filename);
+            #else
+                /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
+                WCHAR filenameW[4096];
+                if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+                    handle = NULL;
+                } else {
+                    handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
+                }
+            #endif
         #else
-            /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
-            WCHAR filenameW[4096];
-            if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
-                handle = NULL;
-            } else {
-                handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
-            }
+            handle = (ma_handle)dlopen(filename, RTLD_NOW);
         #endif
-    #else
-        handle = (ma_handle)dlopen(filename, RTLD_NOW);
-    #endif
 
-    /*
-    I'm not considering failure to load a library an error nor a warning because seamlessly falling through to a lower-priority
-    backend is a deliberate design choice. Instead I'm logging it as an informational message.
-    */
-    if (handle == NULL) {
-        ma_log_postf(pLog, MA_LOG_LEVEL_INFO, "Failed to load library: %s\n", filename);
+        /*
+        I'm not considering failure to load a library an error nor a warning because seamlessly falling through to a lower-priority
+        backend is a deliberate design choice. Instead I'm logging it as an informational message.
+        */
+        if (handle == NULL) {
+            ma_log_postf(pLog, MA_LOG_LEVEL_INFO, "Failed to load library: %s\n", filename);
+        }
+
+        return handle;
     }
-
-    return handle;
-#else
-    /* Runtime linking is disabled. */
-    (void)pLog;
-    (void)filename;
-    return NULL;
-#endif
+    #else
+    {
+        /* Runtime linking is disabled. */
+        (void)pLog;
+        (void)filename;
+        return NULL;
+    }
+    #endif
 }
 
 MA_API void ma_dlclose(ma_log* pLog, ma_handle handle)
 {
-#ifndef MA_NO_RUNTIME_LINKING
-    #ifdef MA_WIN32
-        FreeLibrary((HMODULE)handle);
-    #else
-        /* Hack for Android bug (see https://github.com/android/ndk/issues/360). Calling dlclose() pre-API 28 may segfault. */
-        #if !defined(MA_ANDROID) || (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)
+    #ifndef MA_NO_RUNTIME_LINKING
+    {
+        #ifdef MA_WIN32
         {
-            dlclose((void*)handle);
+            FreeLibrary((HMODULE)handle);
         }
         #else
         {
-            (void)handle;
+            /* Hack for Android bug (see https://github.com/android/ndk/issues/360). Calling dlclose() pre-API 28 may segfault. */
+            #if !defined(MA_ANDROID) || (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)
+            {
+                dlclose((void*)handle);
+            }
+            #else
+            {
+                (void)handle;
+            }
+            #endif
         }
         #endif
-    #endif
 
-    (void)pLog;
-#else
-    /* Runtime linking is disabled. */
-    (void)pLog;
-    (void)handle;
-#endif
+        (void)pLog;
+    }
+    #else
+    {
+        /* Runtime linking is disabled. */
+        (void)pLog;
+        (void)handle;
+    }
+    #endif
 }
 
 MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
 {
-#ifndef MA_NO_RUNTIME_LINKING
-    ma_proc proc;
+    #ifndef MA_NO_RUNTIME_LINKING
+    {
+        ma_proc proc;
 
-    ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
+        ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
 
-#ifdef _WIN32
-    proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
-#else
-#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wpedantic"
-#endif
-    proc = (ma_proc)dlsym((void*)handle, symbol);
-#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
-    #pragma GCC diagnostic pop
-#endif
-#endif
+        #ifdef _WIN32
+        {
+            proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
+        }
+        #else
+        {
+            #if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
+                #pragma GCC diagnostic push
+                #pragma GCC diagnostic ignored "-Wpedantic"
+            #endif
+                proc = (ma_proc)dlsym((void*)handle, symbol);
+            #if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
+                #pragma GCC diagnostic pop
+            #endif
+        }
+        #endif
 
-    if (proc == NULL) {
-        ma_log_postf(pLog, MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s\n", symbol);
+        if (proc == NULL) {
+            ma_log_postf(pLog, MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s\n", symbol);
+        }
+
+        (void)pLog; /* It's possible for pContext to be unused. */
+        return proc;
     }
-
-    (void)pLog; /* It's possible for pContext to be unused. */
-    return proc;
-#else
-    /* Runtime linking is disabled. */
-    (void)pLog;
-    (void)handle;
-    (void)symbol;
-    return NULL;
-#endif
+    #else
+    {
+        /* Runtime linking is disabled. */
+        (void)pLog;
+        (void)handle;
+        (void)symbol;
+        return NULL;
+    }
+    #endif
 }
 
 
@@ -23286,7 +23358,7 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
         pActivationParams = &activationParams;
 
         /* When requesting a specific device ID we need to use a special device ID. */
-        MA_COPY_MEMORY(virtualDeviceID.wasapi, MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, (wcslen(MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK) + 1) * sizeof(wchar_t)); /* +1 for the null terminator. */
+        MA_COPY_MEMORY(virtualDeviceID.wasapi, MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, (ma_wcslen(MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK) + 1) * sizeof(wchar_t)); /* +1 for the null terminator. */
         pDeviceID = &virtualDeviceID;
     } else {
         pActivationParams = NULL;   /* No activation parameters required. */
@@ -66568,7 +66640,7 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
     {
         return _wcsicmp(ext1, ext2) == 0;
     }
-    #elif !defined(MA_XBOX_NXDK)
+    #elif !defined(MA_XBOX_NXDK) && !defined(MA_DOS)
     {
         /*
         I'm not aware of a wide character version of strcasecmp(). I'm therefore converting the extensions to multibyte strings and comparing those. This
@@ -66597,7 +66669,7 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
     {
         /* Getting here means we don't have a way to do a case-sensitive comparison for wide strings. Fall back to a simple case-sensitive comparison. */
         /* TODO: Implement our own wchar_t-to-char conversion routine and then use the char* version for comparing. */
-        return wcscmp(ext1, ext2) == 0;
+        return ma_wcscmp(ext1, ext2) == 0;
     }
     #endif
 }
@@ -69303,7 +69375,7 @@ static ma_uint32 ma_hash_string_32(const char* str)
 
 static ma_uint32 ma_hash_string_w_32(const wchar_t* str)
 {
-    return ma_hash_32(str, (int)wcslen(str) * sizeof(*str), MA_DEFAULT_HASH_SEED);
+    return ma_hash_32(str, (int)ma_wcslen(str) * sizeof(*str), MA_DEFAULT_HASH_SEED);
 }
 
 
