@@ -3926,13 +3926,10 @@ typedef ma_uint16 wchar_t;
     #if defined(__PROSPERO__)
         #define MA_PROSPERO
     #endif
-    #if defined(__NX__)
-        #define MA_NX
-    #endif
     #if defined(__3DS__)
         #define MA_3DS
     #endif
-    #if defined(__SWITCH__)
+    #if defined(__SWITCH__) || defined(__NX__)
         #define MA_SWITCH
     #endif
     #if defined(__BEOS__) || defined(__HAIKU__)
@@ -11981,7 +11978,7 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
     (void)milliseconds;
     MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
 #else
-    #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L) || defined(MA_NX)
+    #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L) || defined(MA_SWITCH)
         struct timespec ts;
         ts.tv_sec  = milliseconds / 1000;
         ts.tv_nsec = milliseconds % 1000 * 1000000;
