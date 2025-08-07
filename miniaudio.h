@@ -17852,7 +17852,7 @@ static ma_result ma_event_signal__win32(ma_event* pEvent)
 
 static ma_result ma_semaphore_init__win32(int initialValue, ma_semaphore* pSemaphore)
 {
-    *pSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
+    *pSemaphore = CreateSemaphore(NULL, (LONG)initialValue, LONG_MAX, NULL);
     if (*pSemaphore == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
