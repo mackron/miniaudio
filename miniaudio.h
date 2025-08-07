@@ -11241,7 +11241,7 @@ IMPLEMENTATION
 #endif
 
 #if !defined(MA_WIN32)
-    #if !defined(MA_NO_THREADING)
+    #if !defined(MA_NO_THREADING) && !defined(MA_DOS)
         #include <sched.h>
         #include <pthread.h>     /* For pthreads. */
     #endif
