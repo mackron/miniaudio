@@ -4536,12 +4536,16 @@ typedef ma_uint32 ma_spinlock;
         typedef ma_pthread_t ma_thread;
     #elif defined(MA_WIN32)
         typedef ma_handle ma_thread;
+    #else
+        typedef int ma_thread;      /* Fallback for platforms without support for threading. */
     #endif
 
     #if defined(MA_POSIX)
         typedef ma_pthread_mutex_t ma_mutex;
     #elif defined(MA_WIN32)
         typedef ma_handle ma_mutex;
+    #else
+        typedef int ma_mutex;       /* Fallback for platforms without support for threading. */
     #endif
 
     #if defined(MA_POSIX)
@@ -4553,6 +4557,8 @@ typedef ma_uint32 ma_spinlock;
         } ma_event;
     #elif defined(MA_WIN32)
         typedef ma_handle ma_event;
+    #else
+        typedef int ma_event;       /* Fallback for platforms without support for threading. */
     #endif
 
     #if defined(MA_POSIX)
@@ -4564,6 +4570,8 @@ typedef ma_uint32 ma_spinlock;
         } ma_semaphore;
     #elif defined(MA_WIN32)
         typedef ma_handle ma_semaphore;
+    #else
+        typedef int ma_semaphore;   /* Fallback for platforms without support for threading. */
     #endif
 #else
     /* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
@@ -17152,12 +17160,12 @@ MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 
 
 #ifndef MA_NO_THREADING
-#if defined(MA_POSIX)
-    #define MA_THREADCALL
-    typedef void* ma_thread_result;
-#elif defined(MA_WIN32)
+#if defined(MA_WIN32)
     #define MA_THREADCALL WINAPI
     typedef unsigned long ma_thread_result;
+#else
+    #define MA_THREADCALL
+    typedef void* ma_thread_result;
 #endif
 
 typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
@@ -17590,6 +17598,97 @@ static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 
     return MA_SUCCESS;
 }
+#else
+static ma_result ma_thread_create__none(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
+{
+    (void)pThread;
+    (void)priority;
+    (void)stackSize;
+    (void)entryProc;
+    (void)pData;
+
+    return MA_NOT_IMPLEMENTED;
+}
+
+static void ma_thread_wait__none(ma_thread* pThread)
+{
+    (void)pThread;
+    return;
+}
+
+
+static ma_result ma_mutex_init__none(ma_mutex* pMutex)
+{
+    MA_ZERO_OBJECT(pMutex);
+
+    return MA_SUCCESS;
+}
+
+static void ma_mutex_uninit__none(ma_mutex* pMutex)
+{
+    (void)pMutex;
+}
+
+static void ma_mutex_lock__none(ma_mutex* pMutex)
+{
+    (void)pMutex;
+}
+
+static void ma_mutex_unlock__none(ma_mutex* pMutex)
+{
+    (void)pMutex;
+}
+
+
+static ma_result ma_event_init__none(ma_event* pEvent)
+{
+    MA_ZERO_OBJECT(pEvent);
+
+    return MA_SUCCESS;
+}
+
+static void ma_event_uninit__none(ma_event* pEvent)
+{
+    (void)pEvent;
+}
+
+static ma_result ma_event_wait__none(ma_event* pEvent)
+{
+    (void)pEvent;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_event_signal__none(ma_event* pEvent)
+{
+    (void)pEvent;
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_semaphore_init__none(int initialValue, ma_semaphore* pSemaphore)
+{
+    MA_ZERO_OBJECT(pSemaphore);
+    (void)initialValue;
+
+    return MA_SUCCESS;
+}
+
+static void ma_semaphore_uninit__none(ma_semaphore* pSemaphore)
+{
+    (void)pSemaphore;
+}
+
+static ma_result ma_semaphore_wait__none(ma_semaphore* pSemaphore)
+{
+    (void)pSemaphore;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_semaphore_release__none(ma_semaphore* pSemaphore)
+{
+    (void)pSemaphore;
+    return MA_SUCCESS;
+}
 #endif
 
 typedef struct
@@ -17653,6 +17752,8 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
     result = ma_thread_create__posix(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
 #elif defined(MA_WIN32)
     result = ma_thread_create__win32(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
+#else
+    result = ma_thread_create__none(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
 #endif
 
     if (result != MA_SUCCESS) {
@@ -17673,6 +17774,8 @@ static void ma_thread_wait(ma_thread* pThread)
     ma_thread_wait__posix(pThread);
 #elif defined(MA_WIN32)
     ma_thread_wait__win32(pThread);
+#else
+    ma_thread_wait__none(pThread);
 #endif
 }
 
@@ -17688,6 +17791,8 @@ MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
     return ma_mutex_init__posix(pMutex);
 #elif defined(MA_WIN32)
     return ma_mutex_init__win32(pMutex);
+#else
+    return ma_mutex_init__none(pMutex);
 #endif
 }
 
@@ -17701,6 +17806,8 @@ MA_API void ma_mutex_uninit(ma_mutex* pMutex)
     ma_mutex_uninit__posix(pMutex);
 #elif defined(MA_WIN32)
     ma_mutex_uninit__win32(pMutex);
+#else
+    ma_mutex_uninit__none(pMutex);
 #endif
 }
 
@@ -17715,6 +17822,8 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex)
     ma_mutex_lock__posix(pMutex);
 #elif defined(MA_WIN32)
     ma_mutex_lock__win32(pMutex);
+#else
+    ma_mutex_lock__none(pMutex);
 #endif
 }
 
@@ -17729,6 +17838,8 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
     ma_mutex_unlock__posix(pMutex);
 #elif defined(MA_WIN32)
     ma_mutex_unlock__win32(pMutex);
+#else
+    ma_mutex_unlock__none(pMutex);
 #endif
 }
 
@@ -17744,6 +17855,8 @@ MA_API ma_result ma_event_init(ma_event* pEvent)
     return ma_event_init__posix(pEvent);
 #elif defined(MA_WIN32)
     return ma_event_init__win32(pEvent);
+#else
+    return ma_event_init__none(pEvent);
 #endif
 }
 
@@ -17785,6 +17898,8 @@ MA_API void ma_event_uninit(ma_event* pEvent)
     ma_event_uninit__posix(pEvent);
 #elif defined(MA_WIN32)
     ma_event_uninit__win32(pEvent);
+#else
+    ma_event_uninit__none(pEvent);
 #endif
 }
 
@@ -17811,6 +17926,8 @@ MA_API ma_result ma_event_wait(ma_event* pEvent)
     return ma_event_wait__posix(pEvent);
 #elif defined(MA_WIN32)
     return ma_event_wait__win32(pEvent);
+#else
+    return ma_event_wait__none(pEvent);
 #endif
 }
 
@@ -17825,6 +17942,8 @@ MA_API ma_result ma_event_signal(ma_event* pEvent)
     return ma_event_signal__posix(pEvent);
 #elif defined(MA_WIN32)
     return ma_event_signal__win32(pEvent);
+#else
+    return ma_event_signal__none(pEvent);
 #endif
 }
 
@@ -17840,6 +17959,8 @@ MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
     return ma_semaphore_init__posix(initialValue, pSemaphore);
 #elif defined(MA_WIN32)
     return ma_semaphore_init__win32(initialValue, pSemaphore);
+#else
+    return ma_semaphore_init__none(initialValue, pSemaphore);
 #endif
 }
 
@@ -17854,6 +17975,8 @@ MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
     ma_semaphore_uninit__posix(pSemaphore);
 #elif defined(MA_WIN32)
     ma_semaphore_uninit__win32(pSemaphore);
+#else
+    ma_semaphore_uninit__none(pSemaphore);
 #endif
 }
 
@@ -17868,6 +17991,8 @@ MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
     return ma_semaphore_wait__posix(pSemaphore);
 #elif defined(MA_WIN32)
     return ma_semaphore_wait__win32(pSemaphore);
+#else
+    return ma_semaphore_wait__none(pSemaphore);
 #endif
 }
 
@@ -17882,6 +18007,8 @@ MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
     return ma_semaphore_release__posix(pSemaphore);
 #elif defined(MA_WIN32)
     return ma_semaphore_release__win32(pSemaphore);
+#else
+    return ma_semaphore_release__none(pSemaphore);
 #endif
 }
 #else
