@@ -3864,8 +3864,19 @@ typedef ma_uint16 wchar_t;
         #define MA_WIN32_UWP
     #elif defined(WINAPI_FAMILY) && (defined(WINAPI_FAMILY_GAMES) && WINAPI_FAMILY == WINAPI_FAMILY_GAMES)
         #define MA_WIN32_GDK
+    #elif defined(NXDK)
+        #define MA_WIN32_NXDK
     #else
         #define MA_WIN32_DESKTOP
+    #endif
+
+    /* The original Xbox. */
+    #if defined(NXDK)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
+        #define MA_XBOX
+
+        #if defined(NXDK)
+            #define MA_XBOX_NXDK
+        #endif
     #endif
 #endif
 #if !defined(_WIN32)    /* If it's not Win32, assume POSIX. */
@@ -6576,7 +6587,7 @@ This section contains the APIs for device playback and capture. Here is where yo
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DEVICE_IO
 /* Some backends are only supported on certain platforms. */
-#if defined(MA_WIN32)
+#if defined(MA_WIN32) && !defined(MA_XBOX)
     #define MA_SUPPORT_WASAPI
 
     #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
@@ -11563,7 +11574,12 @@ IMPLEMENTATION
     #include <unistd.h> 
 #endif
 
-#include <sys/stat.h>   /* For fstat(), etc. */
+/* For fstat(), etc. */
+#if defined(MA_XBOX_NXDK)
+    #include <stat.h>       /* Suggestion for NXDK: Add a sys/stat.h wrapper for compatibility. */
+#else
+    #include <sys/stat.h>
+#endif
 
 #ifdef MA_EMSCRIPTEN
 #include <emscripten/emscripten.h>
@@ -12030,7 +12046,7 @@ static MA_INLINE unsigned int ma_disable_denormals(void)
 {
     unsigned int prevState;
 
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(MA_XBOX_NXDK)
     {
         /*
         Older versions of Visual Studio don't support the "safe" versions of _controlfp_s(). I don't
@@ -12077,7 +12093,7 @@ static MA_INLINE unsigned int ma_disable_denormals(void)
 
 static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 {
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(MA_XBOX_NXDK)
     {
         /* Older versions of Visual Studio do not support _controlfp_s(). See ma_disable_denormals(). */
         #if _MSC_VER <= 1200
@@ -13199,7 +13215,7 @@ MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpe
         return MA_INVALID_ARGS;
     }
 
-#if defined(_MSC_VER) && _MSC_VER >= 1400
+#if (defined(_MSC_VER) && _MSC_VER >= 1400) && !defined(MA_XBOX_NXDK)
     err = fopen_s(ppFile, pFilePath, pOpenMode);
     if (err != 0) {
         return ma_result_from_errno(err);
@@ -13241,7 +13257,7 @@ _wfopen() isn't always available in all compilation environments.
 This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
 fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
 */
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(MA_XBOX_NXDK)
     #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
         #define MA_HAS_WFOPEN
     #endif
@@ -13257,29 +13273,34 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_HAS_WFOPEN)
+    #if defined(MA_HAS_WFOPEN)
     {
         /* Use _wfopen() on Windows. */
-    #if defined(_MSC_VER) && _MSC_VER >= 1400
-        errno_t err = _wfopen_s(ppFile, pFilePath, pOpenMode);
-        if (err != 0) {
-            return ma_result_from_errno(err);
+        #if defined(_MSC_VER) && _MSC_VER >= 1400
+        {
+            errno_t err = _wfopen_s(ppFile, pFilePath, pOpenMode);
+            if (err != 0) {
+                return ma_result_from_errno(err);
+            }
         }
-    #else
-        *ppFile = _wfopen(pFilePath, pOpenMode);
-        if (*ppFile == NULL) {
-            return ma_result_from_errno(errno);
+        #else
+        {
+            *ppFile = _wfopen(pFilePath, pOpenMode);
+            if (*ppFile == NULL) {
+                return ma_result_from_errno(errno);
+            }
         }
-    #endif
+        #endif
+
         (void)pAllocationCallbacks;
     }
-#else
-    /*
-    Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
-    think of to do this is with wcsrtombs(). Note that wcstombs() is apparently not thread-safe because it uses a static global mbstate_t object for
-    maintaining state. I've checked this with -std=c89 and it works, but if somebody get's a compiler error I'll look into improving compatibility.
-    */
+    #elif !defined(MA_XBOX_NXDK)    /* If your compiler does not support wcsrtombs(), add it here. */
     {
+        /*
+        Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
+        think of to do this is with wcsrtombs(). Note that wcstombs() is apparently not thread-safe because it uses a static global mbstate_t object for
+        maintaining state. I've checked this with -std=c89 and it works, but if somebody get's a compiler error I'll look into improving compatibility.
+        */
         mbstate_t mbs;
         size_t lenMB;
         const wchar_t* pFilePathTemp = pFilePath;
@@ -13320,11 +13341,16 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
 
         ma_free(pFilePathMB, pAllocationCallbacks);
     }
+    #else
+    {
+        /* Getting here means there is no way to open the file with a wide character string. */
+        *ppFile = NULL;
+    }
+    #endif
 
     if (*ppFile == NULL) {
         return MA_ERROR;
     }
-#endif
 
     return MA_SUCCESS;
 }
@@ -19609,7 +19635,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
 
 
 
-#if defined(MA_WIN32)
+#if defined(MA_WIN32) && !defined(MA_XBOX)
 /* WASAPI error codes. */
 #define MA_AUDCLNT_E_NOT_INITIALIZED              ((HRESULT)0x88890001)
 #define MA_AUDCLNT_E_ALREADY_INITIALIZED          ((HRESULT)0x88890002)
@@ -19823,6 +19849,11 @@ typedef LONG    (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, const char* lpSubKey,
 typedef LONG    (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
 typedef LONG    (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValueName, DWORD* lpReserved, DWORD* lpType, BYTE* lpData, DWORD* lpcbData);
 #endif  /* MA_WIN32_DESKTOP */
+
+static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+/*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
+/*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
 
 MA_API size_t ma_strlen_WCHAR(const WCHAR* str)
 {
@@ -20558,14 +20589,6 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_device_state n
 }
 
 
-#if defined(MA_WIN32)
-    static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    /*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
-    /*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
-#endif
-
-
 
 MA_API ma_uint32 ma_get_format_priority_index(ma_format format) /* Lower = better. */
 {
@@ -21277,7 +21300,7 @@ static ma_result ma_context_init__null(ma_context* pContext, const ma_context_co
 WIN32 COMMON
 
 *******************************************************************************/
-#if defined(MA_WIN32)
+#if defined(MA_WIN32) && !defined(MA_XBOX)
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
@@ -21292,7 +21315,7 @@ WIN32 COMMON
     #define ma_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
 #endif
 
-#if !defined(MAXULONG_PTR) && !defined(__WATCOMC__)
+#if !defined(MAXULONG_PTR) && !defined(__WATCOMC__) && !defined(MA_XBOX_NXDK)
 typedef size_t DWORD_PTR;
 #endif
 
@@ -42588,13 +42611,13 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
 static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
-#ifdef MA_WIN32
+#if defined(MA_WIN32) && !defined(MA_XBOX)
     HRESULT CoInitializeResult;
 #endif
 
     MA_ASSERT(pDevice != NULL);
 
-#ifdef MA_WIN32
+#if defined(MA_WIN32) && !defined(MA_XBOX)
     CoInitializeResult = ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
 #endif
 
@@ -42685,7 +42708,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         ma_event_signal(&pDevice->stopEvent);
     }
 
-#ifdef MA_WIN32
+#if defined(MA_WIN32) && !defined(MA_XBOX)
     if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) {
         ma_CoUninitialize(pDevice->pContext);
     }
@@ -42710,67 +42733,92 @@ static ma_bool32 ma_device__is_initialized(ma_device* pDevice)
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
-#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    if (pContext->win32.CoInitializeResult == S_OK || pContext->win32.CoInitializeResult == S_FALSE) {
-        ma_CoUninitialize(pContext);
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    {
+        /* TODO: Remove this once the new single threaded backend system is in place in 0.12. */
+        #if !defined(MA_XBOX)
+        {
+            if (pContext->win32.CoInitializeResult == S_OK || pContext->win32.CoInitializeResult == S_FALSE) {
+                ma_CoUninitialize(pContext);    /* TODO: Remove this once the new single threaded backend system is in place in 0.12. */
+            }
+        }
+        #endif
+
+        #if defined(MA_WIN32_DESKTOP)
+            ma_dlclose(ma_context_get_log(pContext), pContext->win32.hUser32DLL);
+            ma_dlclose(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL);
+        #endif
+
+        ma_dlclose(ma_context_get_log(pContext), pContext->win32.hOle32DLL);
     }
-
-    #if defined(MA_WIN32_DESKTOP)
-        ma_dlclose(ma_context_get_log(pContext), pContext->win32.hUser32DLL);
-        ma_dlclose(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL);
+    #else
+    {
+        (void)pContext;
+    }
     #endif
-
-    ma_dlclose(ma_context_get_log(pContext), pContext->win32.hOle32DLL);
-#else
-    (void)pContext;
-#endif
 
     return MA_SUCCESS;
 }
 
 static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 {
-#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    #if defined(MA_WIN32_DESKTOP)
-        /* User32.dll */
-        pContext->win32.hUser32DLL = ma_dlopen(ma_context_get_log(pContext), "user32.dll");
-        if (pContext->win32.hUser32DLL == NULL) {
+    /*
+    TODO: Reassess all of this stuff and move everything to the relevant backends. For example, I think
+    GetForegroundWindow() and GetDesktopWindow() are only used by the DirectSound backend.
+    */
+    #if (defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)) && !defined(MA_XBOX)
+    {
+        #if defined(MA_WIN32_DESKTOP)
+        {
+            /* User32.dll */
+            pContext->win32.hUser32DLL = ma_dlopen(ma_context_get_log(pContext), "user32.dll");
+            if (pContext->win32.hUser32DLL == NULL) {
+                return MA_FAILED_TO_INIT_BACKEND;
+            }
+
+            pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetForegroundWindow");
+            pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetDesktopWindow");
+
+
+            /* Advapi32.dll */
+            pContext->win32.hAdvapi32DLL = ma_dlopen(ma_context_get_log(pContext), "advapi32.dll");
+            if (pContext->win32.hAdvapi32DLL == NULL) {
+                return MA_FAILED_TO_INIT_BACKEND;
+            }
+
+            pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
+            pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegCloseKey");
+            pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
+        }
+        #endif
+
+        /* Ole32.dll */
+        pContext->win32.hOle32DLL = ma_dlopen(ma_context_get_log(pContext), "ole32.dll");
+        if (pContext->win32.hOle32DLL == NULL) {
             return MA_FAILED_TO_INIT_BACKEND;
         }
 
-        pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetForegroundWindow");
-        pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetDesktopWindow");
-
-
-        /* Advapi32.dll */
-        pContext->win32.hAdvapi32DLL = ma_dlopen(ma_context_get_log(pContext), "advapi32.dll");
-        if (pContext->win32.hAdvapi32DLL == NULL) {
-            return MA_FAILED_TO_INIT_BACKEND;
-        }
-
-        pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
-        pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegCloseKey");
-        pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
+        pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitialize");
+        pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitializeEx");
+        pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoUninitialize");
+        pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoCreateInstance");
+        pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoTaskMemFree");
+        pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "PropVariantClear");
+        pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "StringFromGUID2");
+    }
+    #else
+    {
+        (void)pContext; /* Unused. */
+    }
     #endif
 
-    /* Ole32.dll */
-    pContext->win32.hOle32DLL = ma_dlopen(ma_context_get_log(pContext), "ole32.dll");
-    if (pContext->win32.hOle32DLL == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
+    /* TODO: Remove this once the new single threaded backend system is in place in 0.12. */
+    #if !defined(MA_XBOX)
+    {
+        pContext->win32.CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     }
+    #endif
 
-    pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitialize");
-    pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitializeEx");
-    pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoUninitialize");
-    pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoCreateInstance");
-    pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoTaskMemFree");
-    pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "PropVariantClear");
-    pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "StringFromGUID2");
-#else
-    (void)pContext; /* Unused. */
-#endif
-
-    pContext->win32.CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     return MA_SUCCESS;
 }
 #else
@@ -60871,7 +60919,7 @@ MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo
 }
 
 
-#if !defined(MA_USE_WIN32_FILEIO) && (defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO) && !defined(MA_POSIX))
+#if !defined(MA_USE_WIN32_FILEIO) && (defined(MA_WIN32) && (defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_NXDK)) && !defined(MA_NO_WIN32_FILEIO) && !defined(MA_POSIX))
     #define MA_USE_WIN32_FILEIO
 #endif
 
@@ -60948,25 +60996,34 @@ static ma_result ma_default_vfs_open__win32(ma_vfs* pVFS, const char* pFilePath,
 
 static ma_result ma_default_vfs_open_w__win32(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
 {
-    HANDLE hFile;
-    DWORD dwDesiredAccess;
-    DWORD dwShareMode;
-    DWORD dwCreationDisposition;
+    #if !defined(MA_XBOX_NXDK)
+    {
+        HANDLE hFile;
+        DWORD dwDesiredAccess;
+        DWORD dwShareMode;
+        DWORD dwCreationDisposition;
 
-    (void)pVFS;
+        (void)pVFS;
 
-    /* Load some Win32 symbols dynamically so we can dynamically check for the existence of SetFilePointerEx. */
-    ma_win32_fileio_init();
+        /* Load some Win32 symbols dynamically so we can dynamically check for the existence of SetFilePointerEx. */
+        ma_win32_fileio_init();
 
-    ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
+        ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
 
-    hFile = CreateFileW(pFilePath, dwDesiredAccess, dwShareMode, NULL, dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return ma_result_from_GetLastError(GetLastError());
+        hFile = CreateFileW(pFilePath, dwDesiredAccess, dwShareMode, NULL, dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile == INVALID_HANDLE_VALUE) {
+            return ma_result_from_GetLastError(GetLastError());
+        }
+
+        *pFile = hFile;
+        return MA_SUCCESS;
     }
-
-    *pFile = hFile;
-    return MA_SUCCESS;
+    #else
+    {
+        /* No CreateFileW() available. */
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
 }
 
 static ma_result ma_default_vfs_close__win32(ma_vfs* pVFS, ma_vfs_file file)
@@ -61137,19 +61194,28 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
 
 static ma_result ma_default_vfs_info__win32(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
 {
-    BY_HANDLE_FILE_INFORMATION fi;
-    BOOL result;
-
     (void)pVFS;
 
-    result = GetFileInformationByHandle((HANDLE)file, &fi);
-    if (result == 0) {
-        return ma_result_from_GetLastError(GetLastError());
+    #if !defined(MA_XBOX_NXDK)
+    {
+        BY_HANDLE_FILE_INFORMATION fi;
+        BOOL result;
+
+        result = GetFileInformationByHandle((HANDLE)file, &fi);
+        if (result == 0) {
+            return ma_result_from_GetLastError(GetLastError());
+        }
+
+        pInfo->sizeInBytes = ((ma_uint64)fi.nFileSizeHigh << 32) | ((ma_uint64)fi.nFileSizeLow);
+
+        return MA_SUCCESS;
     }
-
-    pInfo->sizeInBytes = ((ma_uint64)fi.nFileSizeHigh << 32) | ((ma_uint64)fi.nFileSizeLow);
-
-    return MA_SUCCESS;
+    #else
+    {
+        /* GetFileInformationByHandle() is unavailable. */
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
 }
 #else
 static ma_result ma_default_vfs_open__stdio(ma_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
@@ -61487,6 +61553,8 @@ static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* p
 
 static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
 {
+    ma_result result;
+
     if (pInfo == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -61498,10 +61566,43 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
     }
 
 #if defined(MA_USE_WIN32_FILEIO)
-    return ma_default_vfs_info__win32(pVFS, file, pInfo);
+    result = ma_default_vfs_info__win32(pVFS, file, pInfo);
 #else
-    return ma_default_vfs_info__stdio(pVFS, file, pInfo);
+    result = ma_default_vfs_info__stdio(pVFS, file, pInfo);
 #endif
+
+    if (result == MA_NOT_IMPLEMENTED) {
+        /* Not implemented. Fall back to seek/tell/seek. */
+        ma_result result;
+        ma_int64 cursor;
+        ma_int64 sizeInBytes;
+        
+        result = ma_default_vfs_tell(pVFS, file, &cursor);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_default_vfs_seek(pVFS, file, 0, ma_seek_origin_end);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_default_vfs_tell(pVFS, file, &sizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pInfo->sizeInBytes = sizeInBytes;
+
+        result = ma_default_vfs_seek(pVFS, file, cursor, ma_seek_origin_start);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        MA_ASSERT(result == MA_SUCCESS);
+    }
+
+    return result;
 }
 
 
@@ -62419,7 +62520,7 @@ extern "C" {
 #define MA_DR_MP3_XSTRINGIFY(x)     MA_DR_MP3_STRINGIFY(x)
 #define MA_DR_MP3_VERSION_MAJOR     0
 #define MA_DR_MP3_VERSION_MINOR     7
-#define MA_DR_MP3_VERSION_REVISION  0
+#define MA_DR_MP3_VERSION_REVISION  1
 #define MA_DR_MP3_VERSION_STRING    MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MAJOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MINOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME  1152
@@ -66466,14 +66567,16 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
     ext1 = extension;
     ext2 = ma_path_extension_w(path);
 
-#if defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__)
-    return _wcsicmp(ext1, ext2) == 0;
-#else
-    /*
-    I'm not aware of a wide character version of strcasecmp(). I'm therefore converting the extensions to multibyte strings and comparing those. This
-    isn't the most efficient way to do it, but it should work OK.
-    */
+    #if (defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__)) && !defined(MA_XBOX_NXDK)
     {
+        return _wcsicmp(ext1, ext2) == 0;
+    }
+    #elif !defined(MA_XBOX_NXDK)
+    {
+        /*
+        I'm not aware of a wide character version of strcasecmp(). I'm therefore converting the extensions to multibyte strings and comparing those. This
+        isn't the most efficient way to do it, but it should work OK.
+        */
         char ext1MB[4096];
         char ext2MB[4096];
         const wchar_t* pext1 = ext1;
@@ -66493,7 +66596,13 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
 
         return strcasecmp(ext1MB, ext2MB) == 0;
     }
-#endif
+    #else
+    {
+        /* Getting here means we don't have a way to do a case-sensitive comparison for wide strings. Fall back to a simple case-sensitive comparison. */
+        /* TODO: Implement our own wchar_t-to-char conversion routine and then use the char* version for comparing. */
+        return wcscmp(ext1, ext2) == 0;
+    }
+    #endif
 }
 #endif  /* MA_HAS_PATH_API */
 
