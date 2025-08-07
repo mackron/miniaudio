@@ -82039,7 +82039,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav__on_tell_stdio(void* pUserData, ma_int64* pCursor
     ma_int64 result;
     MA_DR_WAV_ASSERT(pFileStdio != NULL);
     MA_DR_WAV_ASSERT(pCursor    != NULL);
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(NXDK)
     #if defined(_MSC_VER) && _MSC_VER > 1200
         result = _ftelli64(pFileStdio);
     #else
@@ -89549,7 +89549,7 @@ static ma_bool32 ma_dr_flac__on_tell_stdio(void* pUserData, ma_int64* pCursor)
     ma_int64 result;
     MA_DR_FLAC_ASSERT(pFileStdio != NULL);
     MA_DR_FLAC_ASSERT(pCursor    != NULL);
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(NXDK)
     #if defined(_MSC_VER) && _MSC_VER > 1200
         result = _ftelli64(pFileStdio);
     #else
@@ -92881,6 +92881,10 @@ static float ma_dr_mp3_L3_ldexp_q2(float y, int exp_q2)
     } while ((exp_q2 -= e) > 0);
     return y;
 }
+#if (defined(__GNUC__) && (__GNUC__ >= 14)) && !defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 static void ma_dr_mp3_L3_decode_scalefactors(const ma_uint8 *hdr, ma_uint8 *ist_pos, ma_dr_mp3_bs *bs, const ma_dr_mp3_L3_gr_info *gr, float *scf, int ch)
 {
     static const ma_uint8 g_scf_partitions[3][28] = {
@@ -92939,6 +92943,9 @@ static void ma_dr_mp3_L3_decode_scalefactors(const ma_uint8 *hdr, ma_uint8 *ist_
         scf[i] = ma_dr_mp3_L3_ldexp_q2(gain, iscf[i] << scf_shift);
     }
 }
+#if (defined(__GNUC__) && (__GNUC__ >= 14)) && !defined(__clang__)
+    #pragma GCC diagnostic pop
+#endif
 static const float ma_dr_mp3_g_pow43[129 + 16] = {
     0,-1,-2.519842f,-4.326749f,-6.349604f,-8.549880f,-10.902724f,-13.390518f,-16.000000f,-18.720754f,-21.544347f,-24.463781f,-27.473142f,-30.567351f,-33.741992f,-36.993181f,
     0,1,2.519842f,4.326749f,6.349604f,8.549880f,10.902724f,13.390518f,16.000000f,18.720754f,21.544347f,24.463781f,27.473142f,30.567351f,33.741992f,36.993181f,40.317474f,43.711787f,47.173345f,50.699631f,54.288352f,57.937408f,61.644865f,65.408941f,69.227979f,73.100443f,77.024898f,81.000000f,85.024491f,89.097188f,93.216975f,97.382800f,101.593667f,105.848633f,110.146801f,114.487321f,118.869381f,123.292209f,127.755065f,132.257246f,136.798076f,141.376907f,145.993119f,150.646117f,155.335327f,160.060199f,164.820202f,169.614826f,174.443577f,179.305980f,184.201575f,189.129918f,194.090580f,199.083145f,204.107210f,209.162385f,214.248292f,219.364564f,224.510845f,229.686789f,234.892058f,240.126328f,245.389280f,250.680604f,256.000000f,261.347174f,266.721841f,272.123723f,277.552547f,283.008049f,288.489971f,293.998060f,299.532071f,305.091761f,310.676898f,316.287249f,321.922592f,327.582707f,333.267377f,338.976394f,344.709550f,350.466646f,356.247482f,362.051866f,367.879608f,373.730522f,379.604427f,385.501143f,391.420496f,397.362314f,403.326427f,409.312672f,415.320884f,421.350905f,427.402579f,433.475750f,439.570269f,445.685987f,451.822757f,457.980436f,464.158883f,470.357960f,476.577530f,482.817459f,489.077615f,495.357868f,501.658090f,507.978156f,514.317941f,520.677324f,527.056184f,533.454404f,539.871867f,546.308458f,552.764065f,559.238575f,565.731879f,572.243870f,578.774440f,585.323483f,591.890898f,598.476581f,605.080431f,611.702349f,618.342238f,625.000000f,631.675540f,638.368763f,645.079578f
@@ -94678,7 +94685,7 @@ static ma_bool32 ma_dr_mp3__on_tell_stdio(void* pUserData, ma_int64* pCursor)
     ma_int64 result;
     MA_DR_MP3_ASSERT(pFileStdio != NULL);
     MA_DR_MP3_ASSERT(pCursor    != NULL);
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(NXDK)
     #if defined(_MSC_VER) && _MSC_VER > 1200
         result = _ftelli64(pFileStdio);
     #else
