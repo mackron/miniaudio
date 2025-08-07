@@ -3634,25 +3634,24 @@ each of these backends in the order listed in the table below.
 Note that backends that are not usable by the build target will not be included in the build. For
 example, ALSA, which is specific to Linux, will not be included in the Windows build.
 
-    +-------------+-----------------------+--------------------------------------------------------+
-    | Name        | Enum Name             | Supported Operating Systems                            |
-    +-------------+-----------------------+--------------------------------------------------------+
-    | WASAPI      | ma_backend_wasapi     | Windows Vista+                                         |
-    | DirectSound | ma_backend_dsound     | Windows XP+                                            |
-    | WinMM       | ma_backend_winmm      | Windows 95+                                            |
-    | Core Audio  | ma_backend_coreaudio  | macOS, iOS                                             |
-    | sndio       | ma_backend_sndio      | OpenBSD                                                |
-    | audio(4)    | ma_backend_audio4     | NetBSD, OpenBSD                                        |
-    | OSS         | ma_backend_oss        | FreeBSD                                                |
-    | PulseAudio  | ma_backend_pulseaudio | Cross Platform (disabled on Windows, BSD and Android)  |
-    | ALSA        | ma_backend_alsa       | Linux                                                  |
-    | JACK        | ma_backend_jack       | Cross Platform (disabled on BSD and Android)           |
-    | AAudio      | ma_backend_aaudio     | Android 8+                                             |
-    | OpenSL ES   | ma_backend_opensl     | Android (API level 16+)                                |
-    | Web Audio   | ma_backend_webaudio   | Web (via Emscripten)                                   |
-    | Custom      | ma_backend_custom     | Cross Platform                                         |
-    | Null        | ma_backend_null       | Cross Platform (not used on Web)                       |
-    +-------------+-----------------------+--------------------------------------------------------+
+    +-------------+------------------------------+--------------------------------------------------------+
+    | Name        | Enum Name                    | Supported Operating Systems                            |
+    +-------------+------------------------------+--------------------------------------------------------+
+    | WASAPI      | ma_device_backend_wasapi     | Windows Vista+                                         |
+    | DirectSound | ma_device_backend_dsound     | Windows XP+                                            |
+    | WinMM       | ma_device_backend_winmm      | Windows 95+                                            |
+    | Core Audio  | ma_device_backend_coreaudio  | macOS, iOS                                             |
+    | PulseAudio  | ma_device_backend_pulseaudio | Cross Platform (disabled on Windows, BSD and Android)  |
+    | ALSA        | ma_device_backend_alsa       | Linux                                                  |
+    | JACK        | ma_device_backend_jack       | Cross Platform (disabled on BSD and Android)           |
+    | sndio       | ma_device_backend_sndio      | OpenBSD                                                |
+    | audio(4)    | ma_device_backend_audio4     | NetBSD, OpenBSD                                        |
+    | OSS         | ma_device_backend_oss        | FreeBSD                                                |
+    | AAudio      | ma_device_backend_aaudio     | Android 8+                                             |
+    | OpenSL|ES   | ma_device_backend_opensl     | Android (API level 16+)                                |
+    | Web Audio   | ma_device_backend_webaudio   | Web (via Emscripten)                                   |
+    | Null        | ma_device_backend_null       | Cross Platform (not used on Web)                       |
+    +-------------+------------------------------+--------------------------------------------------------+
 
 Some backends have some nuance details you may want to be aware of.
 
@@ -7819,24 +7818,24 @@ Remarks
 -------
 When `pBackends` is NULL, the default priority order will be used. Below is a list of backends in priority order:
 
-    |-------------|------------------------------|--------------------------------------------------------|
+    +-------------+------------------------------+--------------------------------------------------------+
     | Name        | Enum Name                    | Supported Operating Systems                            |
-    |-------------|------------------------------|--------------------------------------------------------|
+    +-------------+------------------------------+--------------------------------------------------------+
     | WASAPI      | ma_device_backend_wasapi     | Windows Vista+                                         |
     | DirectSound | ma_device_backend_dsound     | Windows XP+                                            |
     | WinMM       | ma_device_backend_winmm      | Windows 95+                                            |
     | Core Audio  | ma_device_backend_coreaudio  | macOS, iOS                                             |
-    | sndio       | ma_device_backend_sndio      | OpenBSD                                                |
-    | audio(4)    | ma_device_backend_audio4     | NetBSD, OpenBSD                                        |
-    | OSS         | ma_device_backend_oss        | FreeBSD                                                |
     | PulseAudio  | ma_device_backend_pulseaudio | Cross Platform (disabled on Windows, BSD and Android)  |
     | ALSA        | ma_device_backend_alsa       | Linux                                                  |
     | JACK        | ma_device_backend_jack       | Cross Platform (disabled on BSD and Android)           |
+    | sndio       | ma_device_backend_sndio      | OpenBSD                                                |
+    | audio(4)    | ma_device_backend_audio4     | NetBSD, OpenBSD                                        |
+    | OSS         | ma_device_backend_oss        | FreeBSD                                                |
     | AAudio      | ma_device_backend_aaudio     | Android 8+                                             |
     | OpenSL|ES   | ma_device_backend_opensl     | Android (API level 16+)                                |
     | Web Audio   | ma_device_backend_webaudio   | Web (via Emscripten)                                   |
     | Null        | ma_device_backend_null       | Cross Platform (not used on Web)                       |
-    |-------------|------------------------------|--------------------------------------------------------|
+    +-------------+------------------------------+--------------------------------------------------------+
 
 The context can be configured via the `pConfig` argument. The config object is initialized with `ma_context_config_init()`. Individual configuration settings
 can then be set directly on the structure. Below are the members of the `ma_context_config` object.
@@ -7848,7 +7847,7 @@ can then be set directly on the structure. Below are the members of the `ma_cont
     threadPriority
         The desired priority to use for the audio thread. Allowable values include the following:
 
-        |--------------------------------------|
+        +--------------------------------------+
         | Thread Priority                      |
         |--------------------------------------|
         | ma_thread_priority_idle              |
@@ -7859,7 +7858,7 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         | ma_thread_priority_highest (default) |
         | ma_thread_priority_realtime          |
         | ma_thread_priority_default           |
-        |--------------------------------------|
+        +--------------------------------------+
 
     threadStackSize
         The desired size of the stack for the audio thread. Defaults to the operating system's default.
@@ -7890,9 +7889,9 @@ can then be set directly on the structure. Below are the members of the `ma_cont
     coreaudio.sessionCategory
         iOS only. The session category to use for the shared AudioSession instance. Below is a list of allowable values and their Core Audio equivalents.
 
-        |-----------------------------------------|-------------------------------------|
+        +-----------------------------------------+-------------------------------------+
         | miniaudio Token                         | Core Audio Token                    |
-        |-----------------------------------------|-------------------------------------|
+        |-----------------------------------------+-------------------------------------+
         | ma_ios_session_category_ambient         | AVAudioSessionCategoryAmbient       |
         | ma_ios_session_category_solo_ambient    | AVAudioSessionCategorySoloAmbient   |
         | ma_ios_session_category_playback        | AVAudioSessionCategoryPlayback      |
@@ -7901,14 +7900,14 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         | ma_ios_session_category_multi_route     | AVAudioSessionCategoryMultiRoute    |
         | ma_ios_session_category_none            | AVAudioSessionCategoryAmbient       |
         | ma_ios_session_category_default         | AVAudioSessionCategoryAmbient       |
-        |-----------------------------------------|-------------------------------------|
+        +-----------------------------------------+-------------------------------------+
 
     coreaudio.sessionCategoryOptions
         iOS only. Session category options to use with the shared AudioSession instance. Below is a list of allowable values and their Core Audio equivalents.
 
-        |---------------------------------------------------------------------------|------------------------------------------------------------------|
+        +---------------------------------------------------------------------------+------------------------------------------------------------------+
         | miniaudio Token                                                           | Core Audio Token                                                 |
-        |---------------------------------------------------------------------------|------------------------------------------------------------------|
+        +---------------------------------------------------------------------------+------------------------------------------------------------------+
         | ma_ios_session_category_option_mix_with_others                            | AVAudioSessionCategoryOptionMixWithOthers                        |
         | ma_ios_session_category_option_duck_others                                | AVAudioSessionCategoryOptionDuckOthers                           |
         | ma_ios_session_category_option_allow_bluetooth                            | AVAudioSessionCategoryOptionAllowBluetooth                       |
@@ -7916,7 +7915,7 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         | ma_ios_session_category_option_interrupt_spoken_audio_and_mix_with_others | AVAudioSessionCategoryOptionInterruptSpokenAudioAndMixWithOthers |
         | ma_ios_session_category_option_allow_bluetooth_a2dp                       | AVAudioSessionCategoryOptionAllowBluetoothA2DP                   |
         | ma_ios_session_category_option_allow_air_play                             | AVAudioSessionCategoryOptionAllowAirPlay                         |
-        |---------------------------------------------------------------------------|------------------------------------------------------------------|
+        +---------------------------------------------------------------------------+------------------------------------------------------------------+
 
     coreaudio.noAudioSessionActivate
         iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:true] on initialization.
@@ -44138,15 +44137,6 @@ static const void* ma_context_config_find_backend_config(const ma_context_config
         if (pVTable == ma_device_backend_coreaudio) {
             return &pConfig->coreaudio;
         }
-        if (pVTable == ma_device_backend_sndio) {
-            return &pConfig->sndio;
-        }
-        if (pVTable == ma_device_backend_audio4) {
-            return &pConfig->audio4;
-        }
-        if (pVTable == ma_device_backend_oss) {
-            return &pConfig->oss;
-        }
         if (pVTable == ma_device_backend_pulseaudio) {
             return &pConfig->pulseaudio;
         }
@@ -44155,6 +44145,15 @@ static const void* ma_context_config_find_backend_config(const ma_context_config
         }
         if (pVTable == ma_device_backend_jack) {
             return &pConfig->jack;
+        }
+        if (pVTable == ma_device_backend_sndio) {
+            return &pConfig->sndio;
+        }
+        if (pVTable == ma_device_backend_audio4) {
+            return &pConfig->audio4;
+        }
+        if (pVTable == ma_device_backend_oss) {
+            return &pConfig->oss;
         }
         if (pVTable == ma_device_backend_aaudio) {
             return &pConfig->aaudio;
@@ -44624,15 +44623,6 @@ static const void* ma_device_config_find_backend_config(const ma_device_config* 
         if (pVTable == ma_device_backend_coreaudio) {
             return &pConfig->coreaudio;
         }
-        if (pVTable == ma_device_backend_sndio) {
-            return &pConfig->sndio;
-        }
-        if (pVTable == ma_device_backend_audio4) {
-            return &pConfig->audio4;
-        }
-        if (pVTable == ma_device_backend_oss) {
-            return &pConfig->oss;
-        }
         if (pVTable == ma_device_backend_pulseaudio) {
             return &pConfig->pulseaudio;
         }
@@ -44641,6 +44631,15 @@ static const void* ma_device_config_find_backend_config(const ma_device_config* 
         }
         if (pVTable == ma_device_backend_jack) {
             return &pConfig->jack;
+        }
+        if (pVTable == ma_device_backend_sndio) {
+            return &pConfig->sndio;
+        }
+        if (pVTable == ma_device_backend_audio4) {
+            return &pConfig->audio4;
+        }
+        if (pVTable == ma_device_backend_oss) {
+            return &pConfig->oss;
         }
         if (pVTable == ma_device_backend_aaudio) {
             return &pConfig->aaudio;
