@@ -3953,16 +3953,23 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
-#if defined(__has_c_attribute)
-    #if __has_c_attribute(fallthrough)
+/* Define MA_FALLTHROUGH in a way that avoids C2x warnings on older standards */
+#if !defined(MA_FALLTHROUGH)
+    /* First try: C++17 or later supports [[fallthrough]] without warnings. */
+    #if defined(__cplusplus) && __cplusplus >= 201703L
         #define MA_FALLTHROUGH [[fallthrough]]
+    /* Second try: C2x standard in C (no warnings). */
+    #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
+        #define MA_FALLTHROUGH [[fallthrough]]
+    /* Third try: compiler-specific attribute for C99/C11, no warnings. */
+    #elif defined(__has_attribute)
+        #if __has_attribute(fallthrough)
+            #define MA_FALLTHROUGH __attribute__((fallthrough))
+        #endif
     #endif
 #endif
-#if !defined(MA_FALLTHROUGH) && defined(__has_attribute) && (defined(__clang__) || defined(__GNUC__))
-    #if __has_attribute(fallthrough)
-        #define MA_FALLTHROUGH __attribute__((fallthrough))
-    #endif
-#endif
+
+/* Fallback if nothing above worked. */
 #if !defined(MA_FALLTHROUGH)
     #define MA_FALLTHROUGH ((void)0)
 #endif

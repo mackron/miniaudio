@@ -1,0 +1,38 @@
+name: MacOS
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ master, dev, dev-0.12 ]
+    paths: &shared_paths
+    - '**'
+    - '!**.yml'
+    - '!**.md'
+    - '**/macos.yml'
+
+  pull_request:
+    branches: [ master, dev, dev-0.12 ]
+    paths: *shared_paths
+
+jobs:
+  MacOS:
+    strategy:
+      fail-fast: true
+      matrix:
+        os:
+          - macos-15
+          - macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: brew install cmake
+
+    - name: CMake setup
+      run: cmake -B build -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON
+
+    - name: Build
+      run: make VERBOSE=1 -j$(nproc) -C build
