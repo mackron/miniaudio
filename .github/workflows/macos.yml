@@ -19,7 +19,7 @@ on:
 jobs:
   MacOS:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         os:
           - macos-15
