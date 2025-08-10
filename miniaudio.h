@@ -4202,9 +4202,6 @@ versions of Visual Studio, which I've confirmed with at least VC6.
     #endif
 #endif
 
-typedef struct ma_context ma_context;
-typedef struct ma_device ma_device;
-
 typedef ma_uint8 ma_channel;
 typedef enum
 {
@@ -6689,6 +6686,11 @@ This section contains the APIs for device playback and capture. Here is where yo
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DEVICE_IO
 
+typedef struct ma_context               ma_context;
+typedef struct ma_context_config        ma_context_config;
+typedef struct ma_device                ma_device;
+typedef struct ma_device_config         ma_device_config;
+typedef struct ma_device_descriptor     ma_device_descriptor;
 typedef struct ma_device_backend_vtable ma_device_backend_vtable;
 
 /************************************************************************************************************************************************************
@@ -7205,6 +7207,62 @@ MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_
 
 
 
+
+
+
+/* ma_device_op* is used internally. Defined here because it's required by ma_device. */
+typedef struct ma_device_op_completion_event
+{
+    ma_result result;
+#ifndef MA_NO_THREADING
+    ma_event event;
+#endif
+} ma_device_op_completion_event;
+
+typedef enum ma_device_op_type
+{
+    MA_DEVICE_OP_INIT,
+    MA_DEVICE_OP_UNINIT,
+    MA_DEVICE_OP_START,
+    MA_DEVICE_OP_STOP
+} ma_device_op_type;
+
+typedef union ma_device_op_params
+{
+    struct
+    {
+        const void* pDeviceBackendConfig;
+        ma_device_descriptor* pDescriptorPlayback;
+        ma_device_descriptor* pDescriptorCapture;
+    } init;
+} ma_device_op_params;
+
+typedef struct ma_device_op
+{
+    ma_device_op_type type;
+    ma_device_op_params params;
+#ifndef MA_NO_THREADING
+    ma_device_op_completion_event* pCompletionEvent;  /* This is signalled when the operation is completed. */
+#endif
+} ma_device_op;
+
+/*
+The device op queue is just a simple list with a mutex for the time being while I get everything set up. Might make
+this more efficient later.
+*/
+typedef struct ma_device_op_queue
+{
+#ifndef MA_NO_THREADING
+    ma_mutex lock;
+    ma_semaphore sem;
+#endif
+    ma_uint32 count;
+    ma_uint32 tail;
+    ma_device_op pItems[16];
+} ma_device_op_queue;
+
+
+
 /* Device notification types. */
 typedef enum
 {
@@ -7383,7 +7441,7 @@ MA_API ma_bool32 ma_device_id_equal(const ma_device_id* pA, const ma_device_id* 
 /*
 Describes some basic details about a playback or capture device.
 */
-typedef struct
+struct ma_device_descriptor
 {
     const ma_device_id* pDeviceID;
     ma_share_mode shareMode;
@@ -7394,12 +7452,8 @@ typedef struct
     ma_uint32 periodSizeInFrames;
     ma_uint32 periodSizeInMilliseconds;
     ma_uint32 periodCount;
-} ma_device_descriptor;
+};
 
-
-
-typedef struct ma_context_config ma_context_config;
-typedef struct ma_device_config  ma_device_config;
 
 /* For mapping a config object to a backend. Used for both context configs or device configs. */
 typedef struct ma_device_backend_config
@@ -7682,6 +7736,8 @@ struct ma_device
     ma_device_notification_proc onNotification;     /* Set once at initialization time and should not be changed after. */
     void* pUserData;                                /* Application defined data. */
     MA_ATOMIC(MA_SIZEOF_PTR, void*) pBackendState;  /* Backend state created by the backend. This will be passed to the relevant backend functions. */
+    ma_device_op_queue opQueue;                     /* Operation queue for executing init/uninit/start/stop on the audio thread rather. */
+    ma_thread audioThread;
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
@@ -11014,7 +11070,9 @@ MA_API ma_node_graph* ma_engine_get_node_graph(ma_engine* pEngine);
 #if !defined(MA_NO_RESOURCE_MANAGER)
 MA_API ma_resource_manager* ma_engine_get_resource_manager(ma_engine* pEngine);
 #endif
+#if !defined(MA_NO_DEVICE_IO)
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine);
+#endif
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_get_time_in_pcm_frames(const ma_engine* pEngine);
@@ -43680,6 +43738,497 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
 }
 
 
+/* TODO: Make this public? */
+typedef enum ma_blocking_mode
+{
+    MA_BLOCKING_MODE_BLOCKING,
+    MA_BLOCKING_MODE_NON_BLOCKING
+} ma_blocking_mode;
+
+static ma_result ma_device_op_completion_event_init(ma_device_op_completion_event* pCompletionEvent)
+{
+    if (pCompletionEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pCompletionEvent);
+    pCompletionEvent->result = MA_BUSY;
+    
+    #ifndef MA_NO_THREADING
+    {
+        ma_result result;
+
+        result = ma_event_init(&pCompletionEvent->event);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+    #endif
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_op_completion_event_uninit(ma_device_op_completion_event* pCompletionEvent)
+{
+    if (pCompletionEvent == NULL) {
+        return;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_event_uninit(&pCompletionEvent->event);
+    }
+    #endif
+}
+
+static void ma_device_op_completion_event_signal(ma_device_op_completion_event* pCompletionEvent, ma_result result)
+{
+    if (pCompletionEvent == NULL) {
+        return;
+    }
+
+    pCompletionEvent->result = result;
+    
+    #ifndef MA_NO_THREADING
+    {
+        ma_event_signal(&pCompletionEvent->event);
+    }
+    #endif
+}
+
+static void ma_device_op_completion_event_wait(ma_device_op_completion_event* pCompletionEvent)
+{
+    if (pCompletionEvent == NULL) {
+        return;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_event_wait(&pCompletionEvent->event);
+    }
+    #endif
+}
+
+static ma_result ma_device_op_completion_event_result(ma_device_op_completion_event* pCompletionEvent)
+{
+    if (pCompletionEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_device_op_completion_event_wait(pCompletionEvent);
+
+    return pCompletionEvent->result;
+}
+
+
+static ma_result ma_device_op_queue_init(ma_device_op_queue* pQueue)
+{
+    ma_result result;
+
+    if (pQueue == NULL) {
+        return MA_SUCCESS;
+    }
+
+    MA_ZERO_OBJECT(pQueue);
+
+    #ifndef MA_NO_THREADING
+    {
+        result = ma_mutex_init(&pQueue->lock);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_semaphore_init(0, &pQueue->sem);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+    #else
+    {
+        /* Threading disabled. No sync objects required. */
+    }
+    #endif
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_op_queue_uninit(ma_device_op_queue* pQueue)
+{
+    if (pQueue != NULL) {
+        return;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_semaphore_uninit(&pQueue->sem);
+        ma_mutex_uninit(&pQueue->lock);
+    }
+    #endif
+}
+
+static void ma_device_op_queue_lock(ma_device_op_queue* pQueue)
+{
+    #ifndef MA_NO_THREADING
+    {
+        ma_mutex_lock(&pQueue->lock);
+    }
+    #else
+    {
+        /* Threading disabled. Nothing to do. */
+        (void)pQueue;
+    }
+    #endif
+}
+
+static void ma_device_op_queue_unlock(ma_device_op_queue* pQueue)
+{
+    #ifndef MA_NO_THREADING
+    {
+        ma_mutex_unlock(&pQueue->lock);
+    }
+    #else
+    {
+        /* Threading disabled. Nothing to do. */
+        (void)pQueue;
+    }
+    #endif
+}
+
+static ma_uint32 ma_device_op_queue_head(const ma_device_op_queue* pQueue)
+{
+    if (pQueue->tail < pQueue->count) {
+        return ma_countof(pQueue->pItems) - (pQueue->count - pQueue->tail);
+    } else {
+        return pQueue->tail - pQueue->count;
+    }
+}
+
+static ma_result ma_device_op_queue_new_nolock(ma_device_op_queue* pQueue, ma_device_op_type type, const ma_device_op_params* pParams, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_device_op* pOp = NULL;
+
+    MA_ASSERT(pQueue != NULL);
+
+    if (pQueue->count >= ma_countof(pQueue->pItems)) {
+        MA_ASSERT(!"Too many device operations queued.");
+        return MA_INVALID_OPERATION;
+    }
+
+    pOp = &pQueue->pItems[pQueue->tail];
+    
+    pOp->type = type;
+    pOp->pCompletionEvent = pCompletionEvent;
+
+    if (pParams != NULL) {
+        pOp->params = *pParams;
+    }
+
+
+    pQueue->count += 1;
+    pQueue->tail   = (pQueue->tail + 1) % ma_countof(pQueue->pItems);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_op_queue_push(ma_device_op_queue* pQueue, ma_device_op_type type, const ma_device_op_params* pParams, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_result result;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_device_op_queue_lock(pQueue);
+    {
+        result = ma_device_op_queue_new_nolock(pQueue, type, pParams, pCompletionEvent);
+        if (result == MA_SUCCESS) {
+            #ifndef MA_NO_THREADING
+            {
+                ma_semaphore_release(&pQueue->sem);
+            }
+            #endif
+        }
+    }
+    ma_device_op_queue_unlock(pQueue);
+
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_op_queue_next_nolock(ma_device_op_queue* pQueue, ma_device_op** ppOp)
+{
+    ma_device_op* pOp = NULL;
+    ma_uint32 head;
+
+    MA_ASSERT(pQueue != NULL);
+    MA_ASSERT(ppOp   != NULL);
+    MA_ASSERT(*ppOp  == NULL);
+    MA_ASSERT(pQueue->count > 0);
+
+    head = ma_device_op_queue_head(pQueue);
+
+    pOp = &pQueue->pItems[head];
+    pQueue->count -= 1;
+
+    *ppOp = pOp;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_op_queue_next(ma_device_op_queue* pQueue, ma_blocking_mode blockingMode, ma_device_op** ppOp)
+{
+    ma_result result;
+    ma_device_op* pOp = NULL;
+
+    if (ppOp == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *ppOp = NULL;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+        ma_device_op_queue_lock(pQueue);
+        {
+            if (pQueue->count == 0) {
+                ma_device_op_queue_unlock(pQueue);
+                return MA_NO_DATA_AVAILABLE;
+            }
+
+            /* Getting here means there is an item available. We still need to decrement the semaphore's counter. */
+            #ifndef MA_NO_THREADING
+            {
+                ma_semaphore_wait(&pQueue->sem);    /* <-- Should not block. */
+            }
+            #endif
+
+            result = ma_device_op_queue_next_nolock(pQueue, &pOp);
+        }
+        ma_device_op_queue_unlock(pQueue);
+    } else {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_wait(&pQueue->sem);
+        }
+        #else
+        {
+            if (pQueue->count == 0) {
+                return MA_NO_DATA_AVAILABLE;
+            }
+        }
+        #endif
+
+        ma_device_op_queue_lock(pQueue);
+        {
+            result = ma_device_op_queue_next_nolock(pQueue, &pOp);
+        }
+        ma_device_op_queue_unlock(pQueue);
+    }
+
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *ppOp = pOp;
+
+    return MA_SUCCESS;
+}
+
+
+static void ma_device_op_signal(ma_device_op* pOp, ma_result result)
+{
+    if (pOp == NULL) {
+        return;
+    }
+
+    if (pOp->pCompletionEvent != NULL) {
+        ma_device_op_completion_event_signal(pOp->pCompletionEvent, result);
+    }
+}
+
+
+static ma_result ma_device_op_do_init(ma_device* pDevice, ma_device_op_params params, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_result result;
+    void* pBackendState;
+
+    if (pDevice->pContext->pVTable->onDeviceInit != NULL) {
+        result = pDevice->pContext->pVTable->onDeviceInit(pDevice, params.init.pDeviceBackendConfig, params.init.pDescriptorPlayback, params.init.pDescriptorCapture, &pBackendState);
+    } else {
+        /* Should never hit this. */
+        MA_ASSERT(!"No onDeviceInit callback.");
+        result = MA_NOT_IMPLEMENTED;
+    }
+
+    /* Store the backend state as soon as possible. */
+    ma_atomic_store_explicit_ptr((volatile void**)&pDevice->pBackendState, pBackendState, ma_atomic_memory_order_relaxed);
+
+    /* The device is now in a stopped state. */
+    ma_device_set_status(pDevice, ma_device_status_stopped);
+
+    ma_device_op_completion_event_signal(pCompletionEvent, result);
+    return result;
+}
+
+static ma_result ma_device_op_do_uninit(ma_device* pDevice, ma_device_op_completion_event* pCompletionEvent)
+{
+    if (pDevice->pContext->pVTable->onDeviceUninit != NULL) {
+        pDevice->pContext->pVTable->onDeviceUninit(pDevice);
+    }
+
+    ma_device_op_completion_event_signal(pCompletionEvent, MA_SUCCESS);
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_op_do_start(ma_device* pDevice, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_result result;
+
+    if (pDevice->pContext->pVTable->onDeviceStart != NULL) {
+        result = pDevice->pContext->pVTable->onDeviceStart(pDevice);
+    } else {
+        result = MA_SUCCESS;
+    }
+
+    ma_device_set_status(pDevice, ma_device_status_started);
+
+    ma_device_op_completion_event_signal(pCompletionEvent, result);
+    return result;
+}
+
+static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_result result;
+
+    if (pDevice->pContext->pVTable->onDeviceStop != NULL) {
+        result = pDevice->pContext->pVTable->onDeviceStop(pDevice);
+    } else {
+        result = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
+    }
+
+    /*
+    After the device has stopped, make sure an event is posted. Don't post a stopped event if
+    stopping failed. This can happen on some backends when the underlying stream has been
+    stopped due to the device being physically unplugged or disabled via an OS setting.
+    */
+    if (result == MA_SUCCESS) {
+        ma_device_post_notification_stopped(pDevice);
+    }
+
+    ma_device_set_status(pDevice, ma_device_status_stopped);
+
+    ma_device_op_completion_event_signal(pCompletionEvent, MA_SUCCESS);
+    return MA_SUCCESS;
+}
+
+
+static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
+{
+    ma_device* pDevice = (ma_device*)pData;
+    ma_result result;
+    ma_device_op* pOp;
+    #ifdef MA_WIN32
+    HRESULT CoInitializeResult;
+    #endif
+
+    #ifdef MA_WIN32
+    {
+        CoInitializeResult = ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
+    }
+    #endif
+
+    /* We should have an initial MA_DEVICE_OP_INIT in the queue. If not we need to throw an error. */
+    result = ma_device_op_queue_next(&pDevice->opQueue, MA_BLOCKING_MODE_BLOCKING, &pOp);
+    if (result != MA_SUCCESS) {
+        MA_ASSERT(!"Device operation queue not seeded with an initial MA_DEVICE_OP_INIT.");
+        goto end_audio_thread;
+    }
+
+    if (pOp->type != MA_DEVICE_OP_INIT) {
+        MA_ASSERT(!"Device operation queue was seeded with an initial op, but was not of the expected type of MA_DEVICE_OP_INIT.");
+        goto end_audio_thread;
+    }
+
+    result = ma_device_op_do_init(pDevice, pOp->params, pOp->pCompletionEvent);
+    if (result != MA_SUCCESS) {
+        goto end_audio_thread;
+    }
+
+
+    for (;;) {
+        result = ma_device_op_queue_next(&pDevice->opQueue, MA_BLOCKING_MODE_BLOCKING, &pOp);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        /*  */ if (pOp->type == MA_DEVICE_OP_UNINIT) {
+            ma_device_op_do_uninit(pDevice, pOp->pCompletionEvent);
+            break;
+        } else if (pOp->type == MA_DEVICE_OP_START) {
+            /* We should never be attempting to start the device unless it's in a stopped state. */
+            MA_ASSERT(ma_device_get_status(pDevice) == ma_device_status_stopped);
+
+            result = ma_device_op_do_start(pDevice, pOp->pCompletionEvent);
+            if (result == MA_SUCCESS) {
+                /* At this point the device has started. We now need to enter the main data loop. */
+                ma_device_op dummyStop;
+                
+                /* Loop. */
+                if (pDevice->pContext->pVTable->onDeviceLoop != NULL) {
+                    pDevice->pContext->pVTable->onDeviceLoop(pDevice);
+                } else {
+                    /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
+                    ma_device_audio_thread__default_read_write(pDevice);
+                }
+
+                /* The only op allowed at this point is a stop. ma_device_stop() will have posted a stop op so we'll need to grab it from the queue and process it. */
+                result = ma_device_op_queue_next(&pDevice->opQueue, MA_BLOCKING_MODE_NON_BLOCKING, &pOp);
+                if (result != MA_SUCCESS) {
+                    /* There is no stop op on the queue which means the backend itself must have terminated from its loop. We'll use a dummy stop event here. */
+                    MA_ZERO_OBJECT(&dummyStop);
+                    dummyStop.type = MA_DEVICE_OP_STOP;
+                    pOp = &dummyStop;
+                }
+
+                if (pOp->type == MA_DEVICE_OP_STOP) {
+                    ma_device_op_do_stop(pDevice, pOp->pCompletionEvent);
+                } else {
+                    MA_ASSERT(!"Expecting a stop op, but got something else.");
+                }
+            } else {
+                /* Starting the device failed. */
+            }
+        } else if (pOp->type == MA_DEVICE_OP_STOP) {
+            /*
+            The comments above said that we should never get a stop event here, but *technically* we can if `ma_device_stop()`
+            is called at the same time as the backend itself terminated from its own loop. Exceptionally unlikely, but possible.
+            In this case we're just going to signal the op. We do not want to call into the backend's stop callback.
+            */
+            ma_device_op_signal(pOp, MA_SUCCESS);
+        } else {
+            MA_ASSERT(!"Unexpected device op.");
+        }
+    }
+
+end_audio_thread:
+    #ifdef MA_WIN32
+    {
+        if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) {
+            ma_CoUninitialize(pDevice->pContext);
+        }
+    }
+    #endif
+
+    return (ma_thread_result)0;
+}
+
+
 static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
@@ -44664,7 +45213,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_result result;
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
-    void* pBackendState;
+    ma_bool32 singleThreaded = MA_FALSE;    /* TODO: Make this a config variable. */
 
     /* The context can be null, in which case we self-manage it. */
     if (pContext == NULL) {
@@ -44674,6 +45223,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     if (pDevice == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    /* Force single-threaded mode if threading has been disabled at compile time. */
+    #ifdef MA_NO_THREADING
+    {
+        singleThreaded = MA_TRUE;
+    }
+    #endif
 
     MA_ZERO_OBJECT(pDevice);
 
@@ -44753,6 +45309,8 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->playback.channelMixMode     = pConfig->playback.channelMixMode;
     pDevice->playback.calculateLFEFromSpatialChannels = pConfig->playback.calculateLFEFromSpatialChannels;
 
+
+    
     result = ma_mutex_init(&pDevice->startStopLock);
     if (result != MA_SUCCESS) {
         return result;
@@ -44819,15 +45377,76 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
+    ma_device_op_params initParams;
+    initParams.init.pDeviceBackendConfig = ma_device_config_find_backend_config(pConfig, pContext->pVTable);
+    initParams.init.pDescriptorPlayback  = &descriptorPlayback;
+    initParams.init.pDescriptorCapture   = &descriptorCapture;
+
+    /*
+    We'll want to set up the worker thread fairly early on in the process because that is where the backend will
+    be initialized. It won't be doing anything at first because no operation will be put onto the queue.
+    */
+    #ifndef MA_NO_THREADING
+    if (singleThreaded == MA_FALSE) {
+        ma_device_op_completion_event initEvent;
+
+        /* We need an operation queue before starting the audio thread.. */
+        result = ma_device_op_queue_init(&pDevice->opQueue);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Seed the initial initialization routine. */
+        result = ma_device_op_completion_event_init(&initEvent);
+        if (result != MA_SUCCESS) {
+            ma_device_op_queue_uninit(&pDevice->opQueue);
+            return result;
+        }
+
+        result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_INIT, &initParams, &initEvent);
+        if (result != MA_SUCCESS) {
+            ma_device_op_completion_event_uninit(&initEvent);
+            ma_device_op_queue_uninit(&pDevice->opQueue);
+            return result;
+        }
+
+        result = ma_thread_create(&pDevice->audioThread, pContext->threadPriority, pContext->threadStackSize, ma_audio_thread, pDevice, &pContext->allocationCallbacks);
+        if(result != MA_SUCCESS) {
+            ma_device_op_completion_event_uninit(&initEvent);
+            ma_device_op_queue_uninit(&pDevice->opQueue);
+            return result;  /* Failed to create the audio thread. */
+        }
+
+        /* Now we just need to wait for the operation to complete. */
+        result = ma_device_op_completion_event_result(&initEvent);  /* <-- This will wait for the operation to complete. */
+        ma_device_op_completion_event_uninit(&initEvent);
+
+        if (result != MA_SUCCESS) {
+            ma_thread_wait(&pDevice->audioThread);   /* The audio thread will terminate if the init operation failed. We need only wait for the thread - no need to post an event. */
+            ma_device_op_queue_uninit(&pDevice->opQueue);
+            return result;
+        }
+    } else
+    #endif
+    {
+        /* Getting here means we're running in single-threaded mode. We want to run the init operation immediately. */
+        result = ma_device_op_do_init(pDevice, initParams, NULL);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to initialize backend. */
+        }
+    }
+
+
+    #if 0
     result = pContext->pVTable->onDeviceInit(pDevice, ma_device_config_find_backend_config(pConfig, pContext->pVTable), &descriptorPlayback, &descriptorCapture, &pBackendState);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
         ma_mutex_uninit(&pDevice->startStopLock);
+        ma_device_op_queue_uninit(&pDevice->opQueue);
         return result;
     }
-
-    ma_atomic_store_explicit_ptr((volatile void**)&pDevice->pBackendState, pBackendState, ma_atomic_memory_order_relaxed);
+    #endif
 
 
     result = ma_device_post_init(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
@@ -45108,10 +45727,29 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_thread_wait(&pDevice->thread);
     }
 
+
+    /*
+    Post an uninit operation to the worker thread. This will kill the worker thread. There is no
+    need to wait for the operation to complete. We can just wait for the thread instead.
+    */
+    #ifndef MA_NO_THREADING
+    {
+        ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_UNINIT, NULL, NULL);
+        ma_thread_wait(&pDevice->audioThread);
+    }
+    #else
+    {
+        /* Not using threading. */
+        ma_device_op_do_uninit(pDevice, NULL);
+    }
+    #endif
+
+    #if 0
     if (pDevice->pContext->pVTable->onDeviceUninit != NULL) {
         pDevice->pContext->pVTable->onDeviceUninit(pDevice);
         pDevice->pBackendState = NULL;
     }
+    #endif
 
 
     ma_event_uninit(&pDevice->stopEvent);
@@ -45142,6 +45780,9 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     if (pDevice->playback.pIntermediaryBuffer != NULL) {
         ma_free(pDevice->playback.pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
     }
+
+
+    ma_device_op_queue_uninit(&pDevice->opQueue);
 
     if (pDevice->isOwnerOfContext) {
         ma_allocation_callbacks allocationCallbacks = pDevice->pContext->allocationCallbacks;
@@ -78348,6 +78989,7 @@ MA_API ma_resource_manager* ma_engine_get_resource_manager(ma_engine* pEngine)
 }
 #endif
 
+#if !defined(MA_NO_DEVICE_IO)
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine)
 {
     if (pEngine == NULL) {
@@ -78364,6 +79006,7 @@ MA_API ma_device* ma_engine_get_device(ma_engine* pEngine)
     }
     #endif
 }
+#endif
 
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine)
 {
