@@ -44132,6 +44132,7 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
 }
 
 
+#ifndef MA_NO_THREADING
 static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
@@ -44231,6 +44232,7 @@ end_audio_thread:
 
     return (ma_thread_result)0;
 }
+#endif
 
 #ifdef MA_WIN32
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
@@ -45236,10 +45238,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
 
     /* Starting and stopping must be mutually exclusive. We just use a mutex for this. */
-    result = ma_mutex_init(&pDevice->startStopLock);
-    if (result != MA_SUCCESS) {
-        return result;
+    #ifndef MA_NO_THREADING
+    {
+        result = ma_mutex_init(&pDevice->startStopLock);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
     }
+    #endif
 
 
     initParams.init.pDeviceBackendConfig = ma_device_config_find_backend_config(pConfig, pContext->pVTable);
@@ -45255,6 +45261,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         /* We need an operation queue before starting the audio thread. */
         result = ma_device_op_queue_init(&pDevice->opQueue);
         if (result != MA_SUCCESS) {
+            ma_mutex_uninit(&pDevice->startStopLock);
             return result;
         }
 
@@ -45265,6 +45272,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         result = ma_device_op_completion_event_init(&pDevice->opCompletionEvent);
         if (result != MA_SUCCESS) {
             ma_device_op_queue_uninit(&pDevice->opQueue);
+            ma_mutex_uninit(&pDevice->startStopLock);
             return result;
         }
 
@@ -45273,6 +45281,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         if (result != MA_SUCCESS) {
             ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
             ma_device_op_queue_uninit(&pDevice->opQueue);
+            ma_mutex_uninit(&pDevice->startStopLock);
             return result;
         }
 
@@ -45280,6 +45289,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         if(result != MA_SUCCESS) {
             ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
             ma_device_op_queue_uninit(&pDevice->opQueue);
+            ma_mutex_uninit(&pDevice->startStopLock);
             return result;  /* Failed to create the audio thread. */
         }
 
@@ -45289,6 +45299,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             ma_thread_wait(&pDevice->audioThread);   /* The audio thread will terminate if the init operation failed. We need only wait for the thread - no need to post an event. */
             ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
             ma_device_op_queue_uninit(&pDevice->opQueue);
+            ma_mutex_uninit(&pDevice->startStopLock);
             return result;
         }
     } else
@@ -45572,8 +45583,6 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     }
     #endif
 
-    ma_mutex_uninit(&pDevice->startStopLock);
-
     if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
         if (pDevice->type == ma_device_type_duplex) {
             ma_duplex_rb_uninit(&pDevice->duplexRB);
@@ -45598,9 +45607,13 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_free(pDevice->playback.pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
     }
 
-
-    ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
-    ma_device_op_queue_uninit(&pDevice->opQueue);
+    #ifndef MA_NO_THREADING
+    {
+        ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
+        ma_device_op_queue_uninit(&pDevice->opQueue);
+        ma_mutex_uninit(&pDevice->startStopLock);
+    }
+    #endif
 
     if (pDevice->isOwnerOfContext) {
         ma_allocation_callbacks allocationCallbacks = pDevice->pContext->allocationCallbacks;
@@ -45716,6 +45729,35 @@ MA_API ma_result ma_device_get_name(ma_device* pDevice, ma_device_type type, cha
     return MA_SUCCESS;
 }
 
+
+static void ma_device_start_stop_lock(ma_device* pDevice)
+{
+    #ifndef MA_NO_THREADING
+    {
+        ma_mutex_lock(&pDevice->startStopLock);
+    }
+    #else
+    {
+        /* Nothing to do. */
+        (void)pDevice;
+    }
+    #endif
+}
+
+static void ma_device_start_stop_unlock(ma_device* pDevice)
+{
+    #ifndef MA_NO_THREADING
+    {
+        ma_mutex_unlock(&pDevice->startStopLock);
+    }
+    #else
+    {
+        /* Nothing to do. */
+        (void)pDevice;
+    }
+    #endif
+}
+
 MA_API ma_result ma_device_start(ma_device* pDevice)
 {
     ma_result result;
@@ -45732,14 +45774,14 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return MA_SUCCESS;  /* Already started. */
     }
 
-    ma_mutex_lock(&pDevice->startStopLock);
+    ma_device_start_stop_lock(pDevice);
     {
         /*
         We need to check again if the device is in a started state because it's possible for one thread to have started the device
         while another was waiting on the mutex.
         */
         if (ma_device_get_status(pDevice) == ma_device_status_started) {
-            ma_mutex_unlock(&pDevice->startStopLock);
+            ma_device_start_stop_unlock(pDevice);
             return MA_SUCCESS;  /* Already started. */
         }
 
@@ -45764,7 +45806,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         }
         #endif
     }
-    ma_mutex_unlock(&pDevice->startStopLock);
+    ma_device_start_stop_unlock(pDevice);
 
     return result;
 }
@@ -45785,14 +45827,14 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return MA_SUCCESS;  /* Already stopped. */
     }
 
-    ma_mutex_lock(&pDevice->startStopLock);
+    ma_device_start_stop_lock(pDevice);
     {
         /*
         We need to check again if the device is in a stopped state because it's possible for one thread to have stopped the device
         while another was waiting on the mutex.
         */
         if (ma_device_get_status(pDevice) == ma_device_status_stopped) {
-            ma_mutex_unlock(&pDevice->startStopLock);
+            ma_device_start_stop_unlock(pDevice);
             return MA_SUCCESS;  /* Already stopped. */
         }
 
@@ -45834,7 +45876,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         pDevice->playback.inputCacheConsumed    = 0;
         pDevice->playback.inputCacheRemaining   = 0;
     }
-    ma_mutex_unlock(&pDevice->startStopLock);
+    ma_device_start_stop_unlock(pDevice);
 
     return result;
 }
