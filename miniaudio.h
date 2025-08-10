@@ -7742,11 +7742,6 @@ struct ma_device
     ma_thread audioThread;
     ma_mutex startStopLock;
 #endif
-    ma_event wakeupEvent;
-    ma_event startEvent;
-    ma_event stopEvent;
-    ma_thread thread;
-    ma_result workResult;                           /* This is set by the worker thread after it's finished doing a job. */
     ma_bool8 isOwnerOfContext;                      /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
@@ -44237,118 +44232,6 @@ end_audio_thread:
     return (ma_thread_result)0;
 }
 
-
-static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
-{
-    ma_device* pDevice = (ma_device*)pData;
-#if defined(MA_WIN32) && !defined(MA_XBOX)
-    HRESULT CoInitializeResult;
-#endif
-
-    MA_ASSERT(pDevice != NULL);
-
-#if defined(MA_WIN32) && !defined(MA_XBOX)
-    CoInitializeResult = ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
-#endif
-
-    /*
-    When the device is being initialized its initial state is set to ma_device_status_uninitialized. Before returning from
-    ma_device_init(), the state needs to be set to something valid. In miniaudio the device's default state immediately
-    after initialization is stopped, so therefore we need to mark the device as such. miniaudio will wait on the worker
-    thread to signal an event to know when the worker thread is ready for action.
-    */
-    ma_device_set_status(pDevice, ma_device_status_stopped);
-    ma_event_signal(&pDevice->stopEvent);
-
-    for (;;) {  /* <-- This loop just keeps the thread alive. The main audio loop is inside. */
-        ma_result startResult;
-        ma_result stopResult;   /* <-- This will store the result from onDeviceStop(). If it returns an error, we don't fire the stopped notification callback. */
-
-        /* We wait on an event to know when something has requested that the device be started and the main loop entered. */
-        ma_event_wait(&pDevice->wakeupEvent);
-
-        /* Default result code. */
-        pDevice->workResult = MA_SUCCESS;
-
-        /* If the reason for the wake up is that we are terminating, just break from the loop. */
-        if (ma_device_get_status(pDevice) == ma_device_status_uninitialized) {
-            break;
-        }
-
-        /*
-        Getting to this point means the device is wanting to get started. The function that has requested that the device
-        be started will be waiting on an event (pDevice->startEvent) which means we need to make sure we signal the event
-        in both the success and error case. It's important that the state of the device is set _before_ signaling the event.
-        */
-        MA_ASSERT(ma_device_get_status(pDevice) == ma_device_status_starting);
-
-        /* If the device has a start callback, start it now. */
-        if (pDevice->pContext->pVTable->onDeviceStart != NULL) {
-            startResult = pDevice->pContext->pVTable->onDeviceStart(pDevice);
-        } else {
-            startResult = MA_SUCCESS;
-        }
-
-        /*
-        If starting was not successful we'll need to loop back to the start and wait for something
-        to happen (pDevice->wakeupEvent).
-        */
-        if (startResult != MA_SUCCESS) {
-            pDevice->workResult = startResult;
-            ma_event_signal(&pDevice->startEvent);  /* <-- Always signal the start event so ma_device_start() can return as it'll be waiting on it. */
-            continue;
-        }
-
-        /* Make sure the state is set appropriately. */
-        ma_device_set_status(pDevice, ma_device_status_started); /* <-- Set this before signaling the event so that the state is always guaranteed to be good after ma_device_start() has returned. */
-        ma_event_signal(&pDevice->startEvent);
-
-        ma_device_post_notification_started(pDevice);
-
-        if (pDevice->pContext->pVTable->onDeviceLoop != NULL) {
-            pDevice->pContext->pVTable->onDeviceLoop(pDevice);
-        } else {
-            /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
-            ma_device_audio_thread__default_read_write(pDevice);
-        }
-
-        /* Getting here means we have broken from the main loop which happens the application has requested that device be stopped. */
-        if (pDevice->pContext->pVTable->onDeviceStop != NULL) {
-            stopResult = pDevice->pContext->pVTable->onDeviceStop(pDevice);
-        } else {
-            stopResult = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
-        }
-
-        /*
-        After the device has stopped, make sure an event is posted. Don't post a stopped event if
-        stopping failed. This can happen on some backends when the underlying stream has been
-        stopped due to the device being physically unplugged or disabled via an OS setting.
-        */
-        if (stopResult == MA_SUCCESS) {
-            ma_device_post_notification_stopped(pDevice);
-        }
-
-        /* If we stopped because the device has been uninitialized, abort now. */
-        if (ma_device_get_status(pDevice) == ma_device_status_uninitialized) {
-            break;
-        }
-
-        /* A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. */
-        ma_device_set_status(pDevice, ma_device_status_stopped);
-        ma_event_signal(&pDevice->stopEvent);
-    }
-
-#if defined(MA_WIN32) && !defined(MA_XBOX)
-    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) {
-        ma_CoUninitialize(pDevice->pContext);
-    }
-#endif
-
-    return (ma_thread_result)0;
-}
-
-
-
 #ifdef MA_WIN32
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
@@ -45223,6 +45106,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
     ma_bool32 singleThreaded = MA_FALSE;    /* TODO: Make this a config variable. */
+    ma_device_op_params initParams;
 
     /* The context can be null, in which case we self-manage it. */
     if (pContext == NULL) {
@@ -45319,41 +45203,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->playback.calculateLFEFromSpatialChannels = pConfig->playback.calculateLFEFromSpatialChannels;
 
 
-    
-    result = ma_mutex_init(&pDevice->startStopLock);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /*
-    When the device is started, the worker thread is the one that does the actual startup of the backend device. We
-    use a semaphore to wait for the background thread to finish the work. The same applies for stopping the device.
-
-    Each of these semaphores is released internally by the worker thread when the work is completed. The start
-    semaphore is also used to wake up the worker thread.
-    */
-    result = ma_event_init(&pDevice->wakeupEvent);
-    if (result != MA_SUCCESS) {
-        ma_mutex_uninit(&pDevice->startStopLock);
-        return result;
-    }
-
-    result = ma_event_init(&pDevice->startEvent);
-    if (result != MA_SUCCESS) {
-        ma_event_uninit(&pDevice->wakeupEvent);
-        ma_mutex_uninit(&pDevice->startStopLock);
-        return result;
-    }
-
-    result = ma_event_init(&pDevice->stopEvent);
-    if (result != MA_SUCCESS) {
-        ma_event_uninit(&pDevice->startEvent);
-        ma_event_uninit(&pDevice->wakeupEvent);
-        ma_mutex_uninit(&pDevice->startStopLock);
-        return result;
-    }
-
-
     MA_ZERO_OBJECT(&descriptorPlayback);
     descriptorPlayback.pDeviceID                = pConfig->playback.pDeviceID;
     descriptorPlayback.shareMode                = pConfig->playback.shareMode;
@@ -45386,7 +45235,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
-    ma_device_op_params initParams;
+    /* Starting and stopping must be mutually exclusive. We just use a mutex for this. */
+    result = ma_mutex_init(&pDevice->startStopLock);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+
     initParams.init.pDeviceBackendConfig = ma_device_config_find_backend_config(pConfig, pContext->pVTable);
     initParams.init.pDescriptorPlayback  = &descriptorPlayback;
     initParams.init.pDescriptorCapture   = &descriptorCapture;
@@ -45445,18 +45300,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             return result;  /* Failed to initialize backend. */
         }
     }
-
-
-    #if 0
-    result = pContext->pVTable->onDeviceInit(pDevice, ma_device_config_find_backend_config(pConfig, pContext->pVTable), &descriptorPlayback, &descriptorCapture, &pBackendState);
-    if (result != MA_SUCCESS) {
-        ma_event_uninit(&pDevice->startEvent);
-        ma_event_uninit(&pDevice->wakeupEvent);
-        ma_mutex_uninit(&pDevice->startStopLock);
-        ma_device_op_queue_uninit(&pDevice->opQueue);
-        return result;
-    }
-    #endif
 
 
     result = ma_device_post_init(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
@@ -45539,24 +45382,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             ma_device_uninit(pDevice);
             return result;
         }
-    }
-
-
-    /* Some backends don't require the worker thread. */
-    if (!ma_context_is_backend_asynchronous(pContext)) {
-        /* The worker thread. */
-        result = ma_thread_create(&pDevice->thread, pContext->threadPriority, pContext->threadStackSize, ma_worker_thread, pDevice, &pContext->allocationCallbacks);
-        if (result != MA_SUCCESS) {
-            ma_device_uninit(pDevice);
-            return result;
-        }
-
-        /* Wait for the worker thread to put the device into its stopped state for real. */
-        ma_event_wait(&pDevice->stopEvent);
-        MA_ASSERT(ma_device_get_status(pDevice) == ma_device_status_stopped);
-    } else {
-        /* No worker thread created. Just put the device straight into a stopped state. */
-        ma_device_set_status(pDevice, ma_device_status_stopped);
     }
 
 
@@ -45731,13 +45556,6 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     /* Putting the device into an uninitialized state will make the worker thread return. */
     ma_device_set_status(pDevice, ma_device_status_uninitialized);
 
-    /* Wake up the worker thread and wait for it to properly terminate. */
-    if (!ma_context_is_backend_asynchronous(pDevice->pContext)) {
-        ma_event_signal(&pDevice->wakeupEvent);
-        ma_thread_wait(&pDevice->thread);
-    }
-
-
     /*
     Post an uninit operation to the audio thread. This will kill the audio thread. There is no
     need to wait for the operation to complete. We can just wait for the thread instead.
@@ -45754,17 +45572,6 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     }
     #endif
 
-    #if 0
-    if (pDevice->pContext->pVTable->onDeviceUninit != NULL) {
-        pDevice->pContext->pVTable->onDeviceUninit(pDevice);
-        pDevice->pBackendState = NULL;
-    }
-    #endif
-
-
-    ma_event_uninit(&pDevice->stopEvent);
-    ma_event_uninit(&pDevice->startEvent);
-    ma_event_uninit(&pDevice->wakeupEvent);
     ma_mutex_uninit(&pDevice->startStopLock);
 
     if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
