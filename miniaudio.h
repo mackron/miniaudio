@@ -44176,33 +44176,33 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
 
             result = ma_device_op_do_start(pDevice, pOp->pCompletionEvent);
             if (result == MA_SUCCESS) {
-                /* At this point the device has started. We now need to enter the main data loop. */
-                ma_device_op dummyStop;
-                
-                /* Loop. */
-                if (pDevice->pContext->pVTable->onDeviceLoop != NULL) {
-                    pDevice->pContext->pVTable->onDeviceLoop(pDevice);
+                /* If the backend is asynchronous, it'll be running it's own loop. No need for us to do it here. */
+                if (ma_context_is_backend_asynchronous(ma_device_get_context(pDevice))) {
+                    continue;   /* <-- This just makes the audio thread wait for a new operation to arrive, like an uninit or stop. */
                 } else {
-                    /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
-                    ma_device_audio_thread__default_read_write(pDevice);
-                }
+                    /* Getting here means we need to manage the loop ourselves. */
+                    if (pDevice->pContext->pVTable->onDeviceLoop != NULL) {
+                        pDevice->pContext->pVTable->onDeviceLoop(pDevice);
+                    } else {
+                        /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
+                        ma_device_audio_thread__default_read_write(pDevice);
+                    }
 
-                /* The only op allowed at this point is a stop. ma_device_stop() will have posted a stop op so we'll need to grab it from the queue and process it. */
-                result = ma_device_op_queue_next(&pDevice->opQueue, MA_BLOCKING_MODE_NON_BLOCKING, &pOp);
-                if (result != MA_SUCCESS) {
-                    /* There is no stop op on the queue which means the backend itself must have terminated from its loop. We'll use a dummy stop event here. */
-                    MA_ZERO_OBJECT(&dummyStop);
-                    dummyStop.type = MA_DEVICE_OP_STOP;
-                    pOp = &dummyStop;
-                }
-
-                if (pOp->type == MA_DEVICE_OP_STOP) {
-                    ma_device_op_do_stop(pDevice, pOp->pCompletionEvent);
-                } else {
-                    MA_ASSERT(!"Expecting a stop op, but got something else.");
+                    /* The only op allowed at this point is a stop. ma_device_stop() will likely have posted a stop op so we'll need to grab it from the queue and process it. */
+                    result = ma_device_op_queue_next(&pDevice->opQueue, MA_BLOCKING_MODE_NON_BLOCKING, &pOp);
+                    if (result == MA_SUCCESS) {
+                        if (pOp->type == MA_DEVICE_OP_STOP) {
+                            ma_device_op_do_stop(pDevice, pOp->pCompletionEvent);
+                        } else {
+                            MA_ASSERT(!"Expecting a stop op, but got something else.");
+                        }
+                    } else {
+                        /* There is no stop op on the queue which means the backend itself must have terminated from its loop. We'll use a dummy stop event here. */
+                        ma_device_op_do_stop(pDevice, NULL);
+                    }
                 }
             } else {
-                /* Starting the device failed. */
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to start device: %s.", ma_result_description(result));
             }
         } else if (pOp->type == MA_DEVICE_OP_STOP) {
             /*
