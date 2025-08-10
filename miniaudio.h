@@ -7736,9 +7736,12 @@ struct ma_device
     ma_device_notification_proc onNotification;     /* Set once at initialization time and should not be changed after. */
     void* pUserData;                                /* Application defined data. */
     MA_ATOMIC(MA_SIZEOF_PTR, void*) pBackendState;  /* Backend state created by the backend. This will be passed to the relevant backend functions. */
-    ma_device_op_queue opQueue;                     /* Operation queue for executing init/uninit/start/stop on the audio thread rather. */
+#ifndef MA_NO_THREADING
+    ma_device_op_queue opQueue;                     /* Operation queue for executing backend init/uninit/start/stop callbacks on the audio thread rather than the calling thread. */
+    ma_device_op_completion_event opCompletionEvent;
     ma_thread audioThread;
     ma_mutex startStopLock;
+#endif
     ma_event wakeupEvent;
     ma_event startEvent;
     ma_event stopEvent;
@@ -44096,7 +44099,13 @@ static ma_result ma_device_op_do_start(ma_device* pDevice, ma_device_op_completi
         result = MA_SUCCESS;
     }
 
-    ma_device_set_status(pDevice, ma_device_status_started);
+    if (result == MA_SUCCESS) {
+        ma_device_set_status(pDevice, ma_device_status_started);
+        ma_device_post_notification_started(pDevice);
+    } else {
+        /* Starting the device failed. Make sure we put the device back into a stopped status. */
+        ma_device_set_status(pDevice, ma_device_status_stopped);
+    }
 
     ma_device_op_completion_event_signal(pCompletionEvent, result);
     return result;
@@ -44112,6 +44121,8 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
         result = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
     }
 
+    ma_device_set_status(pDevice, ma_device_status_stopped);
+
     /*
     After the device has stopped, make sure an event is posted. Don't post a stopped event if
     stopping failed. This can happen on some backends when the underlying stream has been
@@ -44120,8 +44131,6 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
     if (result == MA_SUCCESS) {
         ma_device_post_notification_stopped(pDevice);
     }
-
-    ma_device_set_status(pDevice, ma_device_status_stopped);
 
     ma_device_op_completion_event_signal(pCompletionEvent, MA_SUCCESS);
     return MA_SUCCESS;
@@ -45388,41 +45397,42 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     */
     #ifndef MA_NO_THREADING
     if (singleThreaded == MA_FALSE) {
-        ma_device_op_completion_event initEvent;
-
-        /* We need an operation queue before starting the audio thread.. */
+        /* We need an operation queue before starting the audio thread. */
         result = ma_device_op_queue_init(&pDevice->opQueue);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        /* Seed the initial initialization routine. */
-        result = ma_device_op_completion_event_init(&initEvent);
+        /*
+        We'll need a completion event for init/uninit/start/stop to wait on. All of these are mutually exclusive
+        with each other so it should be right to use just the one completion event object.
+        */
+        result = ma_device_op_completion_event_init(&pDevice->opCompletionEvent);
         if (result != MA_SUCCESS) {
             ma_device_op_queue_uninit(&pDevice->opQueue);
             return result;
         }
 
-        result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_INIT, &initParams, &initEvent);
+        /* Seed the initial initialization routine. */
+        result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_INIT, &initParams, &pDevice->opCompletionEvent);
         if (result != MA_SUCCESS) {
-            ma_device_op_completion_event_uninit(&initEvent);
+            ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
             ma_device_op_queue_uninit(&pDevice->opQueue);
             return result;
         }
 
         result = ma_thread_create(&pDevice->audioThread, pContext->threadPriority, pContext->threadStackSize, ma_audio_thread, pDevice, &pContext->allocationCallbacks);
         if(result != MA_SUCCESS) {
-            ma_device_op_completion_event_uninit(&initEvent);
+            ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
             ma_device_op_queue_uninit(&pDevice->opQueue);
             return result;  /* Failed to create the audio thread. */
         }
 
         /* Now we just need to wait for the operation to complete. */
-        result = ma_device_op_completion_event_result(&initEvent);  /* <-- This will wait for the operation to complete. */
-        ma_device_op_completion_event_uninit(&initEvent);
-
+        result = ma_device_op_completion_event_result(&pDevice->opCompletionEvent);  /* <-- This will wait for the operation to complete. */
         if (result != MA_SUCCESS) {
             ma_thread_wait(&pDevice->audioThread);   /* The audio thread will terminate if the init operation failed. We need only wait for the thread - no need to post an event. */
+            ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
             ma_device_op_queue_uninit(&pDevice->opQueue);
             return result;
         }
@@ -45729,7 +45739,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
 
 
     /*
-    Post an uninit operation to the worker thread. This will kill the worker thread. There is no
+    Post an uninit operation to the audio thread. This will kill the audio thread. There is no
     need to wait for the operation to complete. We can just wait for the thread instead.
     */
     #ifndef MA_NO_THREADING
@@ -45782,6 +45792,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     }
 
 
+    ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
     ma_device_op_queue_uninit(&pDevice->opQueue);
 
     if (pDevice->isOwnerOfContext) {
@@ -45930,37 +45941,21 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
 
         ma_device_set_status(pDevice, ma_device_status_starting);
 
-        /* Asynchronous backends need to be handled differently. */
-        if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-            if (pDevice->pContext->pVTable->onDeviceStart != NULL) {
-                result = pDevice->pContext->pVTable->onDeviceStart(pDevice);
-            } else {
-                result = MA_INVALID_OPERATION;
-            }
-
+        #ifndef MA_NO_THREADING
+        {
+            result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_START, NULL, &pDevice->opCompletionEvent);
             if (result == MA_SUCCESS) {
-                ma_device_set_status(pDevice, ma_device_status_started);
-                ma_device_post_notification_started(pDevice);
+                result = ma_device_op_completion_event_result(&pDevice->opCompletionEvent); /* <-- This will wait for the operation to complete. */
+            } else {
+                /* Failed to push the operation for some reason. Fall through. This should never happen. */
             }
-        } else {
-            /*
-            Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
-            thread and then wait for the start event.
-            */
-            ma_event_signal(&pDevice->wakeupEvent);
-
-            /*
-            Wait for the worker thread to finish starting the device. Note that the worker thread will be the one who puts the device
-            into the started state. Don't call ma_device_set_status() here.
-            */
-            ma_event_wait(&pDevice->startEvent);
-            result = pDevice->workResult;
         }
-
-        /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
-        if (result != MA_SUCCESS) {
-            ma_device_set_status(pDevice, ma_device_status_stopped);
+        #else
+        {
+            /* Threading is disabled. */
+            result = ma_device_op_do_start(pDevice, NULL);
         }
+        #endif
     }
     ma_mutex_unlock(&pDevice->startStopLock);
 
@@ -45999,36 +45994,29 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
         ma_device_set_status(pDevice, ma_device_status_stopping);
 
-        /* Asynchronous backends need to be handled differently. */
-        if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-            /* Asynchronous backends must have a stop operation. */
-            if (pDevice->pContext->pVTable->onDeviceStop != NULL) {
-                result = pDevice->pContext->pVTable->onDeviceStop(pDevice);
+        #ifndef MA_NO_THREADING
+        {
+            result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_STOP, NULL, &pDevice->opCompletionEvent);
+            if (result == MA_SUCCESS) {
+                /*
+                Before waiting on the result, we need to make sure we try waking up the backend first in case it
+                needs a prod.
+                */
+                if (pDevice->pContext->pVTable->onDeviceWakeup != NULL) {
+                    pDevice->pContext->pVTable->onDeviceWakeup(pDevice);
+                }
+
+                result = ma_device_op_completion_event_result(&pDevice->opCompletionEvent); /* <-- This will wait for the operation to complete. */
             } else {
-                result = MA_INVALID_OPERATION;
+                /* Failed to push the operation for some reason. Fall through. This should never happen. */
             }
-
-            ma_device_set_status(pDevice, ma_device_status_stopped);
-        } else {
-            /*
-            Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. If
-            the backend is implementing its own audio thread loop we'll need to wake it up if required. Note that we need to make
-            sure the state of the device is *not* playing right now, which it shouldn't be since we set it above. This is super
-            important though, so I'm asserting it here as well for extra safety in case we accidentally change something later.
-            */
-            MA_ASSERT(ma_device_get_status(pDevice) != ma_device_status_started);
-
-            if (pDevice->pContext->pVTable->onDeviceWakeup != NULL) {
-                pDevice->pContext->pVTable->onDeviceWakeup(pDevice);
-            }
-
-            /*
-            We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
-            the one who puts the device into the stopped state. Don't call ma_device_set_status() here.
-            */
-            ma_event_wait(&pDevice->stopEvent);
-            result = MA_SUCCESS;
         }
+        #else
+        {
+            /* Threading is disabled. */
+            result = ma_device_op_do_stop(pDevice, NULL);
+        }
+        #endif
 
         /*
         This is a safety measure to ensure the internal buffer has been cleared so any leftover
