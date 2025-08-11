@@ -7691,7 +7691,6 @@ struct ma_context
     void* pUserData;
     ma_allocation_callbacks allocationCallbacks;
     ma_mutex deviceEnumLock;                        /* Used to make ma_context_get_devices() thread safe. */
-    ma_mutex deviceInfoLock;                        /* Used to make ma_context_get_device_info() thread safe. */
     ma_uint32 deviceInfoCapacity;                   /* Total capacity of pDeviceInfos. */
     ma_uint32 playbackDeviceInfoCount;
     ma_uint32 captureDeviceInfoCount;
@@ -44747,11 +44746,6 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to initialize mutex for device enumeration. ma_context_get_devices() is not thread safe.");
         }
 
-        result = ma_mutex_init(&pContext->deviceInfoLock);
-        if (result != MA_SUCCESS) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to initialize mutex for device info retrieval. ma_context_get_device_info() is not thread safe.");
-        }
-
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "System Architecture:");
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "  Endian: %s", ma_is_little_endian() ? "LE"  : "BE");
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "  SSE2:   %s", ma_has_sse2()         ? "YES" : "NO");
@@ -44778,7 +44772,6 @@ MA_API ma_result ma_context_uninit(ma_context* pContext)
     }
 
     ma_mutex_uninit(&pContext->deviceEnumLock);
-    ma_mutex_uninit(&pContext->deviceInfoLock);
     ma_free(pContext->pDeviceInfos, &pContext->allocationCallbacks);
     ma_context_uninit_backend_apis(pContext);
 
