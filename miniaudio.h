@@ -664,13 +664,7 @@ To run locally, you'll need to use emrun:
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_THREADING                  | Disables the `ma_thread`, `ma_mutex`, `ma_semaphore` and           |
     |                                  | `ma_event` APIs. This option is useful if you only need to use     |
-    |                                  | miniaudio for data conversion, decoding and/or encoding. Some      |
-    |                                  | families of APIs require threading which means the following       |
-    |                                  | options must also be set:                                          |
-    |                                  |                                                                    |
-    |                                  |     ```                                                            |
-    |                                  |     MA_NO_DEVICE_IO                                                |
-    |                                  |     ```                                                            |
+    |                                  | miniaudio for data conversion, decoding and/or encoding.           |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_GENERATION                 | Disables generation APIs such a `ma_waveform` and `ma_noise`.      |
     +----------------------------------+--------------------------------------------------------------------+
@@ -4514,67 +4508,72 @@ MA_ATOMIC_SAFE_TYPE_DECL(32,  4, bool32)
 /* Spinlocks are 32-bit for compatibility reasons. */
 typedef ma_uint32 ma_spinlock;
 
+/* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
+typedef enum
+{
+    ma_thread_priority_idle     = -5,
+    ma_thread_priority_lowest   = -4,
+    ma_thread_priority_low      = -3,
+    ma_thread_priority_normal   = -2,
+    ma_thread_priority_high     = -1,
+    ma_thread_priority_highest  =  0,
+    ma_thread_priority_realtime =  1,
+    ma_thread_priority_default  =  0
+} ma_thread_priority;
+
 #ifndef MA_NO_THREADING
-    /* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
-    typedef enum
-    {
-        ma_thread_priority_idle     = -5,
-        ma_thread_priority_lowest   = -4,
-        ma_thread_priority_low      = -3,
-        ma_thread_priority_normal   = -2,
-        ma_thread_priority_high     = -1,
-        ma_thread_priority_highest  =  0,
-        ma_thread_priority_realtime =  1,
-        ma_thread_priority_default  =  0
-    } ma_thread_priority;
-
     #if defined(MA_POSIX)
-        typedef ma_pthread_t ma_thread;
+        #define MA_THREADING_BACKEND_POSIX
     #elif defined(MA_WIN32)
-        typedef ma_handle ma_thread;
+        #define MA_THREADING_BACKEND_WIN32
     #else
-        typedef int ma_thread;      /* Fallback for platforms without support for threading. */
-    #endif
-
-    #if defined(MA_POSIX)
-        typedef ma_pthread_mutex_t ma_mutex;
-    #elif defined(MA_WIN32)
-        typedef ma_handle ma_mutex;
-    #else
-        typedef int ma_mutex;       /* Fallback for platforms without support for threading. */
-    #endif
-
-    #if defined(MA_POSIX)
-        typedef struct
-        {
-            ma_uint32 value;
-            ma_pthread_mutex_t lock;
-            ma_pthread_cond_t cond;
-        } ma_event;
-    #elif defined(MA_WIN32)
-        typedef ma_handle ma_event;
-    #else
-        typedef int ma_event;       /* Fallback for platforms without support for threading. */
-    #endif
-
-    #if defined(MA_POSIX)
-        typedef struct
-        {
-            int value;
-            ma_pthread_mutex_t lock;
-            ma_pthread_cond_t cond;
-        } ma_semaphore;
-    #elif defined(MA_WIN32)
-        typedef ma_handle ma_semaphore;
-    #else
-        typedef int ma_semaphore;   /* Fallback for platforms without support for threading. */
+        #define MA_THREADING_BACKEND_NONE
     #endif
 #else
-    /* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
-    #ifndef MA_NO_DEVICE_IO
-        #error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
-    #endif
-#endif  /* MA_NO_THREADING */
+    #define MA_THREADING_BACKEND_NONE
+#endif
+
+#if defined(MA_THREADING_BACKEND_POSIX)
+    typedef ma_pthread_t ma_thread;
+#elif defined(MA_THREADING_BACKEND_WIN32)
+    typedef ma_handle ma_thread;
+#else
+    typedef int ma_thread;          /* Fallback for platforms without support for threading. Attempting to create a thread will fail. */
+#endif
+
+#if defined(MA_THREADING_BACKEND_POSIX)
+    typedef ma_pthread_mutex_t ma_mutex;
+#elif defined(MA_THREADING_BACKEND_WIN32)
+    typedef ma_handle ma_mutex;
+#else
+    typedef ma_spinlock ma_mutex;   /* Fallback for platforms without support for threading. */
+#endif
+
+#if defined(MA_THREADING_BACKEND_POSIX)
+    typedef struct
+    {
+        ma_uint32 value;
+        ma_pthread_mutex_t lock;
+        ma_pthread_cond_t cond;
+    } ma_event;
+#elif defined(MA_THREADING_BACKEND_WIN32)
+    typedef ma_handle ma_event;
+#else
+    typedef ma_uint32 ma_event;     /* Fallback for platforms without support for threading. */
+#endif
+
+#if defined(MA_THREADING_BACKEND_POSIX)
+    typedef struct
+    {
+        int value;
+        ma_pthread_mutex_t lock;
+        ma_pthread_cond_t cond;
+    } ma_semaphore;
+#elif defined(MA_THREADING_BACKEND_WIN32)
+    typedef ma_handle ma_semaphore;
+#else
+    typedef ma_uint32 ma_semaphore; /* Fallback for platforms without support for threading. */
+#endif
 
 
 /*
@@ -7241,9 +7240,7 @@ typedef struct ma_device_op
 {
     ma_device_op_type type;
     ma_device_op_params params;
-#ifndef MA_NO_THREADING
     ma_device_op_completion_event* pCompletionEvent;  /* This is signalled when the operation is completed. */
-#endif
 } ma_device_op;
 
 /*
@@ -17214,8 +17211,8 @@ MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 }
 
 
-#ifndef MA_NO_THREADING
-#if defined(MA_WIN32)
+
+#if defined(MA_THREADING_BACKEND_WIN32)
     #define MA_THREADCALL WINAPI
     typedef unsigned long ma_thread_result;
 #else
@@ -17225,7 +17222,8 @@ MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 
 typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
 
-#ifdef MA_POSIX
+
+#ifdef MA_THREADING_BACKEND_POSIX
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
@@ -17513,7 +17511,7 @@ static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 
     return MA_SUCCESS;
 }
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
 static int ma_thread_priority_to_win32(ma_thread_priority priority)
 {
     switch (priority) {
@@ -17686,12 +17684,12 @@ static void ma_mutex_uninit__none(ma_mutex* pMutex)
 
 static void ma_mutex_lock__none(ma_mutex* pMutex)
 {
-    (void)pMutex;
+    ma_spinlock_lock(pMutex);
 }
 
 static void ma_mutex_unlock__none(ma_mutex* pMutex)
 {
-    (void)pMutex;
+    ma_spinlock_unlock(pMutex);
 }
 
 
@@ -17709,22 +17707,33 @@ static void ma_event_uninit__none(ma_event* pEvent)
 
 static ma_result ma_event_wait__none(ma_event* pEvent)
 {
-    (void)pEvent;
+    for (;;) {
+        ma_uint32 oldValue;
+        ma_uint32 newValue;
+
+        oldValue = 1;
+        newValue = 0;
+        
+        if (ma_atomic_compare_exchange_strong_32(pEvent, &oldValue, newValue)) {
+            break;
+        }
+
+        ma_yield();
+    }
+
     return MA_SUCCESS;
 }
 
 static ma_result ma_event_signal__none(ma_event* pEvent)
 {
-    (void)pEvent;
+    ma_atomic_store_32(pEvent, 1);
     return MA_SUCCESS;
 }
 
 
 static ma_result ma_semaphore_init__none(int initialValue, ma_semaphore* pSemaphore)
 {
-    MA_ZERO_OBJECT(pSemaphore);
-    (void)initialValue;
-
+    ma_atomic_store_32(pSemaphore, (ma_uint32)initialValue);
     return MA_SUCCESS;
 }
 
@@ -17735,16 +17744,33 @@ static void ma_semaphore_uninit__none(ma_semaphore* pSemaphore)
 
 static ma_result ma_semaphore_wait__none(ma_semaphore* pSemaphore)
 {
-    (void)pSemaphore;
+    for (;;) {
+        ma_uint32 oldValue;
+        ma_uint32 newValue;
+
+        oldValue = ma_atomic_load_32(pSemaphore);
+        if (oldValue == 0) {
+            ma_yield();
+            continue;
+        }
+
+        newValue = oldValue - 1;
+
+        if (ma_atomic_compare_exchange_strong_32(pSemaphore, &oldValue, newValue)) {
+            break;
+        }
+    }
+
     return MA_SUCCESS;
 }
 
 static ma_result ma_semaphore_release__none(ma_semaphore* pSemaphore)
 {
-    (void)pSemaphore;
+    (void)ma_atomic_fetch_add_32(pSemaphore, 1);
     return MA_SUCCESS;
 }
 #endif
+
 
 typedef struct
 {
@@ -17779,7 +17805,7 @@ static ma_thread_result MA_THREADCALL ma_thread_entry_proxy(void* pData)
     return result;
 }
 
-static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_result result;
     ma_thread_proxy_data* pProxyData;
@@ -17803,9 +17829,9 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
     pProxyData->pData     = pData;
     ma_allocation_callbacks_init_copy(&pProxyData->allocationCallbacks, pAllocationCallbacks);
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     result = ma_thread_create__posix(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     result = ma_thread_create__win32(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
 #else
     result = ma_thread_create__none(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
@@ -17819,15 +17845,15 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
     return MA_SUCCESS;
 }
 
-static void ma_thread_wait(ma_thread* pThread)
+MA_API void ma_thread_wait(ma_thread* pThread)
 {
     if (pThread == NULL) {
         return;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     ma_thread_wait__posix(pThread);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     ma_thread_wait__win32(pThread);
 #else
     ma_thread_wait__none(pThread);
@@ -17842,9 +17868,9 @@ MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_mutex_init__posix(pMutex);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_mutex_init__win32(pMutex);
 #else
     return ma_mutex_init__none(pMutex);
@@ -17857,9 +17883,9 @@ MA_API void ma_mutex_uninit(ma_mutex* pMutex)
         return;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     ma_mutex_uninit__posix(pMutex);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     ma_mutex_uninit__win32(pMutex);
 #else
     ma_mutex_uninit__none(pMutex);
@@ -17873,9 +17899,9 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex)
         return;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     ma_mutex_lock__posix(pMutex);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     ma_mutex_lock__win32(pMutex);
 #else
     ma_mutex_lock__none(pMutex);
@@ -17889,9 +17915,9 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
         return;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     ma_mutex_unlock__posix(pMutex);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     ma_mutex_unlock__win32(pMutex);
 #else
     ma_mutex_unlock__none(pMutex);
@@ -17906,9 +17932,9 @@ MA_API ma_result ma_event_init(ma_event* pEvent)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_event_init__posix(pEvent);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_event_init__win32(pEvent);
 #else
     return ma_event_init__none(pEvent);
@@ -17949,9 +17975,9 @@ MA_API void ma_event_uninit(ma_event* pEvent)
         return;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     ma_event_uninit__posix(pEvent);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     ma_event_uninit__win32(pEvent);
 #else
     ma_event_uninit__none(pEvent);
@@ -17977,9 +18003,9 @@ MA_API ma_result ma_event_wait(ma_event* pEvent)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_event_wait__posix(pEvent);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_event_wait__win32(pEvent);
 #else
     return ma_event_wait__none(pEvent);
@@ -17993,9 +18019,9 @@ MA_API ma_result ma_event_signal(ma_event* pEvent)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_event_signal__posix(pEvent);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_event_signal__win32(pEvent);
 #else
     return ma_event_signal__none(pEvent);
@@ -18010,9 +18036,9 @@ MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_semaphore_init__posix(initialValue, pSemaphore);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_semaphore_init__win32(initialValue, pSemaphore);
 #else
     return ma_semaphore_init__none(initialValue, pSemaphore);
@@ -18026,9 +18052,9 @@ MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
         return;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     ma_semaphore_uninit__posix(pSemaphore);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     ma_semaphore_uninit__win32(pSemaphore);
 #else
     ma_semaphore_uninit__none(pSemaphore);
@@ -18042,9 +18068,9 @@ MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_semaphore_wait__posix(pSemaphore);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_semaphore_wait__win32(pSemaphore);
 #else
     return ma_semaphore_wait__none(pSemaphore);
@@ -18058,20 +18084,14 @@ MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_POSIX)
+#if defined(MA_THREADING_BACKEND_POSIX)
     return ma_semaphore_release__posix(pSemaphore);
-#elif defined(MA_WIN32)
+#elif defined(MA_THREADING_BACKEND_WIN32)
     return ma_semaphore_release__win32(pSemaphore);
 #else
     return ma_semaphore_release__none(pSemaphore);
 #endif
 }
-#else
-/* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
-#ifndef MA_NO_DEVICE_IO
-#error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
-#endif
-#endif  /* MA_NO_THREADING */
 
 
 
@@ -20628,6 +20648,7 @@ static ma_bool32 ma_device_descriptor_is_valid(const ma_device_descriptor* pDevi
 }
 
 
+#ifndef MA_NO_THREADING
 static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
@@ -20817,6 +20838,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
 
     return result;
 }
+#endif
 
 
 
@@ -43736,6 +43758,7 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
 }
 
 
+
 /* TODO: Make this public? */
 typedef enum ma_blocking_mode
 {
@@ -43743,7 +43766,7 @@ typedef enum ma_blocking_mode
     MA_BLOCKING_MODE_NON_BLOCKING
 } ma_blocking_mode;
 
-static ma_result ma_device_op_completion_event_init(ma_device_op_completion_event* pCompletionEvent)
+MA_API ma_result ma_device_op_completion_event_init(ma_device_op_completion_event* pCompletionEvent)
 {
     if (pCompletionEvent == NULL) {
         return MA_INVALID_ARGS;
@@ -43766,7 +43789,7 @@ static ma_result ma_device_op_completion_event_init(ma_device_op_completion_even
     return MA_SUCCESS;
 }
 
-static void ma_device_op_completion_event_uninit(ma_device_op_completion_event* pCompletionEvent)
+MA_API void ma_device_op_completion_event_uninit(ma_device_op_completion_event* pCompletionEvent)
 {
     if (pCompletionEvent == NULL) {
         return;
@@ -43779,7 +43802,7 @@ static void ma_device_op_completion_event_uninit(ma_device_op_completion_event* 
     #endif
 }
 
-static void ma_device_op_completion_event_signal(ma_device_op_completion_event* pCompletionEvent, ma_result result)
+MA_API void ma_device_op_completion_event_signal(ma_device_op_completion_event* pCompletionEvent, ma_result result)
 {
     if (pCompletionEvent == NULL) {
         return;
@@ -43794,7 +43817,7 @@ static void ma_device_op_completion_event_signal(ma_device_op_completion_event* 
     #endif
 }
 
-static void ma_device_op_completion_event_wait(ma_device_op_completion_event* pCompletionEvent)
+MA_API void ma_device_op_completion_event_wait(ma_device_op_completion_event* pCompletionEvent)
 {
     if (pCompletionEvent == NULL) {
         return;
@@ -43807,7 +43830,7 @@ static void ma_device_op_completion_event_wait(ma_device_op_completion_event* pC
     #endif
 }
 
-static ma_result ma_device_op_completion_event_result(ma_device_op_completion_event* pCompletionEvent)
+MA_API ma_result ma_device_op_completion_event_result(ma_device_op_completion_event* pCompletionEvent)
 {
     if (pCompletionEvent == NULL) {
         return MA_INVALID_ARGS;
@@ -43818,237 +43841,6 @@ static ma_result ma_device_op_completion_event_result(ma_device_op_completion_ev
     return pCompletionEvent->result;
 }
 
-
-static ma_result ma_device_op_queue_init(ma_device_op_queue* pQueue)
-{
-    ma_result result;
-
-    if (pQueue == NULL) {
-        return MA_SUCCESS;
-    }
-
-    MA_ZERO_OBJECT(pQueue);
-
-    #ifndef MA_NO_THREADING
-    {
-        result = ma_mutex_init(&pQueue->lock);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        result = ma_semaphore_init(0, &pQueue->sem);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-    #else
-    {
-        /* Threading disabled. No sync objects required. */
-    }
-    #endif
-
-    return MA_SUCCESS;
-}
-
-static void ma_device_op_queue_uninit(ma_device_op_queue* pQueue)
-{
-    if (pQueue != NULL) {
-        return;
-    }
-
-    #ifndef MA_NO_THREADING
-    {
-        ma_semaphore_uninit(&pQueue->sem);
-        ma_mutex_uninit(&pQueue->lock);
-    }
-    #endif
-}
-
-static void ma_device_op_queue_lock(ma_device_op_queue* pQueue)
-{
-    #ifndef MA_NO_THREADING
-    {
-        ma_mutex_lock(&pQueue->lock);
-    }
-    #else
-    {
-        /* Threading disabled. Nothing to do. */
-        (void)pQueue;
-    }
-    #endif
-}
-
-static void ma_device_op_queue_unlock(ma_device_op_queue* pQueue)
-{
-    #ifndef MA_NO_THREADING
-    {
-        ma_mutex_unlock(&pQueue->lock);
-    }
-    #else
-    {
-        /* Threading disabled. Nothing to do. */
-        (void)pQueue;
-    }
-    #endif
-}
-
-static ma_uint32 ma_device_op_queue_head(const ma_device_op_queue* pQueue)
-{
-    if (pQueue->tail < pQueue->count) {
-        return ma_countof(pQueue->pItems) - (pQueue->count - pQueue->tail);
-    } else {
-        return pQueue->tail - pQueue->count;
-    }
-}
-
-static ma_result ma_device_op_queue_new_nolock(ma_device_op_queue* pQueue, ma_device_op_type type, const ma_device_op_params* pParams, ma_device_op_completion_event* pCompletionEvent)
-{
-    ma_device_op* pOp = NULL;
-
-    MA_ASSERT(pQueue != NULL);
-
-    if (pQueue->count >= ma_countof(pQueue->pItems)) {
-        MA_ASSERT(!"Too many device operations queued.");
-        return MA_INVALID_OPERATION;
-    }
-
-    pOp = &pQueue->pItems[pQueue->tail];
-    
-    pOp->type = type;
-    pOp->pCompletionEvent = pCompletionEvent;
-
-    if (pParams != NULL) {
-        pOp->params = *pParams;
-    }
-
-
-    pQueue->count += 1;
-    pQueue->tail   = (pQueue->tail + 1) % ma_countof(pQueue->pItems);
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_op_queue_push(ma_device_op_queue* pQueue, ma_device_op_type type, const ma_device_op_params* pParams, ma_device_op_completion_event* pCompletionEvent)
-{
-    ma_result result;
-
-    if (pQueue == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    ma_device_op_queue_lock(pQueue);
-    {
-        result = ma_device_op_queue_new_nolock(pQueue, type, pParams, pCompletionEvent);
-        if (result == MA_SUCCESS) {
-            #ifndef MA_NO_THREADING
-            {
-                ma_semaphore_release(&pQueue->sem);
-            }
-            #endif
-        }
-    }
-    ma_device_op_queue_unlock(pQueue);
-
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_op_queue_next_nolock(ma_device_op_queue* pQueue, ma_device_op** ppOp)
-{
-    ma_device_op* pOp = NULL;
-    ma_uint32 head;
-
-    MA_ASSERT(pQueue != NULL);
-    MA_ASSERT(ppOp   != NULL);
-    MA_ASSERT(*ppOp  == NULL);
-    MA_ASSERT(pQueue->count > 0);
-
-    head = ma_device_op_queue_head(pQueue);
-
-    pOp = &pQueue->pItems[head];
-    pQueue->count -= 1;
-
-    *ppOp = pOp;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_op_queue_next(ma_device_op_queue* pQueue, ma_blocking_mode blockingMode, ma_device_op** ppOp)
-{
-    ma_result result;
-    ma_device_op* pOp = NULL;
-
-    if (ppOp == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *ppOp = NULL;
-
-    if (pQueue == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
-        ma_device_op_queue_lock(pQueue);
-        {
-            if (pQueue->count == 0) {
-                ma_device_op_queue_unlock(pQueue);
-                return MA_NO_DATA_AVAILABLE;
-            }
-
-            /* Getting here means there is an item available. We still need to decrement the semaphore's counter. */
-            #ifndef MA_NO_THREADING
-            {
-                ma_semaphore_wait(&pQueue->sem);    /* <-- Should not block. */
-            }
-            #endif
-
-            result = ma_device_op_queue_next_nolock(pQueue, &pOp);
-        }
-        ma_device_op_queue_unlock(pQueue);
-    } else {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_wait(&pQueue->sem);
-        }
-        #else
-        {
-            if (pQueue->count == 0) {
-                return MA_NO_DATA_AVAILABLE;
-            }
-        }
-        #endif
-
-        ma_device_op_queue_lock(pQueue);
-        {
-            result = ma_device_op_queue_next_nolock(pQueue, &pOp);
-        }
-        ma_device_op_queue_unlock(pQueue);
-    }
-
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *ppOp = pOp;
-
-    return MA_SUCCESS;
-}
-
-
-static void ma_device_op_signal(ma_device_op* pOp, ma_result result)
-{
-    if (pOp == NULL) {
-        return;
-    }
-
-    if (pOp->pCompletionEvent != NULL) {
-        ma_device_op_completion_event_signal(pOp->pCompletionEvent, result);
-    }
-}
 
 
 static ma_result ma_device_op_do_init(ma_device* pDevice, ma_device_op_params params, ma_device_op_completion_event* pCompletionEvent)
@@ -44128,6 +43920,227 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
     }
 
     ma_device_op_completion_event_signal(pCompletionEvent, MA_SUCCESS);
+    return MA_SUCCESS;
+}
+
+
+
+MA_API ma_result ma_device_op_queue_init(ma_device_op_queue* pQueue)
+{
+    if (pQueue == NULL) {
+        return MA_SUCCESS;
+    }
+
+    MA_ZERO_OBJECT(pQueue);
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_result result;
+
+        result = ma_mutex_init(&pQueue->lock);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_semaphore_init(0, &pQueue->sem);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+    #else
+    {
+        /* Threading disabled. No sync objects required. */
+    }
+    #endif
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_device_op_queue_uninit(ma_device_op_queue* pQueue)
+{
+    if (pQueue != NULL) {
+        return;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_semaphore_uninit(&pQueue->sem);
+        ma_mutex_uninit(&pQueue->lock);
+    }
+    #endif
+}
+
+static void ma_device_op_queue_lock(ma_device_op_queue* pQueue)
+{
+    #ifndef MA_NO_THREADING
+    {
+        ma_mutex_lock(&pQueue->lock);
+    }
+    #else
+    {
+        /* Threading disabled. Nothing to do. */
+        (void)pQueue;
+    }
+    #endif
+}
+
+static void ma_device_op_queue_unlock(ma_device_op_queue* pQueue)
+{
+    #ifndef MA_NO_THREADING
+    {
+        ma_mutex_unlock(&pQueue->lock);
+    }
+    #else
+    {
+        /* Threading disabled. Nothing to do. */
+        (void)pQueue;
+    }
+    #endif
+}
+
+static ma_uint32 ma_device_op_queue_head(const ma_device_op_queue* pQueue)
+{
+    if (pQueue->tail < pQueue->count) {
+        return ma_countof(pQueue->pItems) - (pQueue->count - pQueue->tail);
+    } else {
+        return pQueue->tail - pQueue->count;
+    }
+}
+
+static ma_result ma_device_op_queue_new_nolock(ma_device_op_queue* pQueue, ma_device_op_type type, const ma_device_op_params* pParams, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_device_op* pOp = NULL;
+
+    MA_ASSERT(pQueue != NULL);
+
+    if (pQueue->count >= ma_countof(pQueue->pItems)) {
+        MA_ASSERT(!"Too many device operations queued.");
+        return MA_INVALID_OPERATION;
+    }
+
+    pOp = &pQueue->pItems[pQueue->tail];
+    
+    pOp->type = type;
+    pOp->pCompletionEvent = pCompletionEvent;
+
+    if (pParams != NULL) {
+        pOp->params = *pParams;
+    }
+
+
+    pQueue->count += 1;
+    pQueue->tail   = (pQueue->tail + 1) % ma_countof(pQueue->pItems);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_device_op_queue_push(ma_device_op_queue* pQueue, ma_device_op_type type, const ma_device_op_params* pParams, ma_device_op_completion_event* pCompletionEvent)
+{
+    ma_result result;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_device_op_queue_lock(pQueue);
+    {
+        result = ma_device_op_queue_new_nolock(pQueue, type, pParams, pCompletionEvent);
+        if (result == MA_SUCCESS) {
+            #ifndef MA_NO_THREADING
+            {
+                ma_semaphore_release(&pQueue->sem);
+            }
+            #endif
+        }
+    }
+    ma_device_op_queue_unlock(pQueue);
+
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_op_queue_next_nolock(ma_device_op_queue* pQueue, ma_device_op** ppOp)
+{
+    ma_device_op* pOp = NULL;
+    ma_uint32 head;
+
+    MA_ASSERT(pQueue != NULL);
+    MA_ASSERT(ppOp   != NULL);
+    MA_ASSERT(*ppOp  == NULL);
+    MA_ASSERT(pQueue->count > 0);
+
+    head = ma_device_op_queue_head(pQueue);
+
+    pOp = &pQueue->pItems[head];
+    pQueue->count -= 1;
+
+    *ppOp = pOp;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_device_op_queue_next(ma_device_op_queue* pQueue, ma_blocking_mode blockingMode, ma_device_op** ppOp)
+{
+    ma_result result;
+    ma_device_op* pOp = NULL;
+
+    if (ppOp == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *ppOp = NULL;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+        ma_device_op_queue_lock(pQueue);
+        {
+            if (pQueue->count == 0) {
+                ma_device_op_queue_unlock(pQueue);
+                return MA_NO_DATA_AVAILABLE;
+            }
+
+            /* Getting here means there is an item available. We still need to decrement the semaphore's counter. */
+            #ifndef MA_NO_THREADING
+            {
+                ma_semaphore_wait(&pQueue->sem);    /* <-- Should not block. */
+            }
+            #endif
+
+            result = ma_device_op_queue_next_nolock(pQueue, &pOp);
+        }
+        ma_device_op_queue_unlock(pQueue);
+    } else {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_wait(&pQueue->sem);
+        }
+        #else
+        {
+            if (pQueue->count == 0) {
+                return MA_NO_DATA_AVAILABLE;
+            }
+        }
+        #endif
+
+        ma_device_op_queue_lock(pQueue);
+        {
+            result = ma_device_op_queue_next_nolock(pQueue, &pOp);
+        }
+        ma_device_op_queue_unlock(pQueue);
+    }
+
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *ppOp = pOp;
+
     return MA_SUCCESS;
 }
 
@@ -44215,7 +44228,7 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
             is called at the same time as the backend itself terminated from its own loop. Exceptionally unlikely, but possible.
             In this case we're just going to signal the op. We do not want to call into the backend's stop callback.
             */
-            ma_device_op_signal(pOp, MA_SUCCESS);
+            ma_device_op_completion_event_signal(pOp->pCompletionEvent, MA_SUCCESS);
         } else {
             MA_ASSERT(!"Unexpected device op.");
         }
@@ -45125,6 +45138,8 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         singleThreaded = MA_TRUE;
     }
     #endif
+
+    (void)singleThreaded;
 
     MA_ZERO_OBJECT(pDevice);
 
