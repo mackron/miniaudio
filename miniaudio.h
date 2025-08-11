@@ -44189,7 +44189,7 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
             break;
         } else if (pOp->type == MA_DEVICE_OP_START) {
             /* We should never be attempting to start the device unless it's in a stopped state. */
-            MA_ASSERT(ma_device_get_status(pDevice) == ma_device_status_stopped);
+            MA_ASSERT(ma_device_get_status(pDevice) == ma_device_status_starting);
 
             result = ma_device_op_do_start(pDevice, pOp->pCompletionEvent);
             if (result == MA_SUCCESS) {
@@ -44205,13 +44205,17 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
                         ma_device_audio_thread__default_read_write(pDevice);
                     }
 
-                    /* The only op allowed at this point is a stop. ma_device_stop() will likely have posted a stop op so we'll need to grab it from the queue and process it. */
+                    /* The only op allowed at this point is a stop or uninit. We need to check the queue in case ma_device_stop() or ma_device_uninit() posted an item. */
                     result = ma_device_op_queue_next(&pDevice->opQueue, MA_BLOCKING_MODE_NON_BLOCKING, &pOp);
                     if (result == MA_SUCCESS) {
-                        if (pOp->type == MA_DEVICE_OP_STOP) {
+                        if (pOp->type == MA_DEVICE_OP_UNINIT) {
+                            ma_device_op_do_stop(pDevice, NULL);
+                            ma_device_op_do_uninit(pDevice, pOp->pCompletionEvent);
+                            break;  /* <-- This gets out of the op queue loop and terminates the audio thread. */
+                        } else if (pOp->type == MA_DEVICE_OP_STOP) {
                             ma_device_op_do_stop(pDevice, pOp->pCompletionEvent);
                         } else {
-                            MA_ASSERT(!"Expecting a stop op, but got something else.");
+                            MA_ASSERT(!"Expecting a stop or uninit op, but got something else.");
                         }
                     } else {
                         /* There is no stop op on the queue which means the backend itself must have terminated from its loop. We'll use a dummy stop event here. */
