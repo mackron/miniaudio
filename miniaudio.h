@@ -21137,7 +21137,8 @@ static void ma_device_step__null(ma_device* pDevice)
     /* For capture we need to submit silence. For playback we just read and discard. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateNull->pDataCapture, framesAvailable);
-    } else if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+    }
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_device_handle_backend_data_callback(pDevice, pDeviceStateNull->pDataPlayback, NULL, framesAvailable);
     }
 
