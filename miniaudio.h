@@ -20848,11 +20848,6 @@ Null Backend
 *******************************************************************************/
 #ifdef MA_HAS_NULL
 
-#define MA_DEVICE_OP_NONE__NULL    0
-#define MA_DEVICE_OP_START__NULL   1
-#define MA_DEVICE_OP_SUSPEND__NULL 2
-#define MA_DEVICE_OP_KILL__NULL    3
-
 typedef struct ma_context_state_null
 {
     int _unused;
@@ -20860,140 +20855,11 @@ typedef struct ma_context_state_null
 
 typedef struct ma_device_state_null
 {
-    ma_thread deviceThread;
-    ma_event operationEvent;
-    ma_event operationCompletionEvent;
-    ma_semaphore operationSemaphore;
-    ma_uint32 operation;
-    ma_result operationResult;
     ma_timer timer;
-    double priorRunTime;
-    struct
-    {
-        ma_uint64 lastProcessedFrame;
-        ma_uint32 currentPeriodFramesRemaining;
-        ma_device_descriptor descriptor;
-    } capture;
-    struct
-    {
-        ma_uint64 lastProcessedFrame;
-        ma_uint32 currentPeriodFramesRemaining;
-        ma_device_descriptor descriptor;
-    } playback;    
-    ma_atomic_bool32 isStarted; /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
+    ma_uint64 cursor;           /* When the actual time catches up to the cursor it means the next chunk of audio can be processed. If the actual time gets to the cursor + the period size, it's an xrun. */
+    void* pDataPlayback;        /* Only used as the destination for audio data in step(). Will not actually be used for anything. */
+    void* pDataCapture;         /* Permanently filled with silence. */
 } ma_device_state_null;
-
-static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
-{
-    ma_device_state_null* pDeviceStateNull = (ma_device_state_null*)pData;
-    MA_ASSERT(pDeviceStateNull != NULL);
-
-    for (;;) {  /* Keep the thread alive until the device is uninitialized. */
-        ma_uint32 operation;
-
-        /* Wait for an operation to be requested. */
-        ma_event_wait(&pDeviceStateNull->operationEvent);
-
-        /* At this point an event should have been triggered. */
-        operation = pDeviceStateNull->operation;
-
-        /* Starting the device needs to put the thread into a loop. */
-        if (operation == MA_DEVICE_OP_START__NULL) {
-            /* Reset the timer just in case. */
-            ma_timer_init(&pDeviceStateNull->timer);
-
-            /* Getting here means a suspend or kill operation has been requested. */
-            pDeviceStateNull->operationResult = MA_SUCCESS;
-            ma_event_signal(&pDeviceStateNull->operationCompletionEvent);
-            ma_semaphore_release(&pDeviceStateNull->operationSemaphore);
-            continue;
-        }
-
-        /* Suspending the device means we need to stop the timer and just continue the loop. */
-        if (operation == MA_DEVICE_OP_SUSPEND__NULL) {
-            /* We need to add the current run time to the prior run time, then reset the timer. */
-            pDeviceStateNull->priorRunTime += ma_timer_get_time_in_seconds(&pDeviceStateNull->timer);
-            ma_timer_init(&pDeviceStateNull->timer);
-
-            /* We're done. */
-            pDeviceStateNull->operationResult = MA_SUCCESS;
-            ma_event_signal(&pDeviceStateNull->operationCompletionEvent);
-            ma_semaphore_release(&pDeviceStateNull->operationSemaphore);
-            continue;
-        }
-
-        /* Killing the device means we need to get out of this loop so that this thread can terminate. */
-        if (operation == MA_DEVICE_OP_KILL__NULL) {
-            pDeviceStateNull->operationResult = MA_SUCCESS;
-            ma_event_signal(&pDeviceStateNull->operationCompletionEvent);
-            ma_semaphore_release(&pDeviceStateNull->operationSemaphore);
-            break;
-        }
-
-        /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
-        if (operation == MA_DEVICE_OP_NONE__NULL) {
-            MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
-            pDeviceStateNull->operationResult = MA_INVALID_OPERATION;
-            ma_event_signal(&pDeviceStateNull->operationCompletionEvent);
-            ma_semaphore_release(&pDeviceStateNull->operationSemaphore);
-            continue;   /* Continue the loop. Don't terminate. */
-        }
-    }
-
-    return (ma_thread_result)0;
-}
-
-static ma_result ma_device_do_operation__null(ma_device_state_null* pDeviceStateNull, ma_uint32 operation)
-{
-    ma_result result;
-
-    /*
-    TODO: Need to review this and consider just using mutual exclusion. I think the original motivation
-    for this was to just post the event to a queue and return immediately, but that has since changed
-    and now this function is synchronous. I think this can be simplified to just use a mutex.
-    */
-
-    /*
-    The first thing to do is wait for an operation slot to become available. We only have a single slot for this, but we could extend this later
-    to support queuing of operations.
-    */
-    result = ma_semaphore_wait(&pDeviceStateNull->operationSemaphore);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to wait for the event. */
-    }
-
-    /*
-    When we get here it means the background thread is not referencing the operation code and it can be changed. After changing this we need to
-    signal an event to the worker thread to let it know that it can start work.
-    */
-    pDeviceStateNull->operation = operation;
-
-    /* Once the operation code has been set, the worker thread can start work. */
-    if (ma_event_signal(&pDeviceStateNull->operationEvent) != MA_SUCCESS) {
-        return MA_ERROR;
-    }
-
-    /* We want everything to be synchronous so we're going to wait for the worker thread to complete it's operation. */
-    if (ma_event_wait(&pDeviceStateNull->operationCompletionEvent) != MA_SUCCESS) {
-        return MA_ERROR;
-    }
-
-    return pDeviceStateNull->operationResult;
-}
-
-static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice, ma_device_state_null* pDeviceStateNull)
-{
-    ma_uint32 internalSampleRate;
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        internalSampleRate = pDeviceStateNull->capture.descriptor.sampleRate;
-    } else {
-        internalSampleRate = pDeviceStateNull->playback.descriptor.sampleRate;
-    }
-
-    return (ma_uint64)((pDeviceStateNull->priorRunTime + ma_timer_get_time_in_seconds(&pDeviceStateNull->timer)) * internalSampleRate);
-}
 
 
 static ma_context_state_null* ma_context_get_backend_state__null(ma_context* pContext)
@@ -21099,6 +20965,20 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
     return MA_SUCCESS;
 }
 
+static void ma_normalize_descriptor__null(ma_device_descriptor* pDescriptor, ma_uint32 periodSizeInFrames)
+{
+    /* The null backend supports all formats, channel counts and sample rates. */
+    pDescriptor->format     = (pDescriptor->format     != ma_format_unknown) ? pDescriptor->format     : MA_DEFAULT_FORMAT;
+    pDescriptor->channels   = (pDescriptor->channels   != 0)                 ? pDescriptor->channels   : MA_DEFAULT_CHANNELS;
+    pDescriptor->sampleRate = (pDescriptor->sampleRate != 0)                 ? pDescriptor->sampleRate : MA_DEFAULT_SAMPLE_RATE;
+
+    if (pDescriptor->channelMap[0] == MA_CHANNEL_NONE) {
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
+    }
+
+    pDescriptor->periodSizeInFrames = periodSizeInFrames;
+}
+
 static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_null* pDeviceStateNull;
@@ -21106,7 +20986,10 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
     ma_device_config_null defaultConfigNull;
     ma_context_state_null* pContextStateNull = ma_context_get_backend_state__null(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_result result;
+    ma_uint32 periodSizeInFrames;
+    size_t dataBufferSizePlayback = 0;
+    size_t dataBufferSizeCapture = 0;
+    size_t deviceStateSize;
 
     (void)pContextStateNull;
 
@@ -21119,73 +21002,37 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    pDeviceStateNull = (ma_device_state_null*)ma_calloc(sizeof(*pDeviceStateNull), ma_device_get_allocation_callbacks(pDevice));
+    /* The period size is the same between playback and capture if we're running a duplex device. */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
+    } else {
+        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate);
+    }
+
+    /* This updates the descriptors with actual values. */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        ma_normalize_descriptor__null(pDescriptorCapture, periodSizeInFrames);
+        dataBufferSizeCapture = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels);
+    }
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_normalize_descriptor__null(pDescriptorPlayback, periodSizeInFrames);
+        dataBufferSizePlayback = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
+    }
+
+
+    deviceStateSize = sizeof(*pDeviceStateNull);
+    deviceStateSize += ma_align_64(dataBufferSizePlayback);
+    deviceStateSize += ma_align_64(dataBufferSizeCapture);
+
+    pDeviceStateNull = (ma_device_state_null*)ma_calloc(deviceStateSize, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateNull == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    /* The null backend supports everything exactly as we specify it. */
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        pDescriptorCapture->format     = (pDescriptorCapture->format     != ma_format_unknown) ? pDescriptorCapture->format     : MA_DEFAULT_FORMAT;
-        pDescriptorCapture->channels   = (pDescriptorCapture->channels   != 0)                 ? pDescriptorCapture->channels   : MA_DEFAULT_CHANNELS;
-        pDescriptorCapture->sampleRate = (pDescriptorCapture->sampleRate != 0)                 ? pDescriptorCapture->sampleRate : MA_DEFAULT_SAMPLE_RATE;
+    pDeviceStateNull->pDataPlayback = ma_offset_ptr(pDeviceStateNull, sizeof(*pDeviceStateNull));
+    pDeviceStateNull->pDataCapture  = ma_offset_ptr(pDeviceStateNull->pDataPlayback, ma_align_64(dataBufferSizePlayback));
 
-        if (pDescriptorCapture->channelMap[0] == MA_CHANNEL_NONE) {
-            ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
-        }
-
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
-
-        pDeviceStateNull->capture.descriptor = *pDescriptorCapture;
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        pDescriptorPlayback->format     = (pDescriptorPlayback->format     != ma_format_unknown) ? pDescriptorPlayback->format     : MA_DEFAULT_FORMAT;
-        pDescriptorPlayback->channels   = (pDescriptorPlayback->channels   != 0)                 ? pDescriptorPlayback->channels   : MA_DEFAULT_CHANNELS;
-        pDescriptorPlayback->sampleRate = (pDescriptorPlayback->sampleRate != 0)                 ? pDescriptorPlayback->sampleRate : MA_DEFAULT_SAMPLE_RATE;
-
-        if (pDescriptorPlayback->channelMap[0] == MA_CHANNEL_NONE) {
-            ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorPlayback->channels);
-        }
-
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate);
-
-        pDeviceStateNull->playback.descriptor = *pDescriptorPlayback;
-    }
-
-    /*
-    In order to get timing right, we need to create a thread that does nothing but keeps track of the timer. This timer is started when the
-    first period is "written" to it, and then stopped in ma_device_stop__null().
-    */
-    result = ma_event_init(&pDeviceStateNull->operationEvent);
-    if (result != MA_SUCCESS) {
-        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
-        return result;
-    }
-
-    result = ma_event_init(&pDeviceStateNull->operationCompletionEvent);
-    if (result != MA_SUCCESS) {
-        ma_event_uninit(&pDeviceStateNull->operationEvent);
-        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
-        return result;
-    }
-
-    result = ma_semaphore_init(1, &pDeviceStateNull->operationSemaphore);    /* <-- It's important that the initial value is set to 1. */
-    if (result != MA_SUCCESS) {
-        ma_event_uninit(&pDeviceStateNull->operationCompletionEvent);
-        ma_event_uninit(&pDeviceStateNull->operationEvent);
-        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
-        return result;
-    }
-
-    result = ma_thread_create(&pDeviceStateNull->deviceThread, ma_context_get_thread_priority(ma_device_get_context(pDevice)), 0, ma_device_thread__null, pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
-    if (result != MA_SUCCESS) {
-        ma_semaphore_uninit(&pDeviceStateNull->operationSemaphore);
-        ma_event_uninit(&pDeviceStateNull->operationCompletionEvent);
-        ma_event_uninit(&pDeviceStateNull->operationEvent);
-        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
-        return result;
-    }
+    ma_timer_init(&pDeviceStateNull->timer);
 
     *ppDeviceState = pDeviceStateNull;
 
@@ -21198,17 +21045,6 @@ static void ma_device_uninit__null(ma_device* pDevice)
 
     MA_ASSERT(pDeviceStateNull != NULL);
 
-    /* Keep it clean and wait for the device thread to finish before returning. */
-    ma_device_do_operation__null(pDeviceStateNull, MA_DEVICE_OP_KILL__NULL);
-
-    /* Wait for the thread to finish before continuing. */
-    ma_thread_wait(&pDeviceStateNull->deviceThread);
-
-    /* At this point the loop in the device thread is as good as terminated so we can uninitialize our events. */
-    ma_semaphore_uninit(&pDeviceStateNull->operationSemaphore);
-    ma_event_uninit(&pDeviceStateNull->operationCompletionEvent);
-    ma_event_uninit(&pDeviceStateNull->operationEvent);
-
     ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
 }
 
@@ -21218,9 +21054,6 @@ static ma_result ma_device_start__null(ma_device* pDevice)
 
     MA_ASSERT(pDeviceStateNull != NULL);
 
-    ma_device_do_operation__null(pDeviceStateNull, MA_DEVICE_OP_START__NULL);
-
-    ma_atomic_bool32_set(&pDeviceStateNull->isStarted, MA_TRUE);
     return MA_SUCCESS;
 }
 
@@ -21230,170 +21063,100 @@ static ma_result ma_device_stop__null(ma_device* pDevice)
 
     MA_ASSERT(pDeviceStateNull != NULL);
 
-    ma_device_do_operation__null(pDeviceStateNull, MA_DEVICE_OP_SUSPEND__NULL);
-
-    ma_atomic_bool32_set(&pDeviceStateNull->isStarted, MA_FALSE);
     return MA_SUCCESS;
 }
 
-static ma_bool32 ma_device_is_started__null(ma_device_state_null* pDeviceStateNull)
+static ma_uint32 ma_device_get_period_size_in_frames__null(ma_device* pDevice)
 {
-    MA_ASSERT(pDeviceStateNull != NULL);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    return ma_atomic_bool32_get(&pDeviceStateNull->isStarted);
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        return pDevice->capture.internalPeriodSizeInFrames;
+    } else {
+        return pDevice->playback.internalPeriodSizeInFrames;
+    }
 }
 
-static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+static ma_uint32 ma_device_get_available_frames__null(ma_device* pDevice)
 {
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
-    ma_result result = MA_SUCCESS;
-    ma_uint32 totalPCMFramesProcessed;
-    ma_bool32 wasStartedOnEntry;
+    ma_uint64 nowInFrames;
+    ma_uint64 periodSizeInFrames;
+    double nowInSeconds;
 
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = 0;
+    periodSizeInFrames = ma_device_get_period_size_in_frames__null(pDevice);
+
+    nowInSeconds = ma_timer_get_time_in_seconds(&pDeviceStateNull->timer);
+    nowInFrames = (ma_uint64)(nowInSeconds * pDevice->sampleRate);
+    if (nowInFrames < pDeviceStateNull->cursor) {
+        /* The time has not caught up to the cursor. Nothing can be processed. */
+        return 0;
+    } else {
+        /*
+        The time has caught up to the cursor. One way or another, the available frames is equal to
+        the period size. We need to make sure we check for an xrun, in which case the cursor needs
+        to be calibrated with the actual time.
+        */
+        if (nowInFrames > pDeviceStateNull->cursor + periodSizeInFrames) {
+            /* xrun. Normalize the cursor. */
+            pDeviceStateNull->cursor = nowInFrames;
+        }
+
+        return periodSizeInFrames;
     }
+}
 
-    wasStartedOnEntry = ma_device_is_started__null(pDeviceStateNull);
-
-    /* Keep going until everything has been read. */
-    totalPCMFramesProcessed = 0;
-    while (totalPCMFramesProcessed < frameCount) {
-        ma_uint64 targetFrame;
-
-        /* If there are any frames remaining in the current period, consume those first. */
-        if (pDeviceStateNull->playback.currentPeriodFramesRemaining > 0) {
-            ma_uint32 framesRemaining = (frameCount - totalPCMFramesProcessed);
-            ma_uint32 framesToProcess = pDeviceStateNull->playback.currentPeriodFramesRemaining;
-            if (framesToProcess > framesRemaining) {
-                framesToProcess = framesRemaining;
-            }
-
-            /* We don't actually do anything with pPCMFrames, so just mark it as unused to prevent a warning. */
-            (void)pPCMFrames;
-
-            pDeviceStateNull->playback.currentPeriodFramesRemaining -= framesToProcess;
-            totalPCMFramesProcessed += framesToProcess;
-        }
-
-        /* If we've consumed the current period we'll need to mark it as such an ensure the device is started if it's not already. */
-        if (pDeviceStateNull->playback.currentPeriodFramesRemaining == 0) {
-            pDeviceStateNull->playback.currentPeriodFramesRemaining = 0;
-
-            if (!ma_device_is_started__null(pDeviceStateNull) && !wasStartedOnEntry) {
-                result = ma_device_start__null(pDevice);
-                if (result != MA_SUCCESS) {
-                    break;
-                }
-            }
-        }
-
-        /* If we've consumed the whole buffer we can return now. */
-        MA_ASSERT(totalPCMFramesProcessed <= frameCount);
-        if (totalPCMFramesProcessed == frameCount) {
+static void ma_device_wait__null(ma_device* pDevice)
+{
+    while (ma_device_is_started(pDevice)) {
+        /* Check the frames available based on the timer. We want to wait until we have at least a whole period available. */
+        if (ma_device_get_available_frames__null(pDevice) > 0) {
             break;
         }
 
-        /* Getting here means we've still got more frames to consume, we but need to wait for it to become available. */
-        targetFrame = pDeviceStateNull->playback.lastProcessedFrame;
-        for (;;) {
-            ma_uint64 currentFrame;
-
-            /* Stop waiting if the device has been stopped. */
-            if (!ma_device_is_started__null(pDeviceStateNull)) {
-                break;
-            }
-
-            currentFrame = ma_device_get_total_run_time_in_frames__null(pDevice, pDeviceStateNull);
-            if (currentFrame >= targetFrame) {
-                break;
-            }
-
-            /* Getting here means we haven't yet reached the target sample, so continue waiting. */
-            ma_sleep(10);
-        }
-
-        pDeviceStateNull->playback.lastProcessedFrame          += pDeviceStateNull->playback.descriptor.periodSizeInFrames;
-        pDeviceStateNull->playback.currentPeriodFramesRemaining = pDeviceStateNull->playback.descriptor.periodSizeInFrames;
+        ma_sleep(1);
     }
-
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = totalPCMFramesProcessed;
-    }
-
-    return result;
 }
 
-static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
+static void ma_device_step__null(ma_device* pDevice)
 {
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
-    ma_result result = MA_SUCCESS;
-    ma_uint32 totalPCMFramesProcessed;
+    ma_uint32 framesAvailable;
+    ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    if (pFramesRead != NULL) {
-        *pFramesRead = 0;
+    /*
+    The capture and playback sides both run on the same timer, so we need only check the timer once
+    and then just process both at the same time.
+    */
+    framesAvailable = ma_device_get_available_frames__null(pDevice);
+    if (framesAvailable == 0) {
+        /* Not enough frames available for processing. Do nothing. */
+        return;
     }
 
-    /* Keep going until everything has been read. */
-    totalPCMFramesProcessed = 0;
-    while (totalPCMFramesProcessed < frameCount) {
-        ma_uint64 targetFrame;
+    /* For capture we need to submit silence. For playback we just read and discard. */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateNull->pDataCapture, framesAvailable);
+    } else if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_device_handle_backend_data_callback(pDevice, pDeviceStateNull->pDataPlayback, NULL, framesAvailable);
+    }
 
-        /* If there are any frames remaining in the current period, consume those first. */
-        if (pDeviceStateNull->capture.currentPeriodFramesRemaining > 0) {
-            ma_uint32 bpf = ma_get_bytes_per_frame(pDeviceStateNull->capture.descriptor.format, pDeviceStateNull->capture.descriptor.channels);
-            ma_uint32 framesRemaining = (frameCount - totalPCMFramesProcessed);
-            ma_uint32 framesToProcess = pDeviceStateNull->capture.currentPeriodFramesRemaining;
-            if (framesToProcess > framesRemaining) {
-                framesToProcess = framesRemaining;
-            }
+    /* The cursor needs to be advanced by the number of frames we just processed. */
+    pDeviceStateNull->cursor += framesAvailable;
+}
 
-            /* We need to ensure the output buffer is zeroed. */
-            MA_ZERO_MEMORY(ma_offset_ptr(pPCMFrames, totalPCMFramesProcessed*bpf), framesToProcess*bpf);
+static void ma_device_loop__null(ma_device* pDevice)
+{
+    for (;;) {
+        ma_device_wait__null(pDevice);
 
-            pDeviceStateNull->capture.currentPeriodFramesRemaining -= framesToProcess;
-            totalPCMFramesProcessed += framesToProcess;
-        }
-
-        /* If we've consumed the current period we'll need to mark it as such an ensure the device is started if it's not already. */
-        if (pDeviceStateNull->capture.currentPeriodFramesRemaining == 0) {
-            pDeviceStateNull->capture.currentPeriodFramesRemaining = 0;
-        }
-
-        /* If we've consumed the whole buffer we can return now. */
-        MA_ASSERT(totalPCMFramesProcessed <= frameCount);
-        if (totalPCMFramesProcessed == frameCount) {
+        /* If the wait terminated due to the device being stopped, abort now. */
+        if (!ma_device_is_started(pDevice)) {
             break;
         }
 
-        /* Getting here means we've still got more frames to consume, we but need to wait for it to become available. */
-        targetFrame = pDeviceStateNull->capture.lastProcessedFrame + pDeviceStateNull->capture.descriptor.periodSizeInFrames;
-        for (;;) {
-            ma_uint64 currentFrame;
-
-            /* Stop waiting if the device has been stopped. */
-            if (!ma_device_is_started__null(pDeviceStateNull)) {
-                break;
-            }
-
-            currentFrame = ma_device_get_total_run_time_in_frames__null(pDevice, pDeviceStateNull);
-            if (currentFrame >= targetFrame) {
-                break;
-            }
-
-            /* Getting here means we haven't yet reached the target sample, so continue waiting. */
-            ma_sleep(10);
-        }
-
-        pDeviceStateNull->capture.lastProcessedFrame          += pDeviceStateNull->capture.descriptor.periodSizeInFrames;
-        pDeviceStateNull->capture.currentPeriodFramesRemaining = pDeviceStateNull->capture.descriptor.periodSizeInFrames;
+        ma_device_step__null(pDevice);
     }
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = totalPCMFramesProcessed;
-    }
-
-    return result;
 }
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
@@ -21406,9 +21169,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
     ma_device_uninit__null,
     ma_device_start__null,
     ma_device_stop__null,
-    ma_device_read__null,
-    ma_device_write__null,
-    NULL,   /* onDeviceLoop */
+    NULL,
+    NULL,
+    ma_device_loop__null,   /* onDeviceLoop */
     NULL    /* onDeviceWakeup */
 };
 
