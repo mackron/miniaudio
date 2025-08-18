@@ -49,6 +49,7 @@ ma_result test_hishelf2__by_format(const char* pInputFilePath, const char* pOutp
         }
     }
 
+    ma_hishelf2_uninit(&hishelf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;

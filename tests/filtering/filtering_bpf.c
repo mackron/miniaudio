@@ -49,6 +49,7 @@ ma_result test_bpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         }
     }
 
+    ma_bpf2_uninit(&bpf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
@@ -110,6 +111,7 @@ ma_result test_bpf4__by_format(const char* pInputFilePath, const char* pOutputFi
         }
     }
 
+    ma_bpf_uninit(&bpf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
