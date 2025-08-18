@@ -4378,7 +4378,7 @@ typedef struct
 
 typedef struct
 {
-    ma_int32 state;
+    ma_uint32 state;
 } ma_lcg;
 
 
