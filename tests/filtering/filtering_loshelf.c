@@ -49,6 +49,7 @@ ma_result test_loshelf2__by_format(const char* pInputFilePath, const char* pOutp
         }
     }
 
+    ma_loshelf2_uninit(&loshelf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;

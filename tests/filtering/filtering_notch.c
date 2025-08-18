@@ -49,6 +49,7 @@ ma_result test_notch2__by_format(const char* pInputFilePath, const char* pOutput
         }
     }
 
+    ma_notch2_uninit(&notch, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
