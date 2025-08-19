@@ -72002,15 +72002,23 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
         /* If there's anything in the cache, consume that first. */
         if (pNodeGraph->processingCacheFramesRemaining > 0) {
             ma_uint32 framesToReadFromCache;
+            ma_uint32 bytesToCopy;
 
             framesToReadFromCache = (ma_uint32)framesToRead;
             if (framesToReadFromCache > pNodeGraph->processingCacheFramesRemaining) {
                 framesToReadFromCache = pNodeGraph->processingCacheFramesRemaining;
             }
 
-            MA_COPY_MEMORY(pRunningFramesOut, pNodeGraph->pProcessingCache, framesToReadFromCache * channels * sizeof(float));
-            MA_MOVE_MEMORY(pNodeGraph->pProcessingCache, pNodeGraph->pProcessingCache + (framesToReadFromCache * channels), (pNodeGraph->processingCacheFramesRemaining - framesToReadFromCache) * channels * sizeof(float));
+            /* Optimize: Calculate byte size once and cache channels */
+            bytesToCopy = framesToReadFromCache * channels * sizeof(float);
+            MA_COPY_MEMORY(pRunningFramesOut, pNodeGraph->pProcessingCache, bytesToCopy);
+            
+            /* Optimize: Avoid expensive memmove when consuming entire cache */
             pNodeGraph->processingCacheFramesRemaining -= framesToReadFromCache;
+            if (pNodeGraph->processingCacheFramesRemaining > 0) {
+                ma_uint32 remainingBytes = pNodeGraph->processingCacheFramesRemaining * channels * sizeof(float);
+                MA_MOVE_MEMORY(pNodeGraph->pProcessingCache, pNodeGraph->pProcessingCache + (framesToReadFromCache * channels), remainingBytes);
+            }
 
             totalFramesRead += framesToReadFromCache;
             continue;
@@ -73320,6 +73328,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     ma_uint32 timeOffsetEnd;
     ma_uint32 frameCountIn;
     ma_uint32 frameCountOut;
+    ma_uint32 outputChannels; /* Optimize: Cache channel count to avoid repeated lookups */
 
     /*
     pFramesRead is mandatory. It must be used to determine how many frames were read. It's normal and
@@ -73340,6 +73349,9 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     if (outputBusIndex >= ma_node_get_output_bus_count(pNodeBase)) {
         return MA_INVALID_ARGS; /* Invalid output bus index. */
     }
+
+    /* Optimize: Cache output channel count early to avoid repeated function calls */
+    outputChannels = ma_node_get_output_channels(pNode, outputBusIndex);
 
     /* Don't do anything if we're in a stopped state. */
     if (ma_node_get_state_by_time_range(pNode, globalTime, globalTime + frameCount) != ma_node_state_started) {
@@ -73366,8 +73378,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
     /* Trim based on the start offset. We need to silence the start of the buffer. */
     if (timeOffsetBeg > 0) {
-        ma_silence_pcm_frames(pFramesOut, timeOffsetBeg, ma_format_f32, ma_node_get_output_channels(pNode, outputBusIndex));
-        pFramesOut += timeOffsetBeg * ma_node_get_output_channels(pNode, outputBusIndex);
+        ma_silence_pcm_frames(pFramesOut, timeOffsetBeg, ma_format_f32, outputChannels);
+        pFramesOut += timeOffsetBeg * outputChannels;
         frameCount -= timeOffsetBeg;
     }
 
@@ -73398,7 +73410,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         need to pre-silence the output buffer.
         */
         if ((pNodeBase->vtable->flags & MA_NODE_FLAG_PASSTHROUGH) != 0) {
-            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, ma_node_get_output_channels(pNode, outputBusIndex));
+            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, outputChannels);
         }
 
         ma_node_process_pcm_frames_internal(pNode, NULL, &frameCountIn, ppFramesOut, &frameCountOut);
@@ -73502,9 +73514,13 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                         /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
                         for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
                             ma_uint32 framesRead;
+                            ma_uint32 inputChannels; /* Optimize: Cache input channel count */
 
                             /* The first thing to do is get the offset within our bulk allocation to store this input data. */
                             ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
+
+                            /* Cache channel count to avoid repeated function calls */
+                            inputChannels = ma_node_get_input_channels(pNodeBase, iInputBus);
 
                             /* Once we've determined our destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
                             result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[iInputBus], ppFramesIn[iInputBus], framesToProcessIn, &framesRead, globalTime);
@@ -73516,7 +73532,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                             /* TODO: Minor optimization opportunity here. If no frames were read and the buffer is already filled with silence, no need to re-silence it. */
                             /* Any leftover frames need to silenced for safety. */
                             if (framesRead < framesToProcessIn) {
-                                ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToProcessIn - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
+                                ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * inputChannels), (framesToProcessIn - framesRead), ma_format_f32, inputChannels);
                             }
 
                             maxFramesReadIn = ma_max(maxFramesReadIn, framesRead);
@@ -73537,7 +73553,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                     } else {
                         /* We don't need to read anything, but we do need to prepare our input frame pointers. */
                         for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                            ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
+                            ma_uint32 inputChannels = ma_node_get_input_channels(pNodeBase, iInputBus);
+                            ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * inputChannels);
                         }
                     }
 
@@ -73547,7 +73564,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                     that the final copy into the output buffer is done directly by onProcess().
                     */
                     if (pFramesOut != NULL) {
-                        ppFramesOut[outputBusIndex] = ma_offset_pcm_frames_ptr_f32(pFramesOut, pNodeBase->cachedFrameCountOut, ma_node_get_output_channels(pNode, outputBusIndex));
+                        ppFramesOut[outputBusIndex] = ma_offset_pcm_frames_ptr_f32(pFramesOut, pNodeBase->cachedFrameCountOut, outputChannels);
                     }
 
 
@@ -73642,7 +73659,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                 already-processed data.
                 */
                 if (pFramesOut != NULL) {
-                    ma_copy_pcm_frames(pFramesOut, ma_node_get_cached_output_ptr(pNodeBase, outputBusIndex), pNodeBase->cachedFrameCountOut, ma_format_f32, ma_node_get_output_channels(pNodeBase, outputBusIndex));
+                    ma_copy_pcm_frames(pFramesOut, ma_node_get_cached_output_ptr(pNodeBase, outputBusIndex), pNodeBase->cachedFrameCountOut, ma_format_f32, outputChannels);
                 }
             }
 
@@ -73655,7 +73672,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     }
 
     /* Apply volume, if necessary. */
-    ma_apply_volume_factor_f32(pFramesOut, totalFramesRead * ma_node_get_output_channels(pNodeBase, outputBusIndex), ma_node_output_bus_get_volume(&pNodeBase->pOutputBuses[outputBusIndex]));
+    ma_apply_volume_factor_f32(pFramesOut, totalFramesRead * outputChannels, ma_node_output_bus_get_volume(&pNodeBase->pOutputBuses[outputBusIndex]));
 
     /* Advance our local time forward. */
     ma_atomic_fetch_add_64(&pNodeBase->localTime, (ma_uint64)totalFramesRead);
