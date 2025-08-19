@@ -44,16 +44,13 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
     All we do is read from the decoder and then write straight to the encoder. All of the necessary data conversion
     will happen internally.
     */
-    
-    /* Pre-calculate frame size to avoid repeated division in the loop */
-    ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
-    ma_uint64 maxFramesToReadThisIteration = sizeof(ma_uint8[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]) / bytesPerFrame;
-    
     for (;;) {
         ma_uint8 pRawData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
         ma_uint64 framesReadThisIteration;
+        ma_uint64 framesToReadThisIteration;
 
-        result = ma_decoder_read_pcm_frames(pDecoder, pRawData, maxFramesToReadThisIteration, &framesReadThisIteration);
+        framesToReadThisIteration = sizeof(pRawData) / ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
+        result = ma_decoder_read_pcm_frames(pDecoder, pRawData, framesToReadThisIteration, &framesReadThisIteration);
         if (result != MA_SUCCESS) {
             break;  /* Reached the end, or an error occurred. */
         }
@@ -62,7 +59,7 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
         ma_encoder_write_pcm_frames(pEncoder, pRawData, framesReadThisIteration, NULL);
 
         /* Get out of the loop if we've reached the end. */
-        if (framesReadThisIteration < maxFramesToReadThisIteration) {
+        if (framesReadThisIteration < framesToReadThisIteration) {
             break;
         }
     }
