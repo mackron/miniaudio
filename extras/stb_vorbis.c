@@ -1240,7 +1240,28 @@ static int vorbis_validate(uint8 *data)
 // (formula implied by specification)
 static int lookup1_values(int entries, int dim)
 {
-   int r = (int) floor(exp((float) log((float) entries) / dim));
+   // Optimized version: use fast integer math for common dimensions
+   if (dim == 1) return entries;
+   if (dim == 2) {
+      // For dim=2, this is effectively sqrt(entries) - much faster than pow/exp/log
+      int r = (int) sqrt((float) entries);
+      if ((r+1) * (r+1) <= entries) ++r;
+      if ((r+1) * (r+1) <= entries) return -1;
+      if (r * r > entries) return -1;
+      return r;
+   }
+   if (dim == 3) {
+      // For dim=3, use cbrt(entries) - faster than pow/exp/log
+      int r = (int) cbrt((float) entries);
+      if ((r+1) * (r+1) * (r+1) <= entries) ++r;
+      if ((r+1) * (r+1) * (r+1) <= entries) return -1;
+      if (r * r * r > entries) return -1;
+      return r;
+   }
+   
+   // For higher dimensions, use original calculation but cache log
+   float log_entries = log((float) entries);
+   int r = (int) floor(exp(log_entries / dim));
    if ((int) floor(pow((float) r+1, dim)) <= entries)   // (int) cast for MinGW warning;
       ++r;                                              // floor() to avoid _ftol() when non-CRT
    if (pow((float) r+1, dim) <= entries)

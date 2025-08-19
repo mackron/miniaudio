@@ -130,9 +130,36 @@ void far_memset(void far* dst, int c, unsigned int count)
 {
     unsigned char far *p = dst;
     unsigned int i;
-
-    for (i = 0; i < count; i += 1) {
-        p[i] = c;
+    
+    /* For performance, use optimized approach for larger buffers */
+    if (count >= 32) {
+        /* Use word-based filling for better performance when properly aligned */
+        unsigned short fillWord = (unsigned char)c;
+        fillWord |= (fillWord << 8);
+        
+        /* Align to word boundary if needed */
+        while (count > 0 && ((unsigned long)p & 1) != 0) {
+            *p++ = (unsigned char)c;
+            count--;
+        }
+        
+        /* Fill in 2-byte chunks when possible */
+        unsigned short far *pWord = (unsigned short far*)p;
+        while (count >= 2) {
+            *pWord++ = fillWord;
+            count -= 2;
+        }
+        
+        /* Handle any remaining byte */
+        p = (unsigned char far*)pWord;
+        if (count > 0) {
+            *p = (unsigned char)c;
+        }
+    } else {
+        /* For small sizes, use simple loop (original behavior for compatibility) */
+        for (i = 0; i < count; i += 1) {
+            p[i] = (unsigned char)c;
+        }
     }
 }
 
