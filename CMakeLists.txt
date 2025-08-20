@@ -452,9 +452,9 @@ set(COMMON_LINK_LIBRARIES)
 if (UNIX)
     if(NOT MINIAUDIO_NO_RUNTIME_LINKING)
         # Not all platforms actually use a separate "dl" library, notably NetBSD and OpenBSD.
-        find_library(LIB_DL "dl")
+        find_library(LIB_DL NAMES dl)
         if(LIB_DL)
-            list(APPEND COMMON_LINK_LIBRARIES dl)  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+            list(APPEND COMMON_LINK_LIBRARIES ${LIB_DL})  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
         endif()
     endif()
     
@@ -463,7 +463,10 @@ if (UNIX)
 
     # If we're compiling for 32-bit ARM we need to link to -latomic.
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-        list(APPEND COMMON_LINK_LIBRARIES atomic)
+        find_library(LIB_ATOMIC NAMES atomic)
+        if(LIB_ATOMIC)
+            list(APPEND COMMON_LINK_LIBRARIES ${LIB_ATOMIC})
+        endif()
     endif()
 endif()
 
