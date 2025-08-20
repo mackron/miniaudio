@@ -1,10 +1,11 @@
+---
 name: Compilation Checks
 
 on:
   push:
-    branches: [ master, dev, dev-0.12 ]
+    branches: [master, dev, dev-0.12]
   pull_request:
-    branches: [ master, dev, dev-0.12 ]
+    branches: [master, dev, dev-0.12]
 
 jobs:
   linux:
@@ -16,38 +17,49 @@ jobs:
       matrix:
         compiler: [gcc, clang]
         config:
-          - { name: "Default", cmake_args: "" }
-          - { name: "ALSA Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_ALSA=ON" }
-          - { name: "PulseAudio Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_PULSEAUDIO=ON" }
-          - { name: "JACK Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_JACK=ON" }
-          - { name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON" }
-          - { name: "Force C++", cmake_args: "-DMINIAUDIO_FORCE_CXX=ON" }
-          - { name: "Force C89", cmake_args: "-DMINIAUDIO_FORCE_C89=ON", continue_on_error: true }
-    
+          - {name: "Default", cmake_args: ""}
+          - name: "ALSA Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_ALSA=ON
+          - name: "PulseAudio Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_PULSEAUDIO=ON
+          - name: "JACK Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_JACK=ON
+          - {name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON"}
+          - {name: "Force C++", cmake_args: "-DMINIAUDIO_FORCE_CXX=ON"}
+          - name: "Force C89"
+            cmake_args: "-DMINIAUDIO_FORCE_C89=ON"
+            continue_on_error: true
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libasound2-dev libpulse-dev libjack-jackd2-dev
-    
-    - name: Setup compiler
-      run: |
-        if [ "${{ matrix.compiler }}" = "clang" ]; then
-          sudo apt-get install -y clang
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "CXX=clang++" >> $GITHUB_ENV
-        else
-          echo "CC=gcc" >> $GITHUB_ENV
-          echo "CXX=g++" >> $GITHUB_ENV
-        fi
-    
-    - name: Configure CMake
-      run: cmake -B build ${{ matrix.config.cmake_args }}
-    
-    - name: Build
-      run: cmake --build build --parallel $(nproc)
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libpulse-dev libjack-jackd2-dev
+
+      - name: Setup compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get install -y clang
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          else
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          fi
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
 
   windows:
     name: Windows (${{ matrix.compiler }}, ${{ matrix.config.name }})
@@ -57,45 +69,55 @@ jobs:
       matrix:
         compiler: [msvc, mingw]
         config:
-          - { name: "Default", cmake_args: "" }
-          - { name: "WASAPI Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_WASAPI=ON" }
-          - { name: "DirectSound Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_DSOUND=ON" }
-          - { name: "WinMM Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_WINMM=ON" }
-          - { name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON" }
-          - { name: "Force C++", cmake_args: "-DMINIAUDIO_FORCE_CXX=ON" }
-    
+          - {name: "Default", cmake_args: ""}
+          - name: "WASAPI Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_WASAPI=ON
+          - name: "DirectSound Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_DSOUND=ON
+          - name: "WinMM Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_WINMM=ON
+          - {name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON"}
+          - {name: "Force C++", cmake_args: "-DMINIAUDIO_FORCE_CXX=ON"}
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup MSVC
-      if: matrix.compiler == 'msvc'
-      uses: ilammy/msvc-dev-cmd@v1
-    
-    - name: Setup MinGW
-      if: matrix.compiler == 'mingw'
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        update: true
-        install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
-    
-    - name: Configure CMake (MSVC)
-      if: matrix.compiler == 'msvc'
-      run: cmake -B build ${{ matrix.config.cmake_args }}
-    
-    - name: Configure CMake (MinGW)
-      if: matrix.compiler == 'mingw'
-      shell: msys2 {0}
-      run: cmake -B build -G "MinGW Makefiles" ${{ matrix.config.cmake_args }}
-    
-    - name: Build (MSVC)
-      if: matrix.compiler == 'msvc'
-      run: cmake --build build --parallel
-    
-    - name: Build (MinGW)
-      if: matrix.compiler == 'mingw'
-      shell: msys2 {0}
-      run: cmake --build build --parallel
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        if: matrix.compiler == 'msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup MinGW
+        if: matrix.compiler == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
+
+      - name: Configure CMake (MSVC)
+        if: matrix.compiler == 'msvc'
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Configure CMake (MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake -B build -G "MinGW Makefiles" ${{ matrix.config.cmake_args }}
+
+      - name: Build (MSVC)
+        if: matrix.compiler == 'msvc'
+        run: cmake --build build --parallel
+
+      - name: Build (MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build --parallel
 
   macos:
     name: macOS (${{ matrix.config.name }})
@@ -105,20 +127,25 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { name: "Default", cmake_args: "" }
-          - { name: "CoreAudio Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_COREAUDIO=ON" }
-          - { name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON" }
-          - { name: "Force C++", cmake_args: "-DMINIAUDIO_FORCE_CXX=ON" }
-          - { name: "Force C89", cmake_args: "-DMINIAUDIO_FORCE_C89=ON", continue_on_error: true }
-    
+          - {name: "Default", cmake_args: ""}
+          - name: "CoreAudio Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_COREAUDIO=ON
+          - {name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON"}
+          - {name: "Force C++", cmake_args: "-DMINIAUDIO_FORCE_CXX=ON"}
+          - name: "Force C89"
+            cmake_args: "-DMINIAUDIO_FORCE_C89=ON"
+            continue_on_error: true
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Configure CMake
-      run: cmake -B build ${{ matrix.config.cmake_args }}
-    
-    - name: Build
-      run: cmake --build build --parallel $(sysctl -n hw.ncpu)
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
 
   emscripten:
     name: Emscripten (${{ matrix.config.name }})
@@ -127,23 +154,26 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { name: "Default", cmake_args: "" }
-          - { name: "WebAudio Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_WEBAUDIO=ON" }
-          - { name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON" }
-    
+          - {name: "Default", cmake_args: ""}
+          - name: "WebAudio Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_WEBAUDIO=ON
+          - {name: "No Device IO", cmake_args: "-DMINIAUDIO_NO_DEVICEIO=ON"}
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Emscripten
-      uses: mymindstorm/setup-emsdk@v14
-      with:
-        version: latest
-    
-    - name: Configure CMake
-      run: emcmake cmake -B build ${{ matrix.config.cmake_args }}
-    
-    - name: Build
-      run: cmake --build build --parallel $(nproc)
+      - uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Configure CMake
+        run: emcmake cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
 
   android:
     name: Android (${{ matrix.arch }}, ${{ matrix.config.name }})
@@ -153,28 +183,35 @@ jobs:
       matrix:
         arch: [arm64-v8a, armeabi-v7a, x86_64]
         config:
-          - { name: "Default", cmake_args: "" }
-          - { name: "AAudio Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_AAUDIO=ON" }
-          - { name: "OpenSL Only", cmake_args: "-DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON -DMINIAUDIO_ENABLE_OPENSL=ON" }
-    
+          - {name: "Default", cmake_args: ""}
+          - name: "AAudio Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_AAUDIO=ON
+          - name: "OpenSL Only"
+            cmake_args: >-
+              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
+              -DMINIAUDIO_ENABLE_OPENSL=ON
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Android NDK
-      uses: nttld/setup-ndk@v1
-      with:
-        ndk-version: r25c
-    
-    - name: Configure CMake
-      run: |
-        cmake -B build \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
-          -DANDROID_ABI=${{ matrix.arch }} \
-          -DANDROID_PLATFORM=android-21 \
-          ${{ matrix.config.cmake_args }}
-    
-    - name: Build
-      run: cmake --build build --parallel $(nproc)
+      - uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+
+      - name: Configure CMake
+        run: |
+          TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake
+          cmake -B build \
+            -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE \
+            -DANDROID_ABI=${{ matrix.arch }} \
+            -DANDROID_PLATFORM=android-21 \
+            ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
 
   additional-configs:
     name: Additional Configurations (${{ matrix.config.name }})
@@ -184,22 +221,25 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { name: "No SSE2", cmake_args: "-DMINIAUDIO_NO_SSE2=ON", continue_on_error: true }
-          - { name: "No AVX2", cmake_args: "-DMINIAUDIO_NO_AVX2=ON" }
-          - { name: "No Threading", cmake_args: "-DMINIAUDIO_NO_THREADING=ON -DMINIAUDIO_NO_DEVICEIO=ON" }
-          - { name: "No Decoding", cmake_args: "-DMINIAUDIO_NO_DECODING=ON" }
-          - { name: "No Encoding", cmake_args: "-DMINIAUDIO_NO_ENCODING=ON" }
-          - { name: "No WAV", cmake_args: "-DMINIAUDIO_NO_WAV=ON" }
-          - { name: "No FLAC", cmake_args: "-DMINIAUDIO_NO_FLAC=ON" }
-          - { name: "No MP3", cmake_args: "-DMINIAUDIO_NO_MP3=ON" }
-          - { name: "Use stdint", cmake_args: "-DMINIAUDIO_USE_STDINT=ON" }
-          - { name: "Debug Output", cmake_args: "-DMINIAUDIO_DEBUG_OUTPUT=ON" }
-    
+          - name: "No SSE2"
+            cmake_args: "-DMINIAUDIO_NO_SSE2=ON"
+            continue_on_error: true
+          - {name: "No AVX2", cmake_args: "-DMINIAUDIO_NO_AVX2=ON"}
+          - name: "No Threading"
+            cmake_args: "-DMINIAUDIO_NO_THREADING=ON -DMINIAUDIO_NO_DEVICEIO=ON"
+          - {name: "No Decoding", cmake_args: "-DMINIAUDIO_NO_DECODING=ON"}
+          - {name: "No Encoding", cmake_args: "-DMINIAUDIO_NO_ENCODING=ON"}
+          - {name: "No WAV", cmake_args: "-DMINIAUDIO_NO_WAV=ON"}
+          - {name: "No FLAC", cmake_args: "-DMINIAUDIO_NO_FLAC=ON"}
+          - {name: "No MP3", cmake_args: "-DMINIAUDIO_NO_MP3=ON"}
+          - {name: "Use stdint", cmake_args: "-DMINIAUDIO_USE_STDINT=ON"}
+          - {name: "Debug Output", cmake_args: "-DMINIAUDIO_DEBUG_OUTPUT=ON"}
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Configure CMake
-      run: cmake -B build ${{ matrix.config.cmake_args }}
-    
-    - name: Build
-      run: cmake --build build --parallel $(nproc)
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
