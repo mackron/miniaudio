@@ -32127,7 +32127,7 @@ static void ma_device_on_read__pulseaudio(ma_pa_stream* pStream, size_t byteCoun
     ma_device_state_pulseaudio* pDeviceStatePulseAudio = ma_device_get_backend_state__pulseaudio(pDevice);
     ma_context_state_pulseaudio* pContextStatePulseAudio = ma_context_get_backend_state__pulseaudio(ma_device_get_context(pDevice));
     ma_uint32 bpf;
-    //ma_device_status deviceStatus;
+    /*ma_device_status deviceStatus;*/
     ma_uint64 frameCount;
     ma_uint64 framesProcessed;
 
