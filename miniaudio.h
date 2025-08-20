@@ -7151,6 +7151,26 @@ END BACKENDS
 
 ************************************************************************************************************************************************************/
 
+/* 64 should be enough to cover all stock backends, but if somehow this is exceeded we can increase this. */
+#ifndef MA_MAX_STOCK_DEVICE_BACKENDS
+#define MA_MAX_STOCK_DEVICE_BACKENDS 64
+#endif
+
+
+/* For mapping a config object to a backend. Used for both context configs or device configs. */
+typedef struct ma_device_backend_config
+{
+    ma_device_backend_vtable* pVTable;
+    const void* pConfig;   /* Can be a pointer to either a backend-specific context config, or a backend-specific device config, depending on context. */
+} ma_device_backend_config;
+
+MA_API ma_device_backend_config ma_device_backend_config_init(ma_device_backend_vtable* pVTable, const void* pConfig);
+
+
+/* This is the list of default device backends in priority order. */
+MA_API ma_uint32 ma_get_stock_device_backends(ma_device_backend_config* pBackends, size_t backendsCap);
+
+
 typedef struct ma_device_backend_info
 {
     const char* pName;
@@ -7451,15 +7471,6 @@ struct ma_device_descriptor
     ma_uint32 periodCount;
 };
 
-
-/* For mapping a config object to a backend. Used for both context configs or device configs. */
-typedef struct ma_device_backend_config
-{
-    ma_device_backend_vtable* pVTable;
-    const void* pConfig;   /* Can be a pointer to either a backend-specific context config, or a backend-specific device config, depending on context. */
-} ma_device_backend_config;
-
-MA_API ma_device_backend_config ma_device_backend_config_init(ma_device_backend_vtable* pVTable, const void* pConfig);
 
 
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
@@ -44395,24 +44406,29 @@ static const void* ma_context_config_find_backend_config(const ma_context_config
 }
 
 
-/* This is the list of default device backends in priority order. */
-#define MA_STOCK_DEVICE_BACKENDS            \
-{                                           \
-    { ma_device_backend_wasapi,     NULL }, \
-    { ma_device_backend_dsound,     NULL }, \
-    { ma_device_backend_winmm,      NULL }, \
-    { ma_device_backend_coreaudio,  NULL }, \
-    { ma_device_backend_pulseaudio, NULL }, \
-    { ma_device_backend_alsa,       NULL }, \
-    { ma_device_backend_jack,       NULL }, \
-    { ma_device_backend_sndio,      NULL }, \
-    { ma_device_backend_audio4,     NULL }, \
-    { ma_device_backend_oss,        NULL }, \
-    { ma_device_backend_aaudio,     NULL }, \
-    { ma_device_backend_opensl,     NULL }, \
-    { ma_device_backend_webaudio,   NULL }, \
-    { ma_device_backend_null,       NULL }  \
-}
+
+MA_API ma_uint32 ma_get_stock_device_backends(ma_device_backend_config* pBackends, size_t backendsCap)
+{
+    ma_uint32 count = 0;
+
+    /* This must be in priority order. */
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_wasapi,     NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_dsound,     NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_winmm,      NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_coreaudio,  NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_pulseaudio, NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_alsa,       NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_jack,       NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_sndio,      NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_audio4,     NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_oss,        NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_aaudio,     NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_opensl,     NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_webaudio,   NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_null,       NULL); }
+
+    return count;
+} 
 
 
 MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext)
@@ -44420,8 +44436,7 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
     ma_result result;
     ma_context_config defaultConfig;
     ma_uint32 iBackend;
-    ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
-    ma_uint32 stockBackendCount = ma_countof(pStockBackends);
+    ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
 
     if (pContext == NULL) {
         return MA_INVALID_ARGS;
@@ -44465,8 +44480,8 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
 
     /* If NULL was passed in for the backend list we'll want to iterate over our default list. */
     if (pBackends == NULL) {
-        pBackends    = pStockBackends;
-        backendCount = stockBackendCount;
+        pBackends = pStockBackends;
+        backendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
     }
 
     for (iBackend = 0; iBackend < backendCount; iBackend += 1) {
@@ -45237,8 +45252,7 @@ MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma
     ma_context* pContext;
     ma_uint32 iBackend;
     ma_allocation_callbacks allocationCallbacks;
-    ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
-    ma_uint32 stockBackendCount = ma_countof(pStockBackends);
+    ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -45259,8 +45273,8 @@ MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma
     }
 
     if (pBackends == NULL) {
-        pBackends    = pStockBackends;
-        backendCount = stockBackendCount;
+        pBackends = pStockBackends;
+        backendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
     }
 
     result = MA_NO_BACKEND;
