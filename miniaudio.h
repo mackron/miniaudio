@@ -39259,7 +39259,6 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_fd_legacy__
 
 static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    //ma_context_state_oss* pContextStateOSS = ma_context_get_backend_state__oss(pContext);
     struct stat stDefault;  /* For detecting the default device. */
 
     if (stat(MA_OSS_DEFAULT_DEVICE_NAME, &stDefault) < 0) {
