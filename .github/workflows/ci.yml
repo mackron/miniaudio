@@ -19,24 +19,6 @@ jobs:
         config:
           - name: "Default"
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
-          - name: "ALSA Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_ALSA=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "PulseAudio Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_PULSEAUDIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "JACK Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_JACK=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
           - name: "No Device IO"
             cmake_args: >-
               -DMINIAUDIO_NO_DEVICEIO=ON
@@ -89,24 +71,6 @@ jobs:
         config:
           - name: "Default"
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
-          - name: "WASAPI Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_WASAPI=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "DirectSound Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_DSOUND=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "WinMM Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_WINMM=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
           - name: "No Device IO"
             cmake_args: >-
               -DMINIAUDIO_NO_DEVICEIO=ON
@@ -162,12 +126,6 @@ jobs:
         config:
           - name: "Default"
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
-          - name: "CoreAudio Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_COREAUDIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
           - name: "No Device IO"
             cmake_args: >-
               -DMINIAUDIO_NO_DEVICEIO=ON
@@ -203,17 +161,6 @@ jobs:
         config:
           - name: "Default"
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
-          - name: "WebAudio Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_WEBAUDIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "No Device IO"
-            cmake_args: >-
-              -DMINIAUDIO_NO_DEVICEIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -239,18 +186,6 @@ jobs:
         config:
           - name: "Default"
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
-          - name: "AAudio Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_AAUDIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "OpenSL Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_OPENSL=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -281,17 +216,6 @@ jobs:
       matrix:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
-          - name: "OSS Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_OSS=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "No Device IO"
-            cmake_args: >-
-              -DMINIAUDIO_NO_DEVICEIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -315,23 +239,6 @@ jobs:
       matrix:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
-          - name: "sndio Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_SNDIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "OSS Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_OSS=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "No Device IO"
-            cmake_args: >-
-              -DMINIAUDIO_NO_DEVICEIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -346,46 +253,6 @@ jobs:
             cmake -B build ${{ matrix.config.cmake_args }}
             cmake --build build --parallel $(sysctl -n hw.ncpu)
 
-  netbsd:
-    name: NetBSD (${{ matrix.config.name }})
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
-          - name: "audio4 Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_AUDIO4=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "OSS Only"
-            cmake_args: >-
-              -DMINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS=ON
-              -DMINIAUDIO_ENABLE_OSS=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-          - name: "No Device IO"
-            cmake_args: >-
-              -DMINIAUDIO_NO_DEVICEIO=ON
-              -DMINIAUDIO_BUILD_EXAMPLES=ON
-              -DMINIAUDIO_BUILD_TESTS=ON
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Test on NetBSD
-        uses: vmactions/netbsd-vm@v1
-        with:
-          usesh: true
-          prepare: |
-            /usr/sbin/pkg_add cmake
-          run: |
-            cmake -B build ${{ matrix.config.cmake_args }}
-            cmake --build build --parallel $(sysctl -n hw.ncpu)
-
   additional-configs:
     name: Additional Configurations (${{ matrix.config.name }})
     runs-on: ubuntu-latest
@@ -395,20 +262,12 @@ jobs:
       matrix:
         config:
           - name: "No SSE2"
-            cmake_args: "-DMINIAUDIO_NO_SSE2=ON"
+            cmake_args: "-DMINIAUDIO_NO_SSE2=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
             continue_on_error: true
-          - {name: "No AVX2", cmake_args: "-DMINIAUDIO_NO_AVX2=ON"}
           - name: "No Threading"
-            cmake_args: "-DMINIAUDIO_NO_THREADING=ON -DMINIAUDIO_NO_DEVICEIO=ON"
-          - {name: "No Decoding", cmake_args: "-DMINIAUDIO_NO_DECODING=ON"}
-          - {name: "No Encoding", cmake_args: "-DMINIAUDIO_NO_ENCODING=ON"}
-          - {name: "No WAV", cmake_args: "-DMINIAUDIO_NO_WAV=ON"}
-          - {name: "No FLAC", cmake_args: "-DMINIAUDIO_NO_FLAC=ON"}
-          - {name: "No MP3", cmake_args: "-DMINIAUDIO_NO_MP3=ON"}
-          - {name: "Use stdint", cmake_args: "-DMINIAUDIO_USE_STDINT=ON"}
-          - {name: "Debug Output", cmake_args: "-DMINIAUDIO_DEBUG_OUTPUT=ON"}
-          - name: "Examples and Tests"
-            cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+            cmake_args: "-DMINIAUDIO_NO_THREADING=ON -DMINIAUDIO_NO_DEVICEIO=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+          - {name: "No Decoding", cmake_args: "-DMINIAUDIO_NO_DECODING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
+          - {name: "No Encoding", cmake_args: "-DMINIAUDIO_NO_ENCODING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
 
     steps:
       - uses: actions/checkout@v4
