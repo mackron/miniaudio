@@ -42286,14 +42286,14 @@ extern "C" {
 #endif
 void EMSCRIPTEN_KEEPALIVE ma_device_post_notification_unlocked_emscripten(ma_device* pDevice)
 {
-    return ma_device_post_notification_unlocked(pDevice);
+    ma_device_post_notification_unlocked(pDevice);
 }
 #ifdef __cplusplus
 }
 #endif
 #endif
 
-static ma_bool32 ma_is_capture_supported__webaudio()
+static ma_bool32 ma_is_capture_supported__webaudio(void)
 {
     return EM_ASM_INT({
         return (navigator.mediaDevices !== undefined && navigator.mediaDevices.getUserMedia !== undefined);
