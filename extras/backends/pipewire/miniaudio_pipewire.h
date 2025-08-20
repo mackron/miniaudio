@@ -13,6 +13,9 @@ Unfortunately PipeWire has a hard dependency on the above package, and because i
 entirely of non-trivial inlined code, it's not possible to avoid this dependency. It's for
 this reason the PipeWire backend cannot be included in miniaudio.h since it has a requirement
 that it does not depend on external development packages.
+
+The PipeWire backend cannot be used with `-std=c89`. This is because the SPA headers do not
+support it.
 */
 #ifndef miniaudio_backend_pipewire_h
 #define miniaudio_backend_pipewire_h
