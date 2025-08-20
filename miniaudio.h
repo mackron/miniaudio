@@ -11805,7 +11805,7 @@ static MA_INLINE unsigned int ma_disable_denormals(void)
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        #if defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__)) /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        #if defined(MA_SUPPORT_SSE2) && defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__)) /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
         {
             prevState = _mm_getcsr();
             _mm_setcsr(prevState | MA_MM_DENORMALS_ZERO_MASK | MA_MM_FLUSH_ZERO_MASK);
@@ -11845,7 +11845,7 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        #if defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        #if defined(MA_SUPPORT_SSE2) && defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
         {
             _mm_setcsr(prevState);
         }
@@ -19993,7 +19993,7 @@ Timing
 *******************************************************************************/
 #if defined(MA_WIN32) && !defined(MA_POSIX)
     static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
-    static void ma_timer_init(ma_timer* pTimer)
+    static MA_INLINE void ma_timer_init(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
 
@@ -20005,7 +20005,7 @@ Timing
         pTimer->counter = counter.QuadPart;
     }
 
-    static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
         if (!QueryPerformanceCounter(&counter)) {
@@ -20016,7 +20016,7 @@ Timing
     }
 #elif defined(MA_APPLE) && (MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
     static ma_uint64 g_ma_TimerFrequency = 0;
-    static void ma_timer_init(ma_timer* pTimer)
+    static MA_INLINE void ma_timer_init(ma_timer* pTimer)
     {
         mach_timebase_info_data_t baseTime;
         mach_timebase_info(&baseTime);
@@ -20025,7 +20025,7 @@ Timing
         pTimer->counter = mach_absolute_time();
     }
 
-    static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     {
         ma_uint64 newTimeCounter = mach_absolute_time();
         ma_uint64 oldTimeCounter = pTimer->counter;
@@ -20050,7 +20050,7 @@ Timing
             #define MA_CLOCK_ID CLOCK_REALTIME
         #endif
 
-        static void ma_timer_init(ma_timer* pTimer)
+        static MA_INLINE void ma_timer_init(ma_timer* pTimer)
         {
             struct timespec newTime;
             clock_gettime(MA_CLOCK_ID, &newTime);
@@ -20058,7 +20058,7 @@ Timing
             pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
         }
 
-        static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+        static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
         {
             ma_uint64 newTimeCounter;
             ma_uint64 oldTimeCounter;
@@ -20072,7 +20072,7 @@ Timing
             return (newTimeCounter - oldTimeCounter) / 1000000000.0;
         }
     #else
-        static void ma_timer_init(ma_timer* pTimer)
+        static MA_INLINE void ma_timer_init(ma_timer* pTimer)
         {
             struct timeval newTime;
             gettimeofday(&newTime, NULL);
@@ -20080,7 +20080,7 @@ Timing
             pTimer->counter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
         }
 
-        static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+        static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
         {
             ma_uint64 newTimeCounter;
             ma_uint64 oldTimeCounter;
