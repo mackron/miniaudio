@@ -44421,7 +44421,7 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
     ma_result result;
     ma_context_config defaultConfig;
     ma_uint32 iBackend;
-    const ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
+    ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
     ma_uint32 stockBackendCount = ma_countof(pStockBackends);
 
     if (pContext == NULL) {
@@ -45238,7 +45238,7 @@ MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma
     ma_context* pContext;
     ma_uint32 iBackend;
     ma_allocation_callbacks allocationCallbacks;
-    const ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
+    ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
     ma_uint32 stockBackendCount = ma_countof(pStockBackends);
 
     if (pConfig == NULL) {
