@@ -151,13 +151,23 @@ extern "C" {
 #include <assert.h>
 
 #ifdef _MSC_VER
-#define VOCLIB_INLINE __forceinline
+    #define VOCLIB_INLINE __forceinline
+#elif defined(__GNUC__)
+    #if defined(__STRICT_ANSI__)
+        #define VOCLIB_GNUC_INLINE_HINT __inline__
+    #else
+        #define VOCLIB_GNUC_INLINE_HINT inline
+    #endif
+
+    #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 2)) || defined(__clang__)
+        #define VOCLIB_INLINE VOCLIB_GNUC_INLINE_HINT __attribute__((always_inline))
+    #else
+        #define VOCLIB_INLINE VOCLIB_GNUC_INLINE_HINT
+    #endif
+#elif defined(__WATCOMC__)
+    #define VOCLIB_INLINE __inline
 #else
-#ifdef __GNUC__
-#define VOCLIB_INLINE inline __attribute__((always_inline))
-#else
-#define VOCLIB_INLINE inline
-#endif
+    #define VOCLIB_INLINE
 #endif
 
 /* Filters

@@ -248,13 +248,23 @@ extern "C" {
 #include <math.h>
 
 #ifdef _MSC_VER
-#define VERBLIB_INLINE __forceinline
+    #define VERBLIB_INLINE __forceinline
+#elif defined(__GNUC__)
+    #if defined(__STRICT_ANSI__)
+        #define VERBLIB_GNUC_INLINE_HINT __inline__
+    #else
+        #define VERBLIB_GNUC_INLINE_HINT inline
+    #endif
+
+    #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 2)) || defined(__clang__)
+        #define VERBLIB_INLINE VERBLIB_GNUC_INLINE_HINT __attribute__((always_inline))
+    #else
+        #define VERBLIB_INLINE VERBLIB_GNUC_INLINE_HINT
+    #endif
+#elif defined(__WATCOMC__)
+    #define VERBLIB_INLINE __inline
 #else
-#ifdef __GNUC__
-#define VERBLIB_INLINE inline __attribute__((always_inline))
-#else
-#define VERBLIB_INLINE inline
-#endif
+    #define VERBLIB_INLINE
 #endif
 
 #define verblib_max(x, y)                (((x) > (y)) ? (x) : (y))
