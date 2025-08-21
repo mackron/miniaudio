@@ -258,9 +258,11 @@ ma_bool32 try_parse_noise(const char* arg, ma_noise_type* pNoiseType)
 
 void print_enabled_backends(void)
 {
-    const ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
-    ma_uint32 stockBackendCount = ma_countof(pStockBackends);
+    ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
+    ma_uint32 stockBackendCount;
     ma_uint32 iEnabledStockBackend;
+
+    stockBackendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
 
     printf("Enabled Backends:\n");
 
@@ -648,7 +650,15 @@ int main(int argc, char** argv)
                 break;
             }
 
-            ma_sleep(10);
+            /*
+            Can't sleep with Emscripten. Just skip the sleeping part in this case. I don't run this test for Emscripten
+            so it doesn't matter. Just fixing this for the sake of automated build tools.
+            */
+            #ifndef __EMSCRIPTEN__
+            {
+                ma_sleep(10);
+            }
+            #endif
         }
     }
 

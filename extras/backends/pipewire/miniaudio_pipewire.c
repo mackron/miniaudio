@@ -76,7 +76,9 @@ which can then be stored in the backend state?
 
 
 #if defined(MA_LINUX)
-    #define MA_SUPPORT_PIPEWIRE
+    #if defined(__STDC_VERSION__)   /* <-- PipeWire cannot be used with C89 mode (__STDC_VERSION__ is only defined starting with C90). */
+        #define MA_SUPPORT_PIPEWIRE
+    #endif
 #endif
 
 #if defined(MA_SUPPORT_PIPEWIRE) && !defined(MA_NO_PIPEWIRE) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_PIPEWIRE))
@@ -438,6 +440,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         const struct spa_pod* pBufferParameters[1];
         ma_uint32 bufferSizeInFrames;
         ma_uint32 bytesPerFrame;
+        ma_uint32 iChannel;
 
         if (pDeviceStatePipeWire->isInternalFormatFinalised) {
             ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_WARNING, "PipeWire format parameter changed after device has been initialized.");
@@ -456,7 +459,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         printf("Channels: %d\n", audioInfo.channels);
         printf("Rate:     %d\n", audioInfo.rate);
         printf("Channel Map: {");
-        for (ma_uint32 iChannel = 0; iChannel < audioInfo.channels; iChannel += 1) {
+        for (iChannel = 0; iChannel < audioInfo.channels; iChannel += 1) {
             printf("%d", audioInfo.position[iChannel]);
             if (iChannel < audioInfo.channels - 1) {
                 printf(", ");
@@ -529,7 +532,7 @@ static void ma_stream_event_process__pipewire(void* pUserData)
             return;
         }
 
-        //frameCount = (ma_uint32)ma_min(pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);
+        /*frameCount = (ma_uint32)ma_min(pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);*/
         frameCount = (ma_uint32)(pBuffer->buffer->datas[0].maxsize / bytesPerFrame);
         if (frameCount > 0) {
             if (pStream == pDeviceStatePipeWire->pStreamPlayback) {

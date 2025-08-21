@@ -1,5 +1,5 @@
+#include "../../external/fs/fs.c"   /* <-- Must come first due to some (hopefully temporary) hacks to work around some `-std=c89` errors. */
 #include "../../miniaudio.c"
-#include "../../external/fs/fs.c"
 
 #include <stdio.h>
 

@@ -462,18 +462,28 @@ set(COMMON_LINK_LIBRARIES)
 if (UNIX)
     if(NOT MINIAUDIO_NO_RUNTIME_LINKING)
         # Not all platforms actually use a separate "dl" library, notably NetBSD and OpenBSD.
-        find_library(LIB_DL "dl")
+        find_library(LIB_DL NAMES dl)
         if(LIB_DL)
-            list(APPEND COMMON_LINK_LIBRARIES dl)  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+            list(APPEND COMMON_LINK_LIBRARIES ${LIB_DL})  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
         endif()
     endif()
+    
+    find_library(LIB_PTHREAD NAMES pthread)
+    if(LIB_PTHREAD)
+        list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
+    endif()
 
-    list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
-    list(APPEND COMMON_LINK_LIBRARIES m)
+    find_library(LIB_M NAMES m)
+    if(LIB_M)
+        list(APPEND COMMON_LINK_LIBRARIES m)
+    endif()
 
     # If we're compiling for 32-bit ARM we need to link to -latomic.
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-        list(APPEND COMMON_LINK_LIBRARIES atomic)
+        find_library(LIB_ATOMIC NAMES atomic)
+        if(LIB_ATOMIC)
+            list(APPEND COMMON_LINK_LIBRARIES ${LIB_ATOMIC})
+        endif()
     endif()
 endif()
 
@@ -578,7 +588,7 @@ if(NOT MINIAUDIO_NO_EXTRA_NODES)
 
         if(MINIAUDIO_BUILD_EXAMPLES)
             add_executable(miniaudio_${name}_node_example extras/nodes/ma_${name}_node/ma_${name}_node_example.c)
-            target_link_libraries(miniaudio_${name}_node_example PRIVATE miniaudio_common_options)
+            target_link_libraries(miniaudio_${name}_node_example PRIVATE miniaudio_example)
         endif()
     endfunction()
 
@@ -590,12 +600,18 @@ if(NOT MINIAUDIO_NO_EXTRA_NODES)
 endif()
 
 
-# Interface with common options to simplify the setup of tests and examples. Note that we don't pass
-# in COMPILE_DEFINES here because want to allow the tests and examples to define their own defines. If
-# we were to use COMPILE_DEFINES here many of the tests and examples would not compile.
-add_library(miniaudio_common_options INTERFACE)
-target_compile_options(miniaudio_common_options INTERFACE ${COMPILE_OPTIONS})
-target_link_libraries (miniaudio_common_options INTERFACE ${COMMON_LINK_LIBRARIES})
+# Interface for examples. Examples do not include COMPILE_OPTIONS because when compiling with things
+# like MINIAUDIO_FORCE_C89, etc. it could sometimes result in warnings which would make automated
+# build tools have unnecessarily messy output. Working around these errors would require us modifying
+# the examples in ways where it would negatively affect its readablity.
+add_library(miniaudio_example INTERFACE)
+target_link_libraries (miniaudio_example INTERFACE ${COMMON_LINK_LIBRARIES})
+
+# Interface for tests. This includes our COMPILE_OPTIONS settings because we want tests to check for
+# build errors with MINIAUDIO_FORCE_C89, etc.
+add_library(miniaudio_test INTERFACE)
+target_compile_options(miniaudio_test INTERFACE ${COMPILE_OPTIONS})
+target_link_libraries (miniaudio_test INTERFACE ${COMMON_LINK_LIBRARIES})
 
 # Tests
 #
@@ -607,21 +623,27 @@ if(MINIAUDIO_BUILD_TESTS)
 
     function(add_miniaudio_test name source)
         add_executable(${name} ${TESTS_DIR}/${source})
-        target_link_libraries(${name} PRIVATE miniaudio_common_options)
+        target_link_libraries(${name} PRIVATE miniaudio_test)
         if(TARGET miniaudio_pipewire)
             target_link_libraries(${name} PRIVATE miniaudio_pipewire)
             target_compile_definitions(${name} PRIVATE MA_TESTS_INCLUDE_PIPEWIRE)
         endif()
     endfunction()
 
-    # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
-    add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
+    # Disable C++ tests when forcing C89. This is needed because we'll be passing -std=c89 which will cause errors when trying to compile a C++ file.
+    if(NOT MINIAUDIO_FORCE_C89)
+        # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
+        add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
+
+        add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
+        add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
+    endif()
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Emscripten")
+        target_compile_options(miniaudio_deviceio PRIVATE --use-port=sdl2)
+    endif()
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
-
-    add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
-    add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
 
     add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
     add_test(NAME miniaudio_conversion COMMAND miniaudio_conversion)
@@ -631,15 +653,6 @@ if(MINIAUDIO_BUILD_TESTS)
     
     add_miniaudio_test(miniaudio_generation generation/generation.c)
     add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
-
-    if(NOT MINIAUDIO_NO_PIPEWIRE)
-        add_executable            (miniaudio_pipewire_test extras/backends/pipewire/miniaudio_pipewire_test.c)
-        target_compile_options    (miniaudio_pipewire_test PRIVATE ${COMPILE_OPTIONS})
-        target_compile_definitions(miniaudio_pipewire_test PRIVATE ${COMPILE_DEFINES})
-        target_include_directories(miniaudio_pipewire_test PRIVATE ${SPA_INCLUDE_DIR})
-        target_link_libraries     (miniaudio_pipewire_test PRIVATE ${COMMON_LINK_LIBRARIES})
-        add_test(NAME miniaudio_pipewire_test COMMAND miniaudio_pipewire_test --auto)
-    endif()
 endif()
 
 # Examples
@@ -650,7 +663,7 @@ if (MINIAUDIO_BUILD_EXAMPLES)
 
     function(add_miniaudio_example name source)
         add_executable(${name} ${EXAMPLES_DIR}/${source})
-        target_link_libraries(${name} PRIVATE miniaudio_common_options)
+        target_link_libraries(${name} PRIVATE miniaudio_example)
     endfunction()
 
     add_miniaudio_example(miniaudio_custom_backend custom_backend.c)

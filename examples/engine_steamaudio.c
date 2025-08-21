@@ -17,7 +17,17 @@ of buffering solution to your node.
 #include "../miniaudio.c"
 
 #include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION, and a random use of uint8_t. If there's a Steam Audio maintainer reading this, that needs to be fixed to use IPLuint32 and IPLuint8. */
+
+/* Need to silence some warnings from the Steam Audio headers. */
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wlong-long"
+    #pragma GCC diagnostic ignored "-Wpedantic"
+#endif
 #include <phonon.h> /* Steam Audio */
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic pop
+#endif
 
 #define FORMAT      ma_format_f32   /* Must be floating point. */
 #define CHANNELS    2               /* Must be stereo for this example. */

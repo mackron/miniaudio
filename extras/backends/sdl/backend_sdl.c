@@ -95,10 +95,10 @@ MA_ENABLE_ONLY_SPECIFIC_BACKENDS) and it's supported at compile time (MA_SUPPORT
 
 typedef int                  (* MA_PFN_SDL_InitSubSystem      )(ma_uint32 flags);
 typedef void                 (* MA_PFN_SDL_QuitSubSystem      )(ma_uint32 flags);
-typedef int                  (* MA_PFN_SDL_GetDefaultAudioInfo)(char** name, MA_SDL_AudioSpec* spec, int iscapture);
 typedef int                  (* MA_PFN_SDL_GetNumAudioDevices )(int iscapture);
-typedef const char*          (* MA_PFN_SDL_GetAudioDeviceName )(int index, int iscapture);
+typedef int                  (* MA_PFN_SDL_GetDefaultAudioInfo)(char** name, MA_SDL_AudioSpec* spec, int iscapture);
 typedef int                  (* MA_PFN_SDL_GetAudioDeviceSpec )(int index, int iscapture, MA_SDL_AudioSpec* spec);
+typedef const char*          (* MA_PFN_SDL_GetAudioDeviceName )(int index, int iscapture);
 typedef void                 (* MA_PFN_SDL_CloseAudioDevice   )(MA_SDL_AudioDeviceID dev);
 typedef MA_SDL_AudioDeviceID (* MA_PFN_SDL_OpenAudioDevice    )(const char* device, int iscapture, const MA_SDL_AudioSpec* desired, MA_SDL_AudioSpec* obtained, int allowed_changes);
 typedef void                 (* MA_PFN_SDL_PauseAudioDevice   )(MA_SDL_AudioDeviceID dev, int pause_on);
@@ -108,10 +108,10 @@ typedef struct
     ma_handle hSDL; /* A handle to the SDL2 shared object. We dynamically load function pointers at runtime so we can avoid linking. */
     MA_PFN_SDL_InitSubSystem       SDL_InitSubSystem;
     MA_PFN_SDL_QuitSubSystem       SDL_QuitSubSystem;
-    MA_PFN_SDL_GetDefaultAudioInfo SDL_GetDefaultAudioInfo;
     MA_PFN_SDL_GetNumAudioDevices  SDL_GetNumAudioDevices;
-    MA_PFN_SDL_GetAudioDeviceName  SDL_GetAudioDeviceName;
+    MA_PFN_SDL_GetDefaultAudioInfo SDL_GetDefaultAudioInfo;
     MA_PFN_SDL_GetAudioDeviceSpec  SDL_GetAudioDeviceSpec;
+    MA_PFN_SDL_GetAudioDeviceName  SDL_GetAudioDeviceName;
     MA_PFN_SDL_CloseAudioDevice    SDL_CloseAudioDevice;
     MA_PFN_SDL_OpenAudioDevice     SDL_OpenAudioDevice;
     MA_PFN_SDL_PauseAudioDevice    SDL_PauseAudioDevice;
@@ -225,10 +225,10 @@ static ma_result ma_context_init__sdl(ma_context* pContext, const void* pContext
         /* Now that we have the handle to the shared object we can go ahead and load some function pointers. */
         pContextStateSDL->SDL_InitSubSystem       = (MA_PFN_SDL_InitSubSystem      )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_InitSubSystem");
         pContextStateSDL->SDL_QuitSubSystem       = (MA_PFN_SDL_QuitSubSystem      )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_QuitSubSystem");
-        pContextStateSDL->SDL_GetDefaultAudioInfo = (MA_PFN_SDL_GetDefaultAudioInfo)ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetDefaultAudioInfo");
         pContextStateSDL->SDL_GetNumAudioDevices  = (MA_PFN_SDL_GetNumAudioDevices )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetNumAudioDevices");
-        pContextStateSDL->SDL_GetAudioDeviceName  = (MA_PFN_SDL_GetAudioDeviceName )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetAudioDeviceName");
+        pContextStateSDL->SDL_GetDefaultAudioInfo = (MA_PFN_SDL_GetDefaultAudioInfo)ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetDefaultAudioInfo");
         pContextStateSDL->SDL_GetAudioDeviceSpec  = (MA_PFN_SDL_GetAudioDeviceSpec )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetAudioDeviceSpec");
+        pContextStateSDL->SDL_GetAudioDeviceName  = (MA_PFN_SDL_GetAudioDeviceName )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_GetAudioDeviceName");
         pContextStateSDL->SDL_CloseAudioDevice    = (MA_PFN_SDL_CloseAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_CloseAudioDevice");
         pContextStateSDL->SDL_OpenAudioDevice     = (MA_PFN_SDL_OpenAudioDevice    )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_OpenAudioDevice");
         pContextStateSDL->SDL_PauseAudioDevice    = (MA_PFN_SDL_PauseAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_PauseAudioDevice");
@@ -237,10 +237,15 @@ static ma_result ma_context_init__sdl(ma_context* pContext, const void* pContext
     {
         pContextStateSDL->SDL_InitSubSystem       = SDL_InitSubSystem;
         pContextStateSDL->SDL_QuitSubSystem       = SDL_QuitSubSystem;
-        pContextStateSDL->SDL_GetDefaultAudioInfo = SDL_GetDefaultAudioInfo;
         pContextStateSDL->SDL_GetNumAudioDevices  = SDL_GetNumAudioDevices;
-        pContextStateSDL->SDL_GetAudioDeviceName  = SDL_GetAudioDeviceName;
+        #ifndef __EMSCRIPTEN__
+        pContextStateSDL->SDL_GetDefaultAudioInfo = SDL_GetDefaultAudioInfo;
         pContextStateSDL->SDL_GetAudioDeviceSpec  = SDL_GetAudioDeviceSpec;
+        #else
+        pContextStateSDL->SDL_GetDefaultAudioInfo = NULL;
+        pContextStateSDL->SDL_GetAudioDeviceSpec  = NULL;
+        #endif
+        pContextStateSDL->SDL_GetAudioDeviceName  = SDL_GetAudioDeviceName;
         pContextStateSDL->SDL_CloseAudioDevice    = SDL_CloseAudioDevice;
         pContextStateSDL->SDL_OpenAudioDevice     = SDL_OpenAudioDevice;
         pContextStateSDL->SDL_PauseAudioDevice    = SDL_PauseAudioDevice;
@@ -318,8 +323,13 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0), (size_t)-1);
 
             /* Data Format. */
-            if (pContextStateSDL->SDL_GetAudioDeviceSpec(iDevice, 0, &audioSpec) == 0) {
-                ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &audioSpec);
+            if (pContextStateSDL->SDL_GetAudioDeviceSpec != NULL) {
+                if (pContextStateSDL->SDL_GetAudioDeviceSpec(iDevice, 0, &audioSpec) == 0) {
+                    ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &audioSpec);
+                }
+            } else {
+                /* No way to retrieve the data format. Just report support for everything. */
+                deviceInfo.nativeDataFormatCount = 1;
             }
 
             cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
@@ -350,8 +360,13 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1), (size_t)-1);
 
             /* Data Format. */
-            if (pContextStateSDL->SDL_GetAudioDeviceSpec(iDevice, 1, &audioSpec) == 0) {
-                ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &audioSpec);
+            if (pContextStateSDL->SDL_GetAudioDeviceSpec != NULL) {
+                if (pContextStateSDL->SDL_GetAudioDeviceSpec(iDevice, 1, &audioSpec) == 0) {
+                    ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &audioSpec);
+                }
+            } else {
+                /* No way to retrieve the data format. Just report support for everything. */
+                deviceInfo.nativeDataFormatCount = 1;
             }
 
             cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);

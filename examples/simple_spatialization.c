@@ -67,7 +67,7 @@ int main(int argc, char** argv)
     /* Rotate the listener on the spot to create an orbiting effect. */
     for (;;) {
         listenerAngle += 0.01f;
-        ma_engine_listener_set_direction(&engine, 0, sinf(listenerAngle), 0, cosf(listenerAngle));
+        ma_engine_listener_set_direction(&engine, 0, (float)sin(listenerAngle), 0, (float)cos(listenerAngle));
 
         ma_sleep(1);
     }

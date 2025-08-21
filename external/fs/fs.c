@@ -3,6 +3,16 @@
 
 #include "fs.h"
 
+/* TODO: Remove this. To replicate errors, Just comment out this _XOPEN_SOURCE section and compile with `-std=c89` on GCC. */
+/* This is for `-std=c89` compatibility. Without this there will be a few pthread related issues as well as some stdio functions being unavailable. They will need workarounds. */
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE   700
+#else
+    #if _XOPEN_SOURCE < 500
+    #error _XOPEN_SOURCE must be >= 500. fs is not usable.
+    #endif
+#endif
+
 #include <errno.h>
 
 /* BEG fs_common_macros.c */
@@ -14,8 +24,12 @@
 /* BEG fs_va_copy.c */
 #ifndef fs_va_copy
     #if !defined(_MSC_VER) || _MSC_VER >= 1800
-        #if (defined(__GNUC__) && __GNUC__ < 3)
-            #define fs_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
+        #if !defined(__STDC_VERSION__) || (defined(__GNUC__) && __GNUC__ < 3)   /* <-- va_copy() is not available when using `-std=c89`. The `!defined(__STDC_VERSION__)` parts is what checks for this. */
+            #if defined(__va_copy)
+                #define fs_va_copy(dst, src) __va_copy(dst, src)
+            #else
+                #define fs_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
+            #endif
         #else
             #define fs_va_copy(dst, src) va_copy((dst), (src))
         #endif
@@ -495,14 +509,6 @@ Parameter ordering is the same as c89thread to make amalgamation easier.
 #if defined(_WIN32) && !defined(FS_USE_PTHREAD)
     /* Win32. Don't include windows.h here. */
 #else
-    #ifndef _XOPEN_SOURCE
-    #define _XOPEN_SOURCE   700
-    #else
-        #if _XOPEN_SOURCE < 500
-        #error _XOPEN_SOURCE must be >= 500. c89thread is not usable.
-        #endif
-    #endif
-
     #include <pthread.h>
     typedef pthread_t           fs_pthread;
     typedef pthread_mutex_t     fs_pthread_mutex;
@@ -7320,6 +7326,12 @@ logic in stb_sprintf() which we might be able to do via the amalgamator.
 #define FS_SPRINTF_NOUNALIGNED
 #endif
 
+/* We'll get -Wlong-long warnings when forcing C89. Just force disable them. */
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wlong-long"
+#endif
+
 /* We need to disable the implicit-fallthrough warning on GCC. */
 #if defined(__GNUC__) && (__GNUC__ >= 7 || (__GNUC__ == 6 && __GNUC_MINOR__ >= 1))
     #pragma GCC diagnostic push
@@ -8982,7 +8994,10 @@ static fs_int32 fs_real_to_str(char const* *start, fs_uint32 *len, char* out, fs
 /* END stb_sprintf.c */
 
 #if defined(__GNUC__) && (__GNUC__ >= 7 || (__GNUC__ == 6 && __GNUC_MINOR__ >= 1))
-    #pragma GCC diagnostic pop
+    #pragma GCC diagnostic pop  /* Fallthrough warnings. */
+#endif
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic pop  /* -Wlong-long */
 #endif
 /* END fs_snprintf.c */
 
