@@ -160,7 +160,7 @@ jobs:
       matrix:
         config:
           - name: "Default"
-            cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+            cmake_args: "-DMINIAUDIO_BUILD_TESTS=ON"
 
     steps:
       - uses: actions/checkout@v4
