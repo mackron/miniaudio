@@ -1,5 +1,5 @@
+#include "../../external/fs/fs.c"   /* <-- Must come first due to some (hopefully temporary) hacks to work around some `-std=c89` errors. */
 #include "../../miniaudio.c"
-#include "../../external/fs/fs.c"
 
 #include <stdio.h>
 
@@ -43,7 +43,7 @@ int ma_run_tests(int argc, char** argv)
     ma_bool32 hasError = MA_FALSE;
     size_t iTest;
 
-    fs_mkdir(NULL, TEST_OUTPUT_DIR);
+    fs_mkdir(NULL, TEST_OUTPUT_DIR, FS_IGNORE_MOUNTS);
 
     for (iTest = 0; iTest < g_Tests.count; iTest += 1) {
         printf("=== BEGIN %s ===\n", g_Tests.pTests[iTest].pName);
