@@ -588,7 +588,7 @@ if(NOT MINIAUDIO_NO_EXTRA_NODES)
 
         if(MINIAUDIO_BUILD_EXAMPLES)
             add_executable(miniaudio_${name}_node_example extras/nodes/ma_${name}_node/ma_${name}_node_example.c)
-            target_link_libraries(miniaudio_${name}_node_example PRIVATE miniaudio_common_options)
+            target_link_libraries(miniaudio_${name}_node_example PRIVATE miniaudio_example)
         endif()
     endfunction()
 
@@ -600,12 +600,18 @@ if(NOT MINIAUDIO_NO_EXTRA_NODES)
 endif()
 
 
-# Interface with common options to simplify the setup of tests and examples. Note that we don't pass
-# in COMPILE_DEFINES here because want to allow the tests and examples to define their own defines. If
-# we were to use COMPILE_DEFINES here many of the tests and examples would not compile.
-add_library(miniaudio_common_options INTERFACE)
-target_compile_options(miniaudio_common_options INTERFACE ${COMPILE_OPTIONS})
-target_link_libraries (miniaudio_common_options INTERFACE ${COMMON_LINK_LIBRARIES})
+# Interface for examples. Examples do not include COMPILE_OPTIONS because when compiling with things
+# like MINIAUDIO_FORCE_C89, etc. it could sometimes result in warnings which would make automated
+# build tools have unnecessarily messy output. Working around these errors would require us modifying
+# the examples in ways where it would negatively affect its readablity.
+add_library(miniaudio_example INTERFACE)
+target_link_libraries (miniaudio_example INTERFACE ${COMMON_LINK_LIBRARIES})
+
+# Interface for tests. This includes our COMPILE_OPTIONS settings because we want tests to check for
+# build errors with MINIAUDIO_FORCE_C89, etc.
+add_library(miniaudio_test INTERFACE)
+target_compile_options(miniaudio_test INTERFACE ${COMPILE_OPTIONS})
+target_link_libraries (miniaudio_test INTERFACE ${COMMON_LINK_LIBRARIES})
 
 # Tests
 #
@@ -617,7 +623,7 @@ if(MINIAUDIO_BUILD_TESTS)
 
     function(add_miniaudio_test name source)
         add_executable(${name} ${TESTS_DIR}/${source})
-        target_link_libraries(${name} PRIVATE miniaudio_common_options)
+        target_link_libraries(${name} PRIVATE miniaudio_test)
         if(TARGET miniaudio_pipewire)
             target_link_libraries(${name} PRIVATE miniaudio_pipewire)
             target_compile_definitions(${name} PRIVATE MA_TESTS_INCLUDE_PIPEWIRE)
@@ -654,11 +660,10 @@ if (MINIAUDIO_BUILD_EXAMPLES)
 
     function(add_miniaudio_example name source)
         add_executable(${name} ${EXAMPLES_DIR}/${source})
-        target_link_libraries(${name} PRIVATE miniaudio_common_options)
+        target_link_libraries(${name} PRIVATE miniaudio_example)
     endfunction()
 
     add_miniaudio_example(miniaudio_custom_backend custom_backend.c)
-    target_compile_options(miniaudio_custom_backend PRIVATE -Wno-declaration-after-statement)
 
     add_miniaudio_example(miniaudio_custom_decoder_engine custom_decoder_engine.c)
     if(HAS_LIBVORBIS)
