@@ -68,8 +68,18 @@ set(COMPILE_OPTIONS)
 
 # Store libraries to install
 # When installing any header that imports miniaudio.h from a relative path, we
-# need to maintain its place in the directory tree so it can find Miniaudio
+# need to maintain its place in the directory tree so it can find miniaudio.
 set(LIBS_TO_INSTALL)
+
+
+# Special rules for Emscripten.
+#
+# - MINIAUDIO_FORCE_C89 is not supported.
+# - MINIAUDIO_NO_RUNTIME_LINKING must be enabled.
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(MINIAUDIO_FORCE_C89 OFF)
+    set(MINIAUDIO_NO_RUNTIME_LINKING ON)
+endif()
 
 
 if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
@@ -101,7 +111,7 @@ endif()
 
 # Warnings
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    list(APPEND COMPILE_OPTIONS -Wall -Wextra -Wpedantic)
+    list(APPEND COMPILE_OPTIONS -Wall -Wextra -pedantic)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     #list(APPEND COMPILE_OPTIONS /W4)
 endif()
@@ -636,12 +646,19 @@ if(MINIAUDIO_BUILD_TESTS)
         add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
 
         add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
+        if(MINIAUDIO_NO_RUNTIME_LINKING)
+            if(HAS_SDL2)
+                target_link_libraries(miniaudio_cpp PRIVATE ${SDL2_LIBRARY})
+            endif()
+        endif()
         add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
     endif()
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Emscripten")
-        target_compile_options(miniaudio_deviceio PRIVATE --use-port=sdl2)
+    if(MINIAUDIO_NO_RUNTIME_LINKING)
+        if(HAS_SDL2)
+            target_link_libraries(miniaudio_deviceio PRIVATE ${SDL2_LIBRARY})
+        endif()
     endif()
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
 

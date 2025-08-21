@@ -42248,6 +42248,11 @@ Web Audio Backend
     #endif
 #endif
 
+/* Silence some warnings when compiling with `-pedantic`. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdollar-in-identifier-extension"
+#pragma GCC diagnostic ignored "-Wvariadic-macro-arguments-omitted"
+
 /*
 TODO: Version 0.12: Swap this logic around so that AudioWorklets are used by default. Add MA_NO_AUDIO_WORKLETS.
 */
@@ -43222,7 +43227,7 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-
+#pragma GCC diagnostic pop  /* -Wvariadic-macro-arguments-omitted, -Wdollar-in-identifier-extension */
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_WebAudio =
 {
