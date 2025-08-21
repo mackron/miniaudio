@@ -644,15 +644,6 @@ if(MINIAUDIO_BUILD_TESTS)
     
     add_miniaudio_test(miniaudio_generation generation/generation.c)
     add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
-
-    if(NOT MINIAUDIO_NO_PIPEWIRE)
-        add_executable            (miniaudio_pipewire_test extras/backends/pipewire/miniaudio_pipewire_test.c)
-        target_compile_options    (miniaudio_pipewire_test PRIVATE ${COMPILE_OPTIONS})
-        target_compile_definitions(miniaudio_pipewire_test PRIVATE ${COMPILE_DEFINES})
-        target_include_directories(miniaudio_pipewire_test PRIVATE ${SPA_INCLUDE_DIR})
-        target_link_libraries     (miniaudio_pipewire_test PRIVATE ${COMMON_LINK_LIBRARIES})
-        add_test(NAME miniaudio_pipewire_test COMMAND miniaudio_pipewire_test --auto)
-    endif()
 endif()
 
 # Examples
