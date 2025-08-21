@@ -650,7 +650,15 @@ int main(int argc, char** argv)
                 break;
             }
 
-            ma_sleep(10);
+            /*
+            Can't sleep with Emscripten. Just skip the sleeping part in this case. I don't run this test for Emscripten
+            so it doesn't matter. Just fixing this for the sake of automated build tools.
+            */
+            #ifndef __EMSCRIPTEN__
+            {
+                ma_sleep(10);
+            }
+            #endif
         }
     }
 
