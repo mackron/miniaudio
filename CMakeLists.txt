@@ -640,6 +640,9 @@ if(MINIAUDIO_BUILD_TESTS)
     endif()
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Emscripten")
+        target_compile_options(miniaudio_deviceio PRIVATE --use-port=sdl2)
+    endif()
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
 
     add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
