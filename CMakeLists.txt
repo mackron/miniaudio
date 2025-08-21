@@ -658,6 +658,7 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     endfunction()
 
     add_miniaudio_example(miniaudio_custom_backend custom_backend.c)
+    target_compile_options(miniaudio_custom_backend PRIVATE -Wno-declaration-after-statement)
 
     add_miniaudio_example(miniaudio_custom_decoder_engine custom_decoder_engine.c)
     if(HAS_LIBVORBIS)
