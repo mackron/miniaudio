@@ -23,3 +23,15 @@ like this:
     emrun ./bin/emscripten.html
 
 If you want to see stdout on the command line when running from emrun, add `--emrun` to your emcc command.
+
+To use with CMake, you can do something like this:
+
+    emcmake cmake -S ../../ -B cmake-emcc -DCMAKE_BUILD_TYPE=Debug -DMINIAUDIO_NO_LIBVORBIS=Yes -DMINIAUDIO_NO_LIBOPUS=Yes -DMINIAUDIO_BUILD_TESTS=Yes -DMINIAUDIO_BUILD_EXAMPLES=No
+
+Then to compile with CMake:
+
+    cmake --build cmake-emcc -j
+
+To do a clean rebuild:
+
+    cmake --build cmake-emcc -j --clean-first
