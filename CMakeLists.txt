@@ -88,6 +88,10 @@ set(LIBS_TO_INSTALL)
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     set(MINIAUDIO_FORCE_C89 OFF)
     set(MINIAUDIO_NO_RUNTIME_LINKING ON)
+
+    # This is a hack to work around some errors relating to generation of the pkg-config file.
+    set(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS ON)
+    set(MINIAUDIO_ENABLE_WEBAUDIO ON)
 endif()
 
 
