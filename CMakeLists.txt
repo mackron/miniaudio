@@ -82,6 +82,20 @@ set(COMPILE_OPTIONS)
 set(LIBS_TO_INSTALL)
 
 
+# Special rules for Emscripten.
+#
+# - MINIAUDIO_FORCE_C89 is not supported.
+# - MINIAUDIO_NO_RUNTIME_LINKING must be enabled.
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(MINIAUDIO_FORCE_C89 OFF)
+    set(MINIAUDIO_NO_RUNTIME_LINKING ON)
+
+    # This is a hack to work around some errors relating to generation of the pkg-config file.
+    set(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS ON)
+    set(MINIAUDIO_ENABLE_WEBAUDIO ON)
+endif()
+
+
 if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
     message(FATAL_ERROR "MINIAUDIO_FORCE_CXX and MINIAUDIO_FORCE_C89 cannot be enabled at the same time.")
 endif()
