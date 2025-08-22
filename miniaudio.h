@@ -40685,8 +40685,8 @@ static void ma_device_uninit__aaudio(ma_device* pDevice)
 
 static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
 {
-    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    /*ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));*/
+    /*ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);*/
+    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
     ma_aaudio_result_t resultAA;
     ma_aaudio_stream_state_t currentState;
 
@@ -40723,8 +40723,8 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
 
 static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
 {
-    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    /*ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));*/
+    /*ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);*/
+    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
     ma_aaudio_result_t resultAA;
     ma_aaudio_stream_state_t currentState;
 

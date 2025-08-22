@@ -34,6 +34,8 @@ static void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFra
     auto* pAudioState = (audio_state_t*)pDevice->pUserData;
     assert(pAudioState != nullptr);
 
+    (void)pFramesIn;
+
     ma_waveform_read_pcm_frames(&pAudioState->waveform, pFramesOut, frameCount, nullptr);
 }
 
@@ -55,6 +57,8 @@ Java_io_miniaud_miniaudiotester_MainActivity_UninitializeAudio(JNIEnv *env, jobj
 
     pAudioState->hasError = false;
     pAudioState->errorMessage = "";
+
+    (void)env;
 
     return (jlong)pAudioState;
 }
@@ -114,6 +118,8 @@ Java_io_miniaud_miniaudiotester_MainActivity_PlayAudio(JNIEnv *env, jobject, jlo
         audio_state_set_error(pAudioState, (std::string("Failed to start device. ") + ma_result_description(result)).c_str());
     }
 
+    (void)env;
+
     return (jlong)pAudioState;
 }
 
@@ -137,6 +143,8 @@ Java_io_miniaud_miniaudiotester_MainActivity_PauseAudio(JNIEnv *env, jobject, jl
         }
     }
 
+    (void)env;
+
     return (jlong)pAudioState;
 }
 
@@ -148,6 +156,8 @@ Java_io_miniaud_miniaudiotester_MainActivity_HasAudioError(JNIEnv *env, jobject,
     if (pAudioState == nullptr) {
         return true;
     }
+
+    (void)env;
 
     return pAudioState->hasError;
 }
