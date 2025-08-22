@@ -25923,7 +25923,6 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         WORD channels;
         WORD bitsPerSample;
         DWORD sampleRate;
-        ma_bool32 isFormatSupported = MA_TRUE;
 
         result = ma_context_create_IDirectSoundCapture__dsound(pData->pContext, ma_share_mode_shared, &deviceInfo.id, &pDirectSoundCapture);
         if (result != MA_SUCCESS) {
