@@ -21,6 +21,7 @@
 /research/_build/
 /tests/_build/bin/
 /tests/_build/res/output/
+/tests/_build/cmake-emcc/
 /tests/_build/tcc/
 /tests/_build/vc6/
 /tests/_build/vc15/
