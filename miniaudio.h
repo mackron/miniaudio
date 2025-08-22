@@ -21096,7 +21096,7 @@ static ma_uint32 ma_device_get_available_frames__null(ma_device* pDevice)
 {
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
     ma_uint64 nowInFrames;
-    ma_uint64 periodSizeInFrames;
+    ma_uint32 periodSizeInFrames;
     double nowInSeconds;
 
     periodSizeInFrames = ma_device_get_period_size_in_frames__null(pDevice);
