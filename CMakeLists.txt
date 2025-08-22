@@ -1,7 +1,16 @@
 cmake_minimum_required(VERSION 3.10)
-project(miniaudio
-    VERSION 0.11.22
-)
+
+# Extract version from miniaudio.h
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.h" MINIAUDIO_HEADER_CONTENTS)
+string(REGEX MATCH "#define MA_VERSION_MAJOR[ \t]+([0-9]+)" _major_match "${MINIAUDIO_HEADER_CONTENTS}")
+set(MA_VERSION_MAJOR "${CMAKE_MATCH_1}")
+string(REGEX MATCH "#define MA_VERSION_MINOR[ \t]+([0-9]+)" _minor_match "${MINIAUDIO_HEADER_CONTENTS}")
+set(MA_VERSION_MINOR "${CMAKE_MATCH_1}")
+string(REGEX MATCH "#define MA_VERSION_REVISION[ \t]+([0-9]+)" _revision_match "${MINIAUDIO_HEADER_CONTENTS}")
+set(MA_VERSION_REVISION "${CMAKE_MATCH_1}")
+set(MINIAUDIO_VERSION "${MA_VERSION_MAJOR}.${MA_VERSION_MINOR}.${MA_VERSION_REVISION}")
+
+project(miniaudio VERSION ${MINIAUDIO_VERSION})
 
 
 # Options
