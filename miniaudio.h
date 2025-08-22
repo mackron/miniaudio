@@ -22915,6 +22915,7 @@ static WCHAR* ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(
     return pDefaultDeviceID;
 }
 
+#if 0
 static WCHAR* ma_context_get_default_device_id__wasapi(ma_context* pContext, ma_device_type deviceType)    /* Free the returned pointer with ma_CoTaskMemFree() */
 {
     ma_result result;
@@ -22933,6 +22934,7 @@ static WCHAR* ma_context_get_default_device_id__wasapi(ma_context* pContext, ma_
     ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
     return pDefaultDeviceID;
 }
+#endif
 
 static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_IMMDevice** ppMMDevice)
 {
