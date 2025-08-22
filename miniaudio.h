@@ -22858,6 +22858,7 @@ static ma_EDataFlow ma_device_type_to_EDataFlow(ma_device_type deviceType)
     }
 }
 
+#if 0
 static ma_result ma_context_create_IMMDeviceEnumerator__wasapi(ma_context* pContext, ma_IMMDeviceEnumerator** ppDeviceEnumerator)
 {
     HRESULT hr;
@@ -22878,6 +22879,7 @@ static ma_result ma_context_create_IMMDeviceEnumerator__wasapi(ma_context* pCont
 
     return MA_SUCCESS;
 }
+#endif
 
 static WCHAR* ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(ma_context* pContext, ma_IMMDeviceEnumerator* pDeviceEnumerator, ma_device_type deviceType)
 {
