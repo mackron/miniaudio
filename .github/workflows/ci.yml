@@ -1,0 +1,279 @@
+---
+name: Compilation Checks
+
+on:
+  push:
+    branches: [master, dev, dev-0.12]
+  pull_request:
+    branches: [master, dev, dev-0.12]
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.compiler }}, ${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.config.continue_on_error || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        config:
+          - name: "Default"
+            cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+          - name: "No Device IO"
+            cmake_args: >-
+              -DMINIAUDIO_NO_DEVICEIO=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+          - name: "Force C++"
+            cmake_args: >-
+              -DMINIAUDIO_FORCE_CXX=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+          - name: "Force C89"
+            cmake_args: >-
+              -DMINIAUDIO_FORCE_C89=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+            continue_on_error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libpulse-dev libjack-jackd2-dev
+
+      - name: Setup compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get install -y clang
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          else
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          fi
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+  windows:
+    name: Windows (${{ matrix.compiler }}, ${{ matrix.config.name }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [msvc, mingw]
+        config:
+          - name: "Default"
+            cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+          - name: "No Device IO"
+            cmake_args: >-
+              -DMINIAUDIO_NO_DEVICEIO=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+          - name: "Force C++"
+            cmake_args: >-
+              -DMINIAUDIO_FORCE_CXX=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        if: matrix.compiler == 'msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup MinGW
+        if: matrix.compiler == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
+
+      - name: Configure CMake (MSVC)
+        if: matrix.compiler == 'msvc'
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Configure CMake (MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake -B build -G "MinGW Makefiles" ${{ matrix.config.cmake_args }}
+
+      - name: Build (MSVC)
+        if: matrix.compiler == 'msvc'
+        run: cmake --build build --parallel
+
+      - name: Build (MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build --parallel
+
+  macos:
+    name: macOS (${{ matrix.config.name }})
+    runs-on: macos-latest
+    continue-on-error: ${{ matrix.config.continue_on_error || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "Default"
+            cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+          - name: "No Device IO"
+            cmake_args: >-
+              -DMINIAUDIO_NO_DEVICEIO=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+          - name: "Force C++"
+            cmake_args: >-
+              -DMINIAUDIO_FORCE_CXX=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+          - name: "Force C89"
+            cmake_args: >-
+              -DMINIAUDIO_FORCE_C89=ON
+              -DMINIAUDIO_BUILD_EXAMPLES=ON
+              -DMINIAUDIO_BUILD_TESTS=ON
+            continue_on_error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+  emscripten:
+    name: Emscripten (${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "Default"
+            cmake_args: "-DMINIAUDIO_BUILD_TESTS=ON"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Configure CMake
+        run: emcmake cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+  android:
+    name: Android (${{ matrix.arch }}, ${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64-v8a, armeabi-v7a, x86_64]
+        config:
+          - name: "Default"
+            cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+
+      - name: Configure CMake
+        run: |
+          TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake
+          cmake -B build \
+            -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE \
+            -DANDROID_ABI=${{ matrix.arch }} \
+            -DANDROID_PLATFORM=android-21 \
+            ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+  freebsd:
+    name: FreeBSD (${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y cmake
+          run: |
+            cmake -B build ${{ matrix.config.cmake_args }}
+            cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+  openbsd:
+    name: OpenBSD (${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test on OpenBSD
+        uses: vmactions/openbsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg_add cmake
+          run: |
+            cmake -B build ${{ matrix.config.cmake_args }}
+            cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+  additional-configs:
+    name: Additional Configurations (${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.config.continue_on_error || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "No SSE2"
+            cmake_args: "-DMINIAUDIO_NO_SSE2=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+            continue_on_error: true
+          - name: "No Threading"
+            cmake_args: "-DMINIAUDIO_NO_THREADING=ON -DMINIAUDIO_NO_DEVICEIO=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+          - {name: "No Decoding", cmake_args: "-DMINIAUDIO_NO_DECODING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
+          - {name: "No Encoding", cmake_args: "-DMINIAUDIO_NO_ENCODING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build ${{ matrix.config.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
