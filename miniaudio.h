@@ -21811,11 +21811,21 @@ typedef enum
     MA_AudioCategory_Other = 0  /* <-- miniaudio is only caring about Other. */
 } MA_AUDIO_STREAM_CATEGORY;
 
+typedef enum
+{
+    MA_AUDCLNT_STREAMOPTIONS_NONE,
+    MA_AUDCLNT_STREAMOPTIONS_RAW,
+    MA_AUDCLNT_STREAMOPTIONS_MATCH_FORMAT,
+    MA_AUDCLNT_STREAMOPTIONS_AMBISONICS,
+    MA_AUDCLNT_STREAMOPTIONS_POST_VOLUME_LOOPBACK
+} MA_AUDCLNT_STREAMOPTIONS;
+
 typedef struct
 {
     ma_uint32 cbSize;
     BOOL bIsOffload;
     MA_AUDIO_STREAM_CATEGORY eCategory;
+    MA_AUDCLNT_STREAMOPTIONS Options;
 } ma_AudioClientProperties;
 
 /* IUnknown */
