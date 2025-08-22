@@ -3966,12 +3966,13 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
-#if defined(__has_c_attribute)
-    #if __has_c_attribute(fallthrough)
-        #define MA_FALLTHROUGH [[fallthrough]]
-    #endif
+#if !defined(MA_FALLTHROUGH) && defined(__cplusplus) && __cplusplus >= 201703L
+    #define MA_FALLTHROUGH [[fallthrough]]
 #endif
-#if !defined(MA_FALLTHROUGH) && defined(__has_attribute) && (defined(__clang__) || defined(__GNUC__))
+#if !defined(MA_FALLTHROUGH) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
+    #define MA_FALLTHROUGH [[fallthrough]]
+#endif
+#if !defined(MA_FALLTHROUGH) && defined(__has_attribute)
     #if __has_attribute(fallthrough)
         #define MA_FALLTHROUGH __attribute__((fallthrough))
     #endif

@@ -494,12 +494,12 @@ if (UNIX)
     
     find_library(LIB_PTHREAD NAMES pthread)
     if(LIB_PTHREAD)
-        list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
+        list(APPEND COMMON_LINK_LIBRARIES ${LIB_PTHREAD}) # Some compilers will not link to pthread by default so list it here just in case.
     endif()
 
     find_library(LIB_M NAMES m)
     if(LIB_M)
-        list(APPEND COMMON_LINK_LIBRARIES m)
+        list(APPEND COMMON_LINK_LIBRARIES ${LIB_M})
     endif()
 
     # If we're compiling for 32-bit ARM we need to link to -latomic.
@@ -660,10 +660,13 @@ set(LINKED_LIBS)
 if(MINIAUDIO_NO_RUNTIME_LINKING)
     is_backend_enabled(PULSEAUDIO)
     if (PULSEAUDIO_ENABLED)
-        find_package(PulseAudio REQUIRED)
-        target_link_libraries(miniaudio PRIVATE ${PULSEAUDIO_LIBRARY})
-        target_include_directories(miniaudio SYSTEM PRIVATE ${PULSEAUDIO_INCLUDE_DIR})
-        list(APPEND LINKED_LIBS libpulse)
+        find_package(PulseAudio)
+
+        if (PulseAudio_FOUND)
+            target_link_libraries(miniaudio PRIVATE ${PULSEAUDIO_LIBRARY})
+            target_include_directories(miniaudio SYSTEM PRIVATE ${PULSEAUDIO_INCLUDE_DIR})
+            list(APPEND LINKED_LIBS libpulse)
+        endif()
     endif()
 
     is_backend_enabled(ALSA)
@@ -678,14 +681,17 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
             NAMES asound
             HINTS ${PC_ALSA_LIBRARY_DIRS}
         )
-        find_path(ALSA_INCLUDE_DIR
-            NAMES alsa/asoundlib.h
-            HINTS ${PC_ALSA_INCLUDE_DIRS}
-        )
 
-        target_link_libraries(miniaudio PRIVATE ${ALSA_LIBRARY})
-        target_include_directories(miniaudio PRIVATE ${ALSA_INCLUDE_DIR})
-        list(APPEND LINKED_LIBS alsa)
+        if (ALSA_LIBRARY)
+            find_path(ALSA_INCLUDE_DIR
+                NAMES alsa/asoundlib.h
+                HINTS ${PC_ALSA_INCLUDE_DIRS}
+            )
+
+            target_link_libraries(miniaudio PRIVATE ${ALSA_LIBRARY})
+            target_include_directories(miniaudio PRIVATE ${ALSA_INCLUDE_DIR})
+            list(APPEND LINKED_LIBS alsa)
+        endif()
     endif()
 
     is_backend_enabled(SNDIO)
@@ -700,8 +706,11 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
             NAMES sndio
             HINTS ${PC_SNDIO_LIBRARY_DIRS}
         )
-        target_link_libraries(miniaudio PRIVATE ${SNDIO_LIBRARY})
-        list(APPEND LINKED_LIBS sndio)
+
+        if (SNDIO_LIBRARY)
+            target_link_libraries(miniaudio PRIVATE ${SNDIO_LIBRARY})
+            list(APPEND LINKED_LIBS sndio)
+        endif()
     endif()
 
     is_backend_enabled(JACK)
@@ -717,14 +726,16 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
             HINTS ${PC_JACK_LIBRARY_DIRS}
         )
 
-        find_path(JACK_INCLUDE_DIR
-            NAMES jack/jack.h
-            HINTS ${PC_JACK_INCLUDE_DIRS}
-        )
+        if (JACK_LIBRARY)
+            find_path(JACK_INCLUDE_DIR
+                NAMES jack/jack.h
+                HINTS ${PC_JACK_INCLUDE_DIRS}
+            )
 
-        target_link_libraries(miniaudio PRIVATE ${JACK_LIBRARY})
-        target_include_directories(miniaudio PRIVATE ${JACK_INCLUDE_DIR})
-        list(APPEND LINKED_LIBS jack)
+            target_link_libraries(miniaudio PRIVATE ${JACK_LIBRARY})
+            target_include_directories(miniaudio PRIVATE ${JACK_INCLUDE_DIR})
+            list(APPEND LINKED_LIBS jack)
+        endif()
     endif()
 endif()
 
