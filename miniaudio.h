@@ -11879,7 +11879,7 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 #ifdef MA_ANDROID
 #include <sys/system_properties.h>
 
-int ma_android_sdk_version()
+int ma_android_sdk_version(void)
 {
     char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
     if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
@@ -40684,7 +40684,7 @@ static void ma_device_uninit__aaudio(ma_device* pDevice)
 static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
+    /*ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));*/
     ma_aaudio_result_t resultAA;
     ma_aaudio_stream_state_t currentState;
 
@@ -40722,7 +40722,7 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
 static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
+    /*ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));*/
     ma_aaudio_result_t resultAA;
     ma_aaudio_stream_state_t currentState;
 
@@ -40797,14 +40797,14 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
         if (result != MA_SUCCESS) {
             return result;
@@ -41265,6 +41265,8 @@ static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, ma_context
 
 static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext, ma_context_state_opensl* pContextStateOpenSL)
 {
+    (void)pContext;
+
     g_maOpenSLInitCounter += 1;
     if (g_maOpenSLInitCounter == 1) {
         SLresult resultSL;
