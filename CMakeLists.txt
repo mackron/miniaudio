@@ -395,11 +395,6 @@ else()
     message(STATUS "SDL2 not found. SDL2 examples will be excluded.")
 endif()
 
-# If SDL2 was not found, and we're not using runtime linking, we'll have to disable SDL2 support in tests.
-if(MINIAUDIO_NO_RUNTIME_LINKING AND NOT HAS_SDL2)
-    list(APPEND COMPILE_DEFINES MA_NO_SDL)
-endif()
-
 
 # SteamAudio has an annoying SDK setup. In the lib folder there is a folder for each platform. We need to specify the
 # platform we're compiling for.
@@ -628,6 +623,16 @@ target_link_libraries (miniaudio_example INTERFACE ${COMMON_LINK_LIBRARIES})
 add_library(miniaudio_test INTERFACE)
 target_compile_options(miniaudio_test INTERFACE ${COMPILE_OPTIONS})
 target_link_libraries (miniaudio_test INTERFACE ${COMMON_LINK_LIBRARIES})
+
+# Tests intentionally do not set COMPILE_DEFINES because it's just easier for tests to be in control
+# of the specific compile time options rather than being influenced by externally set options. However,
+# sometimes we need to disable some backends in order for automated build tools to work.
+if(MINIAUDIO_NO_RUNTIME_LINKING)
+    if(NOT HAS_SDL2)
+        target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL)
+    endif()
+endif()
+
 
 # Tests
 #
