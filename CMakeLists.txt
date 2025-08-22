@@ -395,6 +395,12 @@ else()
     message(STATUS "SDL2 not found. SDL2 examples will be excluded.")
 endif()
 
+# If SDL2 was not found, and we're not using runtime linking, we'll have to disable SDL2 support in tests.
+if(MINIAUDIO_NO_RUNTIME_LINKING AND NOT HAS_SDL2)
+    list(APPEND COMPILE_DEFINES MA_NO_SDL)
+endif()
+
+
 # SteamAudio has an annoying SDK setup. In the lib folder there is a folder for each platform. We need to specify the
 # platform we're compiling for.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
