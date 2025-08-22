@@ -483,12 +483,12 @@ if (UNIX)
     
     find_library(LIB_PTHREAD NAMES pthread)
     if(LIB_PTHREAD)
-        list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
+        list(APPEND COMMON_LINK_LIBRARIES ${LIB_PTHREAD}) # Some compilers will not link to pthread by default so list it here just in case.
     endif()
 
     find_library(LIB_M NAMES m)
     if(LIB_M)
-        list(APPEND COMMON_LINK_LIBRARIES m)
+        list(APPEND COMMON_LINK_LIBRARIES ${LIB_M})
     endif()
 
     # If we're compiling for 32-bit ARM we need to link to -latomic.
