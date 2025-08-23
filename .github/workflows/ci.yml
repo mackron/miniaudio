@@ -216,10 +216,8 @@ jobs:
       matrix:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Test on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
@@ -239,10 +237,8 @@ jobs:
       matrix:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Test on OpenBSD
         uses: vmactions/openbsd-vm@v1
         with:
@@ -252,6 +248,27 @@ jobs:
           run: |
             cmake -B build ${{ matrix.config.cmake_args }}
             cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+  netbsd:
+    name: NetBSD (${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test on NetBSD
+        uses: vmactions/netbsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            /usr/sbin/pkg_add cmake
+          run: |
+            cmake -B build ${{ matrix.config.cmake_args }}
+            cmake --build build
 
   additional-configs:
     name: Additional Configurations (${{ matrix.config.name }})
