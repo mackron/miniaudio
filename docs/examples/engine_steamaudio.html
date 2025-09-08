@@ -274,7 +274,17 @@ of buffering solution to your node.</p>
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.c&quot;</span>
 
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdint.h&gt;</span> <span style="color:#009900">/* Required for uint32_t which is used by STEAMAUDIO_VERSION, and a random use of uint8_t. If there&#39;s a Steam Audio maintainer reading this, that needs to be fixed to use IPLuint32 and IPLuint8. */</span>
+
+<span style="color:#009900">/* Need to silence some warnings from the Steam Audio headers. */</span>
+<span style="color:#666666">#if</span> defined(__clang__) || (defined(__GNUC__) &amp;&amp; (__GNUC__ &gt; 4 || (__GNUC__ == 4 &amp;&amp; __GNUC_MINOR__ &gt;= 6)))
+    <span style="color:#666666">#pragma</span> GCC diagnostic push
+    <span style="color:#666666">#pragma</span> GCC diagnostic ignored <span style="color:#cc3300">&quot;-Wlong-long&quot;</span>
+    <span style="color:#666666">#pragma</span> GCC diagnostic ignored <span style="color:#cc3300">&quot;-Wpedantic&quot;</span>
+<span style="color:#666666">#endif</span>
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;phonon.h&gt;</span> <span style="color:#009900">/* Steam Audio */</span>
+<span style="color:#666666">#if</span> defined(__clang__) || (defined(__GNUC__) &amp;&amp; (__GNUC__ &gt; 4 || (__GNUC__ == 4 &amp;&amp; __GNUC_MINOR__ &gt;= 6)))
+    <span style="color:#666666">#pragma</span> GCC diagnostic pop
+<span style="color:#666666">#endif</span>
 
 <span style="color:#666666">#define</span> FORMAT      ma_format_f32   <span style="color:#009900">/* Must be floating point. */</span>
 <span style="color:#666666">#define</span> CHANNELS    2               <span style="color:#009900">/* Must be stereo for this example. */</span>

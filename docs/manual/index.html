@@ -250,29 +250,14 @@ a.doc-navigation-l4 {
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
 <a href="../index.html" class="doc-navigation">Documentation Home</a><a href="index.html" class="doc-navigation doc-navigation-active">Programming Manual</a><a href="#Introduction" class="doc-navigation doc-navigation-l1">Introduction</a><a href="#Building" class="doc-navigation doc-navigation-l1">Building</a><a href="#Definitions" class="doc-navigation doc-navigation-l1">Definitions</a><a href="#DataSources" class="doc-navigation doc-navigation-l1">Data Sources</a><a href="#Engine" class="doc-navigation doc-navigation-l1">Engine</a><a href="#ResourceManagement" class="doc-navigation doc-navigation-l1">Resource Management</a><a href="#NodeGraph" class="doc-navigation doc-navigation-l1">Node Graph</a><a href="#Decoding" class="doc-navigation doc-navigation-l1">Decoding</a><a href="#Encoding" class="doc-navigation doc-navigation-l1">Encoding</a><a href="#DataConversion" class="doc-navigation doc-navigation-l1">Data Conversion</a><a href="#Filtering" class="doc-navigation doc-navigation-l1">Filtering</a><a href="#WaveformandNoiseGeneration" class="doc-navigation doc-navigation-l1">Waveform and Noise Generation</a><a href="#AudioBuffers" class="doc-navigation doc-navigation-l1">Audio Buffers</a><a href="#RingBuffers" class="doc-navigation doc-navigation-l1">Ring Buffers</a><a href="#Backends" class="doc-navigation doc-navigation-l1">Backends</a><a href="#OptimizationTips" class="doc-navigation doc-navigation-l1">Optimization Tips</a><a href="#MiscellaneousNotes" class="doc-navigation doc-navigation-l1">Miscellaneous Notes</a><a href="../examples/index.html" class="doc-navigation">Examples</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
 <div style="text-align:center; padding:1em; padding-bottom:2em;"><div style="text-align:center; overflow:hidden;"><img src="../../img/logo1_large.png" style="width:auto; height:auto; min-height:70px; overflow:hidden;"></div><div style="padding-top:1em; font-weight:bold; font-size:2em; color:#444;">Programming Manual</div><div style="padding-top:0.75em; text-align:center;"><a href="../examples/index.html">Examples</a> - <a href="../api/index.html">API Reference</a> - <a href="https://github.com/mackron/miniaudio">Source Code</a></div></div>
-<p>
-
-</p>
 <h1 id="Introduction" class="man">1. Introduction</h1>
 <p>
-To use miniaudio, include &quot;miniaudio.h&quot;:
+To use miniaudio, just include &quot;miniaudio.h&quot; like any other header and add &quot;miniaudio.c&quot; to your
+source tree. If you don&#39;t want to add it to your source tree you can compile and link to it like
+any other library. Note that ABI compatiblity is not guaranteed between versions, even with bug
+fix releases, so take care if compiling as a shared object.
 </p>
 <p>
-
-</p>
-<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
-</pre></div><p>
-
-The implementation is contained in &quot;miniaudio.c&quot;. Just compile this like any other source file. You
-can include miniaudio.c if you want to compile your project as a single translation unit:
-</p>
-<p>
-
-</p>
-<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.c&quot;</span>
-</pre></div><p>
 
 miniaudio includes both low level and high level APIs. The low level API is good for those who want
 to do all of their mixing themselves and only require a light weight interface to the underlying
@@ -295,12 +280,6 @@ object and pass that into the initialization routine. The advantage to this syst
 config object can be initialized with logical defaults and new properties added to it without
 breaking the API. The config object can be allocated on the stack and does not need to be
 maintained after initialization of the corresponding object.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="LowLevelAPI" class="man">1.1. Low Level API</h2>
 <p>
@@ -327,9 +306,6 @@ Once you have the device configuration set up you can initialize the device. Whe
 device you need to allocate memory for the device object beforehand. This gives the application
 complete control over how the memory is allocated. In the example below we initialize a playback
 device on the stack, but you could allocate it on the heap if that suits your situation better.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
@@ -385,9 +361,6 @@ uses a fairly simple and standard device configuration. The call to <span style=
 a single parameter, which is whether or not the device is a playback, capture, duplex or loopback
 device (loopback devices are not supported on all backends). The <span style="font-family:monospace;">config.playback.format</span> member
 sets the sample format which can be one of the following (all formats are native-endian):
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -487,9 +460,6 @@ result in a deadlock. Instead you set a variable or signal an event indicating t
 needs to stop and handle it in a different thread. The following APIs must never be called inside
 the callback:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_device_init()
 ma_device_init_ex()
@@ -509,9 +479,6 @@ The example above demonstrates the initialization of a playback device, but it w
 same for capture. All you need to do is change the device type from <span style="font-family:monospace;">ma_device_type_playback</span> to
 <span style="font-family:monospace;">ma_device_type_capture</span> when setting up the config, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_capture);
 config.capture.format   = MY_FORMAT;
@@ -525,9 +492,6 @@ the output buffer alone (it will be set to NULL when the device type is set to
 <p>
 
 These are the available device types and how you should handle the buffers in the callback:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -584,9 +548,6 @@ The example above did not specify a physical device to connect to which means it
 operating system&#39;s default device. If you have multiple physical devices connected and you want to
 use a specific one you will need to specify the device ID in the configuration, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 config.playback.pDeviceID = pMyPlaybackDeviceID;    <span style="color:#009900">// Only if requesting a playback or duplex device.</span>
 config.capture.pDeviceID = pMyCaptureDeviceID;      <span style="color:#009900">// Only if requesting a capture, duplex or loopback device.</span>
@@ -598,9 +559,6 @@ There is one context to many devices. The purpose of the context is to represent
 more global level and to perform operations outside the scope of an individual device. Mainly it is
 used for performing run-time linking against backend libraries, initializing backends and
 enumerating devices. The example below shows how to enumerate devices.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_context</span> context;
@@ -675,12 +633,6 @@ internally the context is only tracked by it&#39;s pointer which means you must 
 of the <span style="font-family:monospace;">ma_context</span> object. If this is an issue, consider using <span style="font-family:monospace;">malloc()</span> to allocate memory for
 the context.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="HighLevelAPI" class="man">1.2. High Level API</h2>
 <p>
 The high level API consists of three main parts:
@@ -716,9 +668,6 @@ this manual.
 
 The code below shows how you can initialize an engine using it&#39;s default configuration.
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
 ma_engine engine;
@@ -744,9 +693,6 @@ this will result in the struct being invalidated once the function encapsulating
 allocating the engine on the heap is more appropriate, you can easily do so with a standard call
 to <span style="font-family:monospace;">malloc()</span> or whatever heap allocation routine you like:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_engine* pEngine = malloc(<span style="color:#0033ff">sizeof</span>(*pEngine));
 </pre></div><p>
@@ -754,9 +700,6 @@ ma_engine* pEngine = malloc(<span style="color:#0033ff">sizeof</span>(*pEngine))
 The <span style="font-family:monospace;">ma_engine</span> API uses the same config/init pattern used all throughout miniaudio. To configure
 an engine, you can fill out a <span style="font-family:monospace;">ma_engine_config</span> object and pass it into the first parameter of
 <span style="font-family:monospace;">ma_engine_init()</span>:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
@@ -785,9 +728,6 @@ The engine must be uninitialized with <span style="font-family:monospace;">ma_en
 By default the engine will be started, but nothing will be playing because no sounds have been
 initialized. The easiest but least flexible way of playing a sound is like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_engine_play_sound(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav&quot;</span>, NULL);
 </pre></div><p>
@@ -797,9 +737,6 @@ internal sound up for recycling. The last parameter is used to specify which sou
 should be associated with which will be explained later. This particular way of playing a sound is
 simple, but lacks flexibility and features. A more flexible way of playing a sound is to first
 initialize a sound:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
@@ -829,9 +766,6 @@ Sounds are not started by default. Start a sound with <span style="font-family:m
 and stopping sounds happens immediately, but sometimes it might be convenient to schedule the sound
 the be started and/or stopped at a specific time. This can be done with the following functions:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_start_time_in_pcm_frames()
 ma_sound_set_start_time_in_milliseconds()
@@ -844,9 +778,6 @@ engine. The current global time in PCM frames can be retrieved with
 <span style="font-family:monospace;">ma_engine_get_time_in_pcm_frames()</span>. The engine&#39;s global time can be changed with
 <span style="font-family:monospace;">ma_engine_set_time_in_pcm_frames()</span> for synchronization purposes if required. Note that scheduling
 a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span> before anything will play:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time_in_pcm_frames(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2);
@@ -918,19 +849,17 @@ To check if a sound is currently playing, you can use <span style="font-family:m
 is at the end, use <span style="font-family:monospace;">ma_sound_at_end()</span>. Looping of a sound can be controlled with
 <span style="font-family:monospace;">ma_sound_set_looping()</span>. Use <span style="font-family:monospace;">ma_sound_is_looping()</span> to check whether or not the sound is looping.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="Building" class="man">2. Building</h1>
 <p>
 miniaudio should work cleanly out of the box without the need to download or install any
 dependencies. See below for platform-specific details.
+</p>
+<p>
+
+This library has been designed to be added directly to your source tree which is the preferred way
+of using it, but you can compile it as a normal library if that&#39;s your preference. Be careful if
+compiling as a shared object because miniaudio is not ABI compatible between any release, including
+bug fix releases. It&#39;s recommended you link statically.
 </p>
 <p>
 
@@ -941,12 +870,6 @@ Note that GCC and Clang require <span style="font-family:monospace;">-msse2</spa
 If you get errors about undefined references to <span style="font-family:monospace;">__sync_val_compare_and_swap_8</span>, <span style="font-family:monospace;">__atomic_load_8</span>,
 etc. you need to link with <span style="font-family:monospace;">-latomic</span>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="Windows" class="man">2.1. Windows</h2>
 <p>
 The Windows build should compile cleanly on all popular compilers without the need to configure any
@@ -956,12 +879,6 @@ include paths nor link to any libraries.
 
 The UWP build may require linking to mmdevapi.lib if you get errors about an unresolved external
 symbol for <span style="font-family:monospace;">ActivateAudioInterfaceAsync()</span>.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="macOSandiOS" class="man">2.2. macOS and iOS</h2>
 <p>
@@ -980,9 +897,6 @@ AudioToolbox, try with <span style="font-family:monospace;">-framework AudioUnit
 of iOS. Alternatively, if you would rather keep using runtime linking you can add the following to
 your entitlements.xcent file:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 &lt;key&gt;com.apple.security.cs.allow-dyld-environment-variables&lt;/key&gt;
 &lt;true/&gt;
@@ -992,34 +906,16 @@ your entitlements.xcent file:
 
 See this discussion for more info: <a href="https://github.com/mackron/miniaudio/issues/203">https://github.com/mackron/miniaudio/issues/203</a>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="Linux" class="man">2.3. Linux</h2>
 <p>
 The Linux build only requires linking to <span style="font-family:monospace;">-ldl</span>, <span style="font-family:monospace;">-lpthread</span> and <span style="font-family:monospace;">-lm</span>. You do not need any
 development packages. You may need to link with <span style="font-family:monospace;">-latomic</span> if you&#39;re compiling for 32-bit ARM.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="BSD" class="man">2.4. BSD</h2>
 <p>
 The BSD build only requires linking to <span style="font-family:monospace;">-lpthread</span> and <span style="font-family:monospace;">-lm</span>. NetBSD uses audio(4), OpenBSD uses
 sndio and FreeBSD uses OSS. You may need to link with <span style="font-family:monospace;">-latomic</span> if you&#39;re compiling for 32-bit
 ARM.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="Android" class="man">2.5. Android</h2>
 <p>
@@ -1032,12 +928,6 @@ versions will fall back to OpenSL|ES which requires API level 16+.
 There have been reports that the OpenSL|ES backend fails to initialize on some Android based
 devices due to <span style="font-family:monospace;">dlopen()</span> failing to open &quot;libOpenSLES.so&quot;. If this happens on your platform
 you&#39;ll need to disable run-time linking with <span style="font-family:monospace;">MA_NO_RUNTIME_LINKING</span> and link with -lOpenSLES.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="Emscripten" class="man">2.6. Emscripten</h2>
 <p>
@@ -1069,21 +959,9 @@ To run locally, you&#39;ll need to use emrun:
 
     emrun bin/program.html
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="BuildOptions" class="man">2.7. Build Options</h2>
 <p>
 <span style="font-family:monospace;">#define</span> these options before including miniaudio.c, or pass them as compiler flags:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -1416,7 +1294,6 @@ Disables the built-in MP3 decoder.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NO_DEVICE_IO
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1428,33 +1305,11 @@ miniaudio&#39;s data conversion and/or decoding APIs.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NO_RESOURCE_MANAGER
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
 Disables the resource manager. When using the engine this will
 also disable the following functions:
-
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_init_from_file()
@@ -1463,6 +1318,7 @@ ma_sound_init_copy()
 ma_engine_play_sound_ex()
 ma_engine_play_sound()
 </pre></div><p>
+
 The only way to initialize a <span style="font-family:monospace;">ma_sound</span> object is to initialize it
 from a data source.</p>
 </td>
@@ -1488,19 +1344,6 @@ Disables the engine API.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NO_THREADING
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1509,7 +1352,6 @@ Disables the <span style="font-family:monospace;">ma_thread</span>, <span style=
 miniaudio for data conversion, decoding and/or encoding. Some
 families of APIs require threading which means the following
 options must also be set:
-
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 MA_NO_DEVICE_IO
@@ -1550,18 +1392,6 @@ Disables NEON optimizations.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NO_RUNTIME_LINKING
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1570,6 +1400,8 @@ notarization process. When enabling this, you may need to avoid
 using <span style="font-family:monospace;">-std=c89</span> or <span style="font-family:monospace;">-std=c99</span> on Linux builds or else you may end
 up with compilation errors due to conflicts with <span style="font-family:monospace;">timespec</span> and
 <span style="font-family:monospace;">timeval</span> data types.
+</p>
+<p>
 
 You may need to enable this if your target platform does not allow
 runtime linking via <span style="font-family:monospace;">dlopen()</span>.</p>
@@ -1606,10 +1438,6 @@ Windows only. The value to pass to internal calls to
 <tr>
 <td class="doc" valign="top"><p>
 MA_FORCE_UWP
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1622,7 +1450,6 @@ needed to be used explicitly, but can be useful for debugging.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_ON_THREAD_ENTRY
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1634,7 +1461,6 @@ to be executed by the thread entry point.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_ON_THREAD_EXIT
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1661,25 +1487,16 @@ MA_API</p>
 Controls how public APIs should be decorated. Default is <span style="font-family:monospace;">extern</span>.</p>
 </td>
 </tr>
-</table></div><p>
-
-</p>
-<h1 id="Definitions" class="man">3. Definitions</h1>
+</table></div><h1 id="Definitions" class="man">3. Definitions</h1>
 <p>
 This section defines common terms used throughout miniaudio. Unfortunately there is often ambiguity
 in the use of terms throughout the audio space, so this section is intended to clarify how miniaudio
 uses each term.
 </p>
-<p>
-
-</p>
 <h2 id="Sample" class="man">3.1. Sample</h2>
 <p>
 A sample is a single unit of audio data. If the sample format is f32, then one sample is one 32-bit
 floating point number.
-</p>
-<p>
-
 </p>
 <h2 id="Frame/PCMFrame" class="man">3.2. Frame / PCM Frame</h2>
 <p>
@@ -1688,9 +1505,6 @@ samples, a mono frame is 1 sample, a 5.1 surround sound frame is 6 samples, etc.
 and &quot;PCM frame&quot; are the same thing in miniaudio. Note that this is different to a compressed frame.
 If ever miniaudio needs to refer to a compressed frame, such as a FLAC frame, it will always
 clarify what it&#39;s referring to with something like &quot;FLAC frame&quot;.
-</p>
-<p>
-
 </p>
 <h2 id="Channel" class="man">3.3. Channel</h2>
 <p>
@@ -1701,23 +1515,14 @@ systems refer to a channel as a complex audio stream that&#39;s mixed with other
 the final mix - this is completely different to miniaudio&#39;s use of the term &quot;channel&quot; and should
 not be confused.
 </p>
-<p>
-
-</p>
 <h2 id="SampleRate" class="man">3.4. Sample Rate</h2>
 <p>
 The sample rate in miniaudio is always expressed in Hz, such as 44100, 48000, etc. It&#39;s the number
 of PCM frames that are processed per second.
 </p>
-<p>
-
-</p>
 <h2 id="Formats" class="man">3.5. Formats</h2>
 <p>
 Throughout miniaudio you will see references to different sample formats:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -1788,15 +1593,6 @@ ma_format_u8</p>
 </table></div><p>
 All formats are native-endian.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="DataSources" class="man">4. Data Sources</h1>
 <p>
 The data source abstraction in miniaudio is used for retrieving audio data from some source. A few
@@ -1811,9 +1607,6 @@ implements the data source interface can be plugged into any <span style="font-f
 <p>
 
 To read data from a data source:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
@@ -1836,9 +1629,6 @@ When calling any data source function, with the exception of <span style="font-f
 <span style="font-family:monospace;">ma_data_source_uninit()</span>, you can pass in any object that implements a data source. For example,
 you could plug in a decoder like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
 <span style="color:#0099cc">ma_uint64</span> framesRead;
@@ -1857,9 +1647,6 @@ can use <span style="font-family:monospace;">ma_data_source_seek_pcm_frames()</s
 
 To seek to a specific PCM frame:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 result = ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -1870,9 +1657,6 @@ result = ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 You can retrieve the total length of a data source in PCM frames, but note that some data sources
 may not have the notion of a length, such as noise and waveforms, and others may just not have a
 way of determining the length such as some decoders. To retrieve the length:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint64</span> length;
@@ -1891,9 +1675,6 @@ broadcast. If you do this, <span style="font-family:monospace;">ma_data_source_g
 
 The current position of the cursor in PCM frames can also be retrieved:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint64</span> cursor;
 
@@ -1905,9 +1686,6 @@ result = ma_data_source_get_cursor_in_pcm_frames(pDataSource, &amp;cursor);
 
 You will often need to know the data format that will be returned after reading. This can be
 retrieved like so:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_format format;
@@ -1928,9 +1706,6 @@ If you do not need a specific data format property, just pass in NULL to the res
 There may be cases where you want to implement something like a sound bank where you only want to
 read data within a certain range of the underlying data. To do this you can use a range:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 result = ma_data_source_set_range_in_pcm_frames(pDataSource, rangeBegInFrames, rangeEndInFrames);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -1949,9 +1724,6 @@ Custom loop points can also be used with data sources. By default, data sources 
 they reach the end of the data source, but if you need to loop at a specific location, you can do
 the following:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 result = ma_data_set_loop_point_in_pcm_frames(pDataSource, loopBegInFrames, loopEndInFrames);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -1965,9 +1737,6 @@ The loop point is relative to the current range.
 
 It&#39;s sometimes useful to chain data sources together so that a seamless transition can be achieved.
 To do this, you can use chaining:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_decoder</span> decoder1;
@@ -1996,9 +1765,6 @@ gaps.
 Note that when looping is enabled, only the current data source will be looped. You can loop the
 entire chain by linking in a loop like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_data_source_set_next(&amp;decoder1, &amp;decoder2);  <span style="color:#009900">// decoder1 -&gt; decoder2</span>
 ma_data_source_set_next(&amp;decoder2, &amp;decoder1);  <span style="color:#009900">// decoder2 -&gt; decoder1 (loop back to the start).</span>
@@ -2014,19 +1780,10 @@ instances of the same sound simultaneously. This can be extremely inefficient de
 of data source and can result in glitching due to subtle changes to the state of internal filters.
 Instead, initialize multiple data sources for each instance.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="CustomDataSources" class="man">4.1. Custom Data Sources</h2>
 <p>
 You can implement a custom data source by implementing the functions in <span style="font-family:monospace;">ma_data_source_vtable</span>.
 Your custom object must have <span style="font-family:monospace;">ma_data_source_base</span> as it&#39;s first member:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">struct</span> my_data_source
@@ -2038,9 +1795,6 @@ Your custom object must have <span style="font-family:monospace;">ma_data_source
 
 In your initialization routine, you need to call <span style="font-family:monospace;">ma_data_source_init()</span> in order to set up the
 base object (<span style="font-family:monospace;">ma_data_source_base</span>):
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> my_data_source_read(<span style="color:#0099cc">ma_data_source</span>* pDataSource, <span style="color:#0033ff">void</span>* pFramesOut, <span style="color:#0099cc">ma_uint64</span> frameCount, <span style="color:#0099cc">ma_uint64</span>* pFramesRead)
@@ -2108,15 +1862,6 @@ Note that <span style="font-family:monospace;">ma_data_source_init()</span> and 
 of the custom data source. It&#39;s up to the custom data source itself to call these within their own
 init/uninit functions.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="Engine" class="man">5. Engine</h1>
 <p>
 The <span style="font-family:monospace;">ma_engine</span> API is a high level API for managing and mixing sounds and effect processing. The
@@ -2140,9 +1885,6 @@ configured via the engine config.
 
 The most basic way to initialize the engine is with a default config, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
 ma_engine engine;
@@ -2156,9 +1898,6 @@ result = ma_engine_init(NULL, &amp;engine);
 This will result in the engine initializing a playback device using the operating system&#39;s default
 device. This will be sufficient for many use cases, but if you need more flexibility you&#39;ll want to
 configure the engine with an engine config:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
@@ -2178,9 +1917,6 @@ In the example above we&#39;re passing in a pre-initialized device. Since the ca
 control of the device&#39;s data callback, it&#39;s their responsibility to manually call
 <span style="font-family:monospace;">ma_engine_read_pcm_frames()</span> from inside their data callback:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">void</span> playback_data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
@@ -2189,9 +1925,6 @@ control of the device&#39;s data callback, it&#39;s their responsibility to manu
 </pre></div><p>
 
 You can also use the engine independent of a device entirely:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
@@ -2220,9 +1953,6 @@ processing or want to use a different audio system for playback such as SDL.
 When a sound is loaded it goes through a resource manager. By default the engine will initialize a
 resource manager internally, but you can also specify a pre-initialized resource manager:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
 ma_engine engine1;
@@ -2249,9 +1979,6 @@ is using their own set of headphones.
 By default an engine will be in a started state. To make it so the engine is not automatically
 started you can configure it as such:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 engineConfig.noAutoStart = MA_TRUE;
 
@@ -2277,9 +2004,6 @@ prefer decibel based volume control, use <span style="font-family:monospace;">ma
 When a sound is spatialized, it is done so relative to a listener. An engine can be configured to
 have multiple listeners which can be configured via the config:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 engineConfig.listenerCount = 2;
 </pre></div><p>
@@ -2291,18 +2015,12 @@ and velocity (for doppler effect). A listener is referenced by an index, the mea
 to the caller (the index is 0 based and cannot go beyond the listener count, minus 1). The
 position, direction and velocity are all specified in absolute terms:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_engine_listener_set_position(&amp;engine, listenerIndex, worldPosX, worldPosY, worldPosZ);
 </pre></div><p>
 
 The direction of the listener represents it&#39;s forward vector. The listener&#39;s up vector can also be
 specified and defaults to +1 on the Y axis.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_engine_listener_set_direction(&amp;engine, listenerIndex, forwardX, forwardY, forwardZ);
@@ -2312,9 +2030,6 @@ ma_engine_listener_set_world_up(&amp;engine, listenerIndex, 0, 1, 0);
 The engine supports directional attenuation. The listener can have a cone the controls how sound is
 attenuated based on the listener&#39;s direction. When a sound is between the inner and outer cones, it
 will be attenuated between 1 and the cone&#39;s outer gain:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_engine_listener_set_cone(&amp;engine, listenerIndex, innerAngleInRadians, outerAngleInRadians, outerGain);
@@ -2334,9 +2049,6 @@ positive Y points up and negative Z points forward.
 
 The simplest and least flexible way to play a sound is like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_engine_play_sound(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav&quot;</span>, pGroup);
 </pre></div><p>
@@ -2344,9 +2056,6 @@ ma_engine_play_sound(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav
 This is a &quot;fire and forget&quot; style of function. The engine will manage the <span style="font-family:monospace;">ma_sound</span> object
 internally. When the sound finishes playing, it&#39;ll be put up for recycling. For more flexibility
 you&#39;ll want to initialize a sound object:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound sound;
@@ -2365,9 +2074,6 @@ The example above loads a sound from a file. If the resource manager has been di
 be able to use this function and instead you&#39;ll need to initialize a sound directly from a data
 source:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound sound;
 
@@ -2384,9 +2090,6 @@ sound multiple times at the same time, you need to initialize a separate <span s
 
 For the most flexibility when initializing sounds, use <span style="font-family:monospace;">ma_sound_init_ex()</span>. This uses miniaudio&#39;s
 standard config/init pattern:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound sound;
@@ -2420,9 +2123,6 @@ allocate a block of memory and then load the file directly into it. When reading
 will be decoded dynamically on the fly. In order to save processing time on the audio thread, it
 might be beneficial to pre-decode the sound. You can do this with the <span style="font-family:monospace;">MA_SOUND_FLAG_DECODE</span> flag:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_init_from_file(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav&quot;</span>, MA_SOUND_FLAG_DECODE, pGroup, NULL, &amp;sound);
 </pre></div><p>
@@ -2430,9 +2130,6 @@ ma_sound_init_from_file(&amp;engine, <span style="color:#cc3300">&quot;my_sound.
 By default, sounds will be loaded synchronously, meaning <span style="font-family:monospace;">ma_sound_init_*()</span> will not return until
 the sound has been fully loaded. If this is prohibitive you can instead load sounds asynchronously
 by specifying the <span style="font-family:monospace;">MA_SOUND_FLAG_ASYNC</span> flag:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_init_from_file(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav&quot;</span>, MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_ASYNC, pGroup, NULL, &amp;sound);
@@ -2448,9 +2145,6 @@ is specified.
 If you need to wait for an asynchronously loaded sound to be fully loaded, you can use a fence. A
 fence in miniaudio is a simple synchronization mechanism which simply blocks until it&#39;s internal
 counter hit&#39;s zero. You can specify a fence like so:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result;
@@ -2475,9 +2169,6 @@ ma_fence_wait(&amp;fence);
 
 If loading the entire sound into memory is prohibitive, you can also configure the engine to stream
 the audio data:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_init_from_file(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav&quot;</span>, MA_SOUND_FLAG_STREAM, pGroup, NULL, &amp;sound);
@@ -2534,9 +2225,6 @@ The engine supports 3D spatialization of sounds. By default sounds will have spa
 enabled, but if a sound does not need to be spatialized it&#39;s best to disable it. There are two ways
 to disable spatialization of a sound:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#009900">// Disable spatialization at initialization time via a flag:</span>
 ma_sound_init_from_file(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav&quot;</span>, MA_SOUND_FLAG_NO_SPATIALIZATION, NULL, NULL, &amp;sound);
@@ -2548,18 +2236,12 @@ ma_sound_set_spatialization_enabled(&amp;sound, isSpatializationEnabled);
 By default sounds will be spatialized based on the closest listener. If a sound should always be
 spatialized relative to a specific listener it can be pinned to one:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_pinned_listener_index(&amp;sound, listenerIndex);
 </pre></div><p>
 
 Like listeners, sounds have a position. By default, the position of a sound is in absolute space,
 but it can be changed to be relative to a listener:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_positioning(&amp;sound, ma_positioning_relative);
@@ -2568,17 +2250,11 @@ ma_sound_set_positioning(&amp;sound, ma_positioning_relative);
 Note that relative positioning of a sound only makes sense if there is either only one listener, or
 the sound is pinned to a specific listener. To set the position of a sound:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_position(&amp;sound, posX, posY, posZ);
 </pre></div><p>
 
 The direction works the same way as a listener and represents the sound&#39;s forward direction:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_direction(&amp;sound, forwardX, forwardY, forwardZ);
@@ -2587,17 +2263,11 @@ ma_sound_set_direction(&amp;sound, forwardX, forwardY, forwardZ);
 Sound&#39;s also have a cone for controlling directional attenuation. This works exactly the same as
 listeners:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_cone(&amp;sound, innerAngleInRadians, outerAngleInRadians, outerGain);
 </pre></div><p>
 
 The velocity of a sound is used for doppler effect and can be set as such:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_velocity(&amp;sound, velocityX, velocityY, velocityZ);
@@ -2607,17 +2277,11 @@ The engine supports different attenuation models which can be configured on a pe
 default the attenuation model is set to <span style="font-family:monospace;">ma_attenuation_model_inverse</span> which is the equivalent to
 OpenAL&#39;s <span style="font-family:monospace;">AL_INVERSE_DISTANCE_CLAMPED</span>. Configure the attenuation model like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_attenuation_model(&amp;sound, ma_attenuation_model_inverse);
 </pre></div><p>
 
 The supported attenuation models include the following:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -2655,17 +2319,11 @@ Exponential attenuation.</p>
 To control how quickly a sound rolls off as it moves away from the listener, you need to configure
 the rolloff:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_rolloff(&amp;sound, rolloff);
 </pre></div><p>
 
 You can control the minimum and maximum gain to apply from spatialization:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_min_gain(&amp;sound, minGain);
@@ -2677,9 +2335,6 @@ the attenuation calculation. This is useful if you want to ensure sounds don&#39
 volume after the listener moves further away and to have sounds play a maximum volume when the
 listener is within a certain distance:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_min_distance(&amp;sound, minDistance);
 ma_sound_set_max_distance(&amp;sound, maxDistance);
@@ -2688,9 +2343,6 @@ ma_sound_set_max_distance(&amp;sound, maxDistance);
 The engine&#39;s spatialization system supports doppler effect. The doppler factor can be configure on
 a per-sound basis like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_set_doppler_factor(&amp;sound, dopplerFactor);
 </pre></div><p>
@@ -2698,9 +2350,6 @@ ma_sound_set_doppler_factor(&amp;sound, dopplerFactor);
 You can fade sounds in and out with <span style="font-family:monospace;">ma_sound_set_fade_in_pcm_frames()</span> and
 <span style="font-family:monospace;">ma_sound_set_fade_in_milliseconds()</span>. Set the volume to -1 to use the current volume as the
 starting volume:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#009900">// Fade in over 1 second.</span>
@@ -2714,9 +2363,6 @@ ma_sound_set_fade_in_milliseconds(&amp;sound, -1, 0, 1000);
 
 By default sounds will start immediately, but sometimes for timing and synchronization purposes it
 can be useful to schedule a sound to start or stop:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#009900">// Start the sound in 1 second from now.</span>
@@ -2755,18 +2401,12 @@ you cannot be uninitializing sound from the callback. To set the callback you ca
 <span style="font-family:monospace;">ma_sound_set_end_callback()</span>. Alternatively, if you&#39;re using <span style="font-family:monospace;">ma_sound_init_ex()</span>, you can pass it
 into the config like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 soundConfig.endCallback = my_end_callback;
 soundConfig.pEndCallbackUserData = pMyEndCallbackUserData;
 </pre></div><p>
 
 The end callback is declared like so:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">void</span> my_end_callback(<span style="color:#0033ff">void</span>* pUserData, ma_sound* pSound)
@@ -2777,9 +2417,6 @@ The end callback is declared like so:
 
 Internally a sound wraps around a data source. Some APIs exist to control the underlying data
 source, mainly for convenience:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_sound_seek_to_pcm_frame(&amp;sound, frameIndex);
@@ -2798,12 +2435,6 @@ file formats that have built-in support in miniaudio. You can extend this to sup
 file format through the use of custom decoders. To do this you&#39;ll need to use a self-managed
 resource manager and configure it appropriately. See the &quot;Resource Management&quot; section below for
 details on how to set this up.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h1 id="ResourceManagement" class="man">6. Resource Management</h1>
 <p>
@@ -2833,9 +2464,6 @@ the data to be loaded asynchronously.
 
 The example below is how you can initialize a resource manager using it&#39;s default configuration:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_resource_manager_config config;
 ma_resource_manager resourceManager;
@@ -2854,9 +2482,6 @@ will use the file&#39;s native data format, but you can configure it to use a co
 is useful for offloading the cost of data conversion to load time rather than dynamically
 converting at mixing time. To do this, you configure the decoded format, channels and sample rate
 like the code below:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 config = ma_resource_manager_config_init();
@@ -2877,9 +2502,6 @@ Internally the resource manager uses the <span style="font-family:monospace;">ma
 only supports decoders that are built into miniaudio. It&#39;s possible to support additional encoding
 formats through the use of custom decoders. To do so, pass in your <span style="font-family:monospace;">ma_decoding_backend_vtable</span>
 vtables into the resource manager config:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_decoding_backend_vtable* pCustomBackendVTables[] =
@@ -2905,9 +2527,6 @@ Asynchronicity is achieved via a job system. When an operation needs to be perfo
 decoding of a page, a job will be posted to a queue which will then be processed by a job thread.
 By default there will be only one job thread running, but this can be configured, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 config = ma_resource_manager_config_init();
 config.jobThreadCount = MY_JOB_THREAD_COUNT;
@@ -2919,9 +2538,6 @@ existing job infrastructure, or if you simply don&#39;t like the way the resourc
 do this, just set the job thread count to 0 and process jobs manually. To process jobs, you first
 need to retrieve a job using <span style="font-family:monospace;">ma_resource_manager_next_job()</span> and then process it using
 <span style="font-family:monospace;">ma_job_process()</span>:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 config = ma_resource_manager_config_init();
@@ -2967,9 +2583,6 @@ When loading a file, it&#39;s sometimes convenient to be able to customize how f
 read instead of using standard <span style="font-family:monospace;">fopen()</span>, <span style="font-family:monospace;">fclose()</span>, etc. which is what miniaudio will use by
 default. This can be done by setting <span style="font-family:monospace;">pVFS</span> member of the resource manager&#39;s config:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#009900">// Initialize your custom VFS object. See documentation for VFS for information on how to do this.</span>
 my_custom_vfs vfs = my_custom_vfs_init();
@@ -2989,9 +2602,6 @@ loading a sound you need to specify the file path and options for how the sounds
 By default a sound will be loaded synchronously. The returned data source is owned by the caller
 which means the caller is responsible for the allocation and freeing of the data source. Below is
 an example for initializing a data source:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_resource_manager_data_source dataSource;
@@ -3016,9 +2626,6 @@ ma_resource_manager_data_source_uninit(&amp;dataSource);
 
 The <span style="font-family:monospace;">flags</span> parameter specifies how you want to perform loading of the sound file. It can be a
 combination of the following flags:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM
@@ -3080,12 +2687,6 @@ caller to ensure the pointer stays valid for its lifetime. Use
 unregister a file. It does not make sense to use the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM</span>
 flag with a self-managed data pointer.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="AsynchronousLoadingandSynchronization" class="man">6.1. Asynchronous Loading and Synchronization</h2>
 <p>
 When loading asynchronously, it can be useful to poll whether or not loading has finished. Use
@@ -3119,9 +2720,6 @@ sample rate of the file.
 
 The example below shows how you could use a fence when loading a number of sounds:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#009900">// This fence will be released when all sounds are finished loading entirely.</span>
 ma_fence fence;
@@ -3146,18 +2744,12 @@ In the example above we used a fence for waiting until the entire file has been 
 you only need to wait for the initialization of the internal decoder to complete, you can use the
 <span style="font-family:monospace;">init</span> member of the <span style="font-family:monospace;">ma_resource_manager_pipeline_notifications</span> object:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 notifications.init.pFence = &amp;fence;
 </pre></div><p>
 
 If a fence is not appropriate for your situation, you can instead use a callback that is fired on
 an individual sound basis. This is done in a very similar way to fences:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
@@ -3190,15 +2782,6 @@ instantiation into the <span style="font-family:monospace;">ma_resource_manager_
 the fence, only we set <span style="font-family:monospace;">pNotification</span> instead of <span style="font-family:monospace;">pFence</span>. You can set both of these at the same
 time and they should both work as expected. If using the <span style="font-family:monospace;">pNotification</span> system, you need to ensure
 your <span style="font-family:monospace;">ma_async_notification_callbacks</span> object stays valid.
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="ResourceManagerImplementationDetails" class="man">6.2. Resource Manager Implementation Details</h2>
 <p>
@@ -3246,12 +2829,6 @@ determine if a data source is ready to have some frames read, use
 <span style="font-family:monospace;">ma_resource_manager_data_source_get_available_frames()</span>. This will return the number of frames
 available starting from the current position.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="JobQueue" class="man">6.2.1. Job Queue</h2>
 <p>
 The resource manager uses a job queue which is multi-producer, multi-consumer, and fixed-capacity.
@@ -3287,9 +2864,6 @@ need to use more than one job thread. There are plans to remove this lock in a f
 In addition, posting a job will release a semaphore, which on Win32 is implemented with
 <span style="font-family:monospace;">ReleaseSemaphore</span> and on POSIX platforms via a condition variable:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 pthread_mutex_lock(&amp;pSemaphore-&gt;lock);
 {
@@ -3304,15 +2878,6 @@ this, you can use non-blocking mode (via the <span style="font-family:monospace;
 flag) and implement your own job processing routine (see the &quot;Resource Manager&quot; section above for
 details on how to do this).
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="DataBuffers" class="man">6.2.2. Data Buffers</h2>
 <p>
 When the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM</span> flag is excluded at initialization time, the
@@ -3323,9 +2888,6 @@ is uninitialized, the reference counter will be decremented. If the counter hits
 will be unloaded. This is a detail to keep in mind because it could result in excessive loading and
 unloading of a sound. For example, the following sequence will result in a file be loaded twice,
 once after the other:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_resource_manager_data_source_init(pResourceManager, <span style="color:#cc3300">&quot;my_file&quot;</span>, ..., &amp;myDataBuffer0); <span style="color:#009900">// Refcount = 1. Initial load.</span>
@@ -3386,12 +2948,6 @@ keep on happening until the sound has been fully decoded. For sounds of an unkno
 page will be linked together as a linked list. Internally this is implemented via the
 <span style="font-family:monospace;">ma_paged_audio_buffer</span> object.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="DataStreams" class="man">6.2.3. Data Streams</h2>
 <p>
 Data streams only ever store two pages worth of data for each instance. They are most useful for
@@ -3436,15 +2992,6 @@ thread from the audio thread. You must keep in mind the details mentioned in the
 section above regarding locking when posting an event if you require a strictly lock-free audio
 thread.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="NodeGraph" class="man">7. Node Graph</h1>
 <p>
 miniaudio&#39;s routing infrastructure follows a node graph paradigm. The idea is that you create a
@@ -3461,9 +3008,6 @@ Each node has a number of input buses and a number of output buses. An output bu
 attached to an input bus of another. Multiple nodes can connect their output buses to another
 node&#39;s input bus, in which case their outputs will be mixed before processing by the node. Below is
 a diagram that illustrates a hypothetical node graph setup:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 &gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; Data flows left to right &gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
@@ -3501,9 +3045,6 @@ container around the entire graph. The <span style="font-family:monospace;">ma_n
 issues which will be explained later. A <span style="font-family:monospace;">ma_node_graph</span> object is initialized using miniaudio&#39;s
 standard config/init system:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_node_graph_config nodeGraphConfig = ma_node_graph_config_init(myChannelCount);
 
@@ -3519,9 +3060,6 @@ same channel count, which is specified in the config. Any nodes that connect dir
 endpoint must be configured such that their output buses have the same channel count. When you read
 audio data from the node graph, it&#39;ll have the channel count you specified in the config. To read
 data from the graph:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint32</span> framesRead;
@@ -3548,9 +3086,6 @@ miniaudio includes a few stock nodes for common functionality. This is how you w
 node which reads directly from a data source (<span style="font-family:monospace;">ma_data_source_node</span>) which is an example of one
 of the stock nodes that comes with miniaudio:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_data_source_node_config config = ma_data_source_node_config_init(pMyDataSource);
 
@@ -3569,9 +3104,6 @@ returned from <span style="font-family:monospace;">ma_data_source_node_init()</s
 <p>
 
 By default the node will not be attached to the graph. To do so, use <span style="font-family:monospace;">ma_node_attach_output_bus()</span>:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 result = ma_node_attach_output_bus(&amp;dataSourceNode, 0, ma_node_graph_get_endpoint(&amp;nodeGraph), 0);
@@ -3597,9 +3129,6 @@ Less frequently you may want to create a specialized node. This will be a node w
 your own processing callback to apply a custom effect of some kind. This is similar to initializing
 one of the stock node types, only this time you need to specify a pointer to a vtable containing a
 pointer to the processing function and the number of input and output buses. Example:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">static</span> <span style="color:#0033ff">void</span> my_custom_node_process_pcm_frames(ma_node* pNode, <span style="color:#0033ff">const</span> <span style="color:#0033ff">float</span>** ppFramesIn, <span style="color:#0099cc">ma_uint32</span>* pFrameCountIn, <span style="color:#0033ff">float</span>** ppFramesOut, <span style="color:#0099cc">ma_uint32</span>* pFrameCountOut)
@@ -3659,9 +3188,6 @@ static space. The number of input and output buses are specified as part of the 
 a variable number of buses on a per-node bases, the vtable should have the relevant bus count set
 to <span style="font-family:monospace;">MA_NODE_BUS_COUNT_UNKNOWN</span>. In this case, the bus count should be set in the node config:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">static</span> ma_node_vtable my_custom_node_vtable =
 {
@@ -3690,9 +3216,6 @@ set if the vtable specifies MA_NODE_BUS_COUNT_UNKNOWN in the relevant bus count.
 Most often you&#39;ll want to create a structure to encapsulate your node with some extra data. You
 need to make sure the <span style="font-family:monospace;">ma_node_base</span> object is your first member of the structure:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
 {
@@ -3718,9 +3241,6 @@ return an error in it&#39;s initialization routine.
 Custom nodes can be assigned some flags to describe their behaviour. These are set via the vtable
 and include the following:
 </p>
-<p>
-
-</p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
 Flag Name</p>
@@ -3732,18 +3252,6 @@ Description</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NODE_FLAG_PASSTHROUGH
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -3760,31 +3268,6 @@ counts.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NODE_FLAG_CONTINUOUS_PROCESSING
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -3808,15 +3291,6 @@ are no inputs attached.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NODE_FLAG_ALLOW_NULL_INPUT
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -3832,10 +3306,6 @@ processing callback.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -3848,18 +3318,6 @@ resampling.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NODE_FLAG_SILENT_OUTPUT
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -3879,9 +3337,6 @@ If you need to make a copy of an audio stream for effect processing you can use 
 called <span style="font-family:monospace;">ma_splitter_node</span>. This takes has 1 input bus and splits the stream into 2 output buses.
 You can use it like this:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(channels);
 
@@ -3898,9 +3353,6 @@ ma_node_attach_output_bus(&amp;splitterNode, 1, &amp;myEffectNode,              
 
 The volume of an output bus can be configured on a per-bus basis:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_node_set_output_bus_volume(&amp;splitterNode, 0, 0.5f);
 ma_node_set_output_bus_volume(&amp;splitterNode, 1, 0.5f);
@@ -3912,9 +3364,6 @@ copied streams.
 <p>
 
 You can start and stop a node with the following:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_node_set_state(&amp;splitterNode, ma_node_state_started);    <span style="color:#009900">// The default state.</span>
@@ -3930,9 +3379,6 @@ atomically.
 
 You can configure the initial state of a node in it&#39;s config:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 nodeConfig.initialState = ma_node_state_stopped;
 </pre></div><p>
@@ -3941,21 +3387,12 @@ Note that for the stock specialized nodes, all of their configs will have a <spa
 which is the config to use with the base node. This is where the initial state can be configured
 for specialized nodes:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 dataSourceNodeConfig.nodeConfig.initialState = ma_node_state_stopped;
 </pre></div><p>
 
 When using a specialized node like <span style="font-family:monospace;">ma_data_source_node</span> or <span style="font-family:monospace;">ma_splitter_node</span>, be sure to not
 modify the <span style="font-family:monospace;">vtable</span> member of the <span style="font-family:monospace;">nodeConfig</span> object.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="Timing" class="man">7.1. Timing</h2>
 <p>
@@ -3988,9 +3425,6 @@ state in a frame-exact manner. Without this mechanism, starting and stopping of 
 to the resolution of a call to <span style="font-family:monospace;">ma_node_graph_read_pcm_frames()</span> which would typically be in blocks
 of several milliseconds. The following APIs can be used for scheduling node states:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_node_set_state_time()
 ma_node_get_state_time()
@@ -3998,18 +3432,12 @@ ma_node_get_state_time()
 
 The time is absolute and must be based on the global clock. An example is below:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_node_set_state_time(&amp;myNode, ma_node_state_started, sampleRate*1);   <span style="color:#009900">// Delay starting to 1 second.</span>
 ma_node_set_state_time(&amp;myNode, ma_node_state_stopped, sampleRate*5);   <span style="color:#009900">// Delay stopping to 5 seconds.</span>
 </pre></div><p>
 
 An example for changing the state using a relative time.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_node_set_state_time(&amp;myNode, ma_node_state_started, sampleRate*1 + ma_node_graph_get_time(&amp;myNodeGraph));
@@ -4020,15 +3448,6 @@ Note that due to the nature of multi-threading the times may not be 100% exact. 
 issue, consider scheduling state changes from within a processing callback. An idea might be to
 have some kind of passthrough trigger node that is used specifically for tracking time and handling
 events.
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="ThreadSafetyandLocking" class="man">7.2. Thread Safety and Locking</h2>
 <p>
@@ -4123,22 +3542,10 @@ only be happening in a forward direction which means the &quot;previous&quot; po
 used. The same general process applies to detachment. See <span style="font-family:monospace;">ma_node_attach_output_bus()</span> and
 <span style="font-family:monospace;">ma_node_detach_output_bus()</span> for the implementation of this mechanism.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="Decoding" class="man">8. Decoding</h1>
 <p>
 The <span style="font-family:monospace;">ma_decoder</span> API is used for reading audio files. Decoders are completely decoupled from
 devices and can be used independently. Built-in support is included for the following formats:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -4164,9 +3571,6 @@ FLAC</p>
 You can disable the built-in decoders by specifying one or more of the following options before the
 miniaudio implementation:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#666666">#define</span> MA_NO_WAV
 <span style="color:#666666">#define</span> MA_NO_MP3
@@ -4181,9 +3585,6 @@ to use custom decoders.
 A decoder can be initialized from a file with <span style="font-family:monospace;">ma_decoder_init_file()</span>, a block of memory with
 <span style="font-family:monospace;">ma_decoder_init_memory()</span>, or from data delivered via callbacks with <span style="font-family:monospace;">ma_decoder_init()</span>. Here is
 an example for loading a decoder from a file:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_decoder</span> decoder;
@@ -4201,9 +3602,6 @@ When initializing a decoder, you can optionally pass in a pointer to a <span sty
 (the <span style="font-family:monospace;">NULL</span> argument in the example above) which allows you to configure the output format, channel
 count, sample rate and channel map:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_decoder_config</span> config = ma_decoder_config_init(ma_format_f32, 2, 48000);
 </pre></div><p>
@@ -4217,9 +3615,6 @@ Data is read from the decoder as PCM frames. This will output the number of PCM 
 read. If this is less than the requested number of PCM frames it means you&#39;ve reached the end. The
 return value will be <span style="font-family:monospace;">MA_AT_END</span> if no samples have been read and the end has been reached.
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead, &amp;framesRead);
 <span style="color:#0033ff">if</span> (framesRead &lt; framesToRead) {
@@ -4228,9 +3623,6 @@ return value will be <span style="font-family:monospace;">MA_AT_END</span> if no
 </pre></div><p>
 
 You can also seek to a specific frame like so:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result = ma_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
@@ -4241,9 +3633,6 @@ You can also seek to a specific frame like so:
 
 If you want to loop back to the start, you can simply seek back to the first PCM frame:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_decoder_seek_to_pcm_frame(pDecoder, 0);
 </pre></div><p>
@@ -4252,9 +3641,6 @@ When loading a decoder, miniaudio uses a trial and error technique to find the a
 backend. This can be unnecessarily inefficient if the type is already known. In this case you can
 use <span style="font-family:monospace;">encodingFormat</span> variable in the device config to specify a specific encoding format you want
 to decode:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 decoderConfig.encodingFormat = ma_encoding_format_wav;
@@ -4266,12 +3652,6 @@ See the <span style="font-family:monospace;">ma_encoding_format</span> enum for 
 
 The <span style="font-family:monospace;">ma_decoder_init_file()</span> API will try using the file extension to determine which decoding
 backend to prefer.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="CustomDecoders" class="man">8.1. Custom Decoders</h2>
 <p>
@@ -4286,9 +3666,6 @@ Opus decoder in the &quot;extras&quot; folder of the miniaudio repository which 
 
 A custom decoder must implement a data source. A vtable called <span style="font-family:monospace;">ma_decoding_backend_vtable</span> needs
 to be implemented which is then passed into the decoder config:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_decoding_backend_vtable* pCustomBackendVTables[] =
@@ -4306,9 +3683,6 @@ decoderConfig.customBackendCount     = <span style="color:#0033ff">sizeof</span>
 </pre></div><p>
 
 The <span style="font-family:monospace;">ma_decoding_backend_vtable</span> vtable has the following functions:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 onInit
@@ -4360,22 +3734,10 @@ initialization routine is clean.
 When a decoder is uninitialized, the <span style="font-family:monospace;">onUninit</span> callback will be fired which will give you an
 opportunity to clean up and internal data.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="Encoding" class="man">9. Encoding</h1>
 <p>
 The <span style="font-family:monospace;">ma_encoding</span> API is used for writing audio files. The only supported output format is WAV.
 This can be disabled by specifying the following option before the implementation of miniaudio:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#666666">#define</span> MA_NO_WAV
@@ -4384,9 +3746,6 @@ This can be disabled by specifying the following option before the implementatio
 An encoder can be initialized to write to a file with <span style="font-family:monospace;">ma_encoder_init_file()</span> or from data
 delivered via callbacks with <span style="font-family:monospace;">ma_encoder_init()</span>. Below is an example for initializing an encoder
 to output to a file.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_encoder_config</span> config = ma_encoder_config_init(ma_encoding_format_wav, FORMAT, CHANNELS, SAMPLE_RATE);
@@ -4404,9 +3763,6 @@ ma_encoder_uninit(&amp;encoder);
 When initializing an encoder you must specify a config which is initialized with
 <span style="font-family:monospace;">ma_encoder_config_init()</span>. Here you must specify the file type, the output sample format, output
 channel count and output sample rate. The following file types are supported:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -4430,9 +3786,6 @@ be returned. The encoder will not perform data conversion so you will need to co
 outputting any audio data. To output audio data, use <span style="font-family:monospace;">ma_encoder_write_pcm_frames()</span>, like in the
 example below:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint64</span> framesWritten;
 result = ma_encoder_write_pcm_frames(&amp;encoder, pPCMFramesToWrite, framesToWrite, &amp;framesWritten);
@@ -4448,26 +3801,11 @@ is optionally and you can pass in <span style="font-family:monospace;">NULL</spa
 
 Encoders must be uninitialized with <span style="font-family:monospace;">ma_encoder_uninit()</span>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="DataConversion" class="man">10. Data Conversion</h1>
 <p>
 A data conversion API is included with miniaudio which supports the majority of data conversion
 requirements. This supports conversion between sample formats, channel counts (with channel
 mapping) and sample rates.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="SampleFormatConversion" class="man">10.1. Sample Format Conversion</h2>
 <p>
@@ -4477,12 +3815,6 @@ formats. Use <span style="font-family:monospace;">ma_pcm_convert()</span> to con
 <span style="font-family:monospace;">ma_convert_pcm_frames_format()</span> to convert PCM frames where you want to specify the frame count
 and channel count as a variable instead of the total sample count.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="Dithering" class="man">10.1.1. Dithering</h2>
 <p>
 Dithering can be set using the ditherMode parameter.
@@ -4490,9 +3822,6 @@ Dithering can be set using the ditherMode parameter.
 <p>
 
 The different dithering modes include the following, in order of efficiency:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -4531,9 +3860,6 @@ Note that even if the dither mode is set to something other than <span style="fo
 ignored for conversions where dithering is not needed. Dithering is available for the following
 conversions:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 s16 -&gt; u8
 s24 -&gt; u8
@@ -4547,23 +3873,11 @@ f32 -&gt; s16
 Note that it is not an error to pass something other than ma_dither_mode_none for conversions where
 dither is not used. It will just be ignored.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="ChannelConversion" class="man">10.2. Channel Conversion</h2>
 <p>
 Channel conversion is used for channel rearrangement and conversion from one channel count to
 another. The <span style="font-family:monospace;">ma_channel_converter</span> API is used for channel conversion. Below is an example of
 initializing a simple channel converter which converts from mono to stereo.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_channel_converter_config</span> config = ma_channel_converter_config_init(
@@ -4582,9 +3896,6 @@ result = ma_channel_converter_init(&amp;config, NULL, &amp;converter);
 
 To perform the conversion simply call <span style="font-family:monospace;">ma_channel_converter_process_pcm_frames()</span> like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_result</span> result = ma_channel_converter_process_pcm_frames(&amp;converter, pFramesOut, pFramesIn, frameCount);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -4598,12 +3909,6 @@ frames.
 <p>
 
 Input and output PCM frames are always interleaved. Deinterleaved layouts are not supported.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="ChannelMapping" class="man">10.2.1. Channel Mapping</h2>
 <p>
@@ -4646,9 +3951,6 @@ weights. Custom weights can be passed in as the last parameter of
 
 Predefined channel maps can be retrieved with <span style="font-family:monospace;">ma_channel_map_init_standard()</span>. This takes a
 <span style="font-family:monospace;">ma_standard_channel_map</span> enum as its first parameter, which can be one of the following:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -4733,9 +4035,6 @@ ma_standard_channel_map_webaudio</p>
 </table></div><p>
 Below are the channel maps used by default in miniaudio (<span style="font-family:monospace;">ma_standard_channel_map_default</span>):
 </p>
-<p>
-
-</p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
 Channel Count</p>
@@ -4765,7 +4064,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 3
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4777,10 +4075,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 4 (Surround)
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4793,11 +4087,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 5
-
-</p>
-<p>
-
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4811,14 +4100,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 6 (5.1)
-
-</p>
-<p>
-
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4833,15 +4114,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 7
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4857,18 +4129,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 8 (7.1)
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4885,7 +4145,6 @@ Mapping</p>
 <tr>
 <td class="doc" valign="top"><p>
 Other
-
 </p>
 </td>
 <td class="doc" valign="top"><p>
@@ -4894,19 +4153,10 @@ is equivalent to the same
 mapping as the device.</p>
 </td>
 </tr>
-</table></div><p>
-
-</p>
-<p>
-
-</p>
-<h2 id="Resampling" class="man">10.3. Resampling</h2>
+</table></div><h2 id="Resampling" class="man">10.3. Resampling</h2>
 <p>
 Resampling is achieved with the <span style="font-family:monospace;">ma_resampler</span> object. To create a resampler object, do something
 like the following:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_resampler_config</span> config = ma_resampler_config_init(
@@ -4925,17 +4175,11 @@ like the following:
 
 Do the following to uninitialize the resampler:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_resampler_uninit(&amp;resampler);
 </pre></div><p>
 
 The following example shows how data can be processed
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint64</span> frameCountIn  = 1000;
@@ -4973,9 +4217,6 @@ changed after initialization.
 <p>
 
 The miniaudio resampler has built-in support for the following algorithms:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5034,21 +4275,9 @@ Due to the nature of how resampling works, the resampler introduces some latency
 retrieved in terms of both the input rate and the output rate with
 <span style="font-family:monospace;">ma_resampler_get_input_latency()</span> and <span style="font-family:monospace;">ma_resampler_get_output_latency()</span>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="ResamplingAlgorithms" class="man">10.3.1. Resampling Algorithms</h2>
 <p>
 The choice of resampling algorithm depends on your situation and requirements.
-</p>
-<p>
-
-</p>
-<p>
-
 </p>
 <h2 id="LinearResampling" class="man">10.3.1.1. Linear Resampling</h2>
 <p>
@@ -5074,19 +4303,10 @@ the input and output sample rates (Nyquist Frequency).
 The API for the linear resampler is the same as the main resampler API, only it&#39;s called
 <span style="font-family:monospace;">ma_linear_resampler</span>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="CustomResamplers" class="man">10.3.2. Custom Resamplers</h2>
 <p>
 You can implement a custom resampler by using the <span style="font-family:monospace;">ma_resample_algorithm_custom</span> resampling
 algorithm and setting a vtable in the resampler config:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_resampler_config</span> config = ma_resampler_config_init(..., ma_resample_algorithm_custom);
@@ -5133,15 +4353,6 @@ frames are required to be available to produce the given number of output frames
 produced given the specified number of input frames. miniaudio will use these as a hint, but they
 are optional and can be set to NULL if you&#39;re unable to implement them.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="GeneralDataConversion" class="man">10.4. General Data Conversion</h2>
 <p>
 The <span style="font-family:monospace;">ma_data_converter</span> API can be used to wrap sample format conversion, channel conversion and
@@ -5149,9 +4360,6 @@ resampling into one operation. This is what miniaudio uses internally to convert
 requested when the device was initialized and the format of the backend&#39;s native device. The API
 for general data conversion is very similar to the resampling API. Create a <span style="font-family:monospace;">ma_data_converter</span>
 object like this:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_data_converter_config</span> config = ma_data_converter_config_init(
@@ -5174,9 +4382,6 @@ In the example above we use <span style="font-family:monospace;">ma_data_convert
 there&#39;s many more properties that can be configured, such as channel maps and resampling quality.
 Something like the following may be more suitable depending on your requirements:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_data_converter_config</span> config = ma_data_converter_config_init_default();
 config.formatIn = inputFormat;
@@ -5191,17 +4396,11 @@ config.resampling.linear.lpfOrder = MA_MAX_FILTER_ORDER;
 
 Do the following to uninitialize the data converter:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_data_converter_uninit(&amp;converter, NULL);
 </pre></div><p>
 
 The following example shows how data can be processed
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint64</span> frameCountIn  = 1000;
@@ -5252,25 +4451,10 @@ Due to the nature of how resampling works, the data converter introduces some la
 is required. This can be retrieved in terms of both the input rate and the output rate with
 <span style="font-family:monospace;">ma_data_converter_get_input_latency()</span> and <span style="font-family:monospace;">ma_data_converter_get_output_latency()</span>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="Filtering" class="man">11. Filtering</h1>
-<p>
-
-</p>
 <h2 id="BiquadFiltering" class="man">11.1. Biquad Filtering</h2>
 <p>
 Biquad filtering is achieved with the <span style="font-family:monospace;">ma_biquad</span> API. Example:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_biquad_config</span> config = ma_biquad_config_init(ma_format_f32, channels, b0, b1, b2, a0, a1, a2);
@@ -5303,9 +4487,6 @@ Input and output frames are always interleaved.
 Filtering can be applied in-place by passing in the same pointer for both the input and output
 buffers, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_biquad_process_pcm_frames(&amp;biquad, pMyData, pMyData, frameCount);
 </pre></div><p>
@@ -5317,18 +4498,9 @@ filter while keeping the values of registers valid to avoid glitching. Do not us
 registers to 0. Note that changing the format or channel count after initialization is invalid and
 will result in an error.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="Low-PassFiltering" class="man">11.2. Low-Pass Filtering</h2>
 <p>
 Low-pass filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5365,9 +4537,6 @@ High order low-pass filter (Butterworth)</p>
 </table></div><p>
 Low-pass filter example:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_lpf_config</span> config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, order);
 <span style="color:#0099cc">ma_result</span> result = ma_lpf_init(&amp;config, &amp;lpf);
@@ -5388,18 +4557,12 @@ you need to convert it yourself beforehand. Input and output frames are always i
 Filtering can be applied in-place by passing in the same pointer for both the input and output
 buffers, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_lpf_process_pcm_frames(&amp;lpf, pMyData, pMyData, frameCount);
 </pre></div><p>
 
 The maximum filter order is limited to <span style="font-family:monospace;">MA_MAX_FILTER_ORDER</span> which is set to 8. If you need more,
 you can chain first and second order filters together.
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">for</span> (iFilter = 0; iFilter &lt; filterCount; iFilter += 1) {
@@ -5424,18 +4587,9 @@ If an even filter order is specified, a series of second order filters will be p
 chain. If an odd filter order is specified, a first order filter will be applied, followed by a
 series of second order filters in a chain.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="High-PassFiltering" class="man">11.3. High-Pass Filtering</h2>
 <p>
 High-pass filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5473,18 +4627,9 @@ High order high-pass filter (Butterworth)</p>
 High-pass filters work exactly the same as low-pass filters, only the APIs are called <span style="font-family:monospace;">ma_hpf1</span>,
 <span style="font-family:monospace;">ma_hpf2</span> and <span style="font-family:monospace;">ma_hpf</span>. See example code for low-pass filters for example usage.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="Band-PassFiltering" class="man">11.4. Band-Pass Filtering</h2>
 <p>
 Band-pass filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5516,18 +4661,9 @@ Band-pass filters work exactly the same as low-pass filters, only the APIs are c
 band-pass filters must be an even number which means there is no first order band-pass filter,
 unlike low-pass and high-pass filters.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="NotchFiltering" class="man">11.5. Notch Filtering</h2>
 <p>
 Notch filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5545,15 +4681,9 @@ ma_notch2</p>
 Second order notching filter</p>
 </td>
 </tr>
-</table></div><p>
-
-</p>
-<h2 id="PeakingEQFiltering" class="man">11.6. Peaking EQ Filtering</h2>
+</table></div><h2 id="PeakingEQFiltering" class="man">11.6. Peaking EQ Filtering</h2>
 <p>
 Peaking filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5571,15 +4701,9 @@ ma_peak2</p>
 Second order peaking filter</p>
 </td>
 </tr>
-</table></div><p>
-
-</p>
-<h2 id="LowShelfFiltering" class="man">11.7. Low Shelf Filtering</h2>
+</table></div><h2 id="LowShelfFiltering" class="man">11.7. Low Shelf Filtering</h2>
 <p>
 Low shelf filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5601,18 +4725,9 @@ Second order low shelf filter</p>
 Where a high-pass filter is used to eliminate lower frequencies, a low shelf filter can be used to
 just turn them down rather than eliminate them entirely.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h2 id="HighShelfFiltering" class="man">11.8. High Shelf Filtering</h2>
 <p>
 High shelf filtering is achieved with the following APIs:
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5635,29 +4750,11 @@ The high shelf filter has the same API as the low shelf filter, only you would u
 instead of <span style="font-family:monospace;">ma_loshelf</span>. Where a low shelf filter is used to adjust the volume of low frequencies,
 the high shelf filter does the same thing for high frequencies.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="WaveformandNoiseGeneration" class="man">12. Waveform and Noise Generation</h1>
-<p>
-
-</p>
 <h2 id="Waveforms" class="man">12.1. Waveforms</h2>
 <p>
 miniaudio supports generation of sine, square, triangle and sawtooth waveforms. This is achieved
 with the <span style="font-family:monospace;">ma_waveform</span> API. Example:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_waveform_config</span> config = ma_waveform_config_init(
@@ -5692,9 +4789,6 @@ control whether or not a sawtooth has a positive or negative ramp, for example.
 
 Below are the supported waveform types:
 </p>
-<p>
-
-</p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
 Enum Name</p>
@@ -5720,18 +4814,9 @@ ma_waveform_type_triangle</p>
 ma_waveform_type_sawtooth</p>
 </td>
 </tr>
-</table></div><p>
-
-</p>
-<p>
-
-</p>
-<h2 id="Noise" class="man">12.2. Noise</h2>
+</table></div><h2 id="Noise" class="man">12.2. Noise</h2>
 <p>
 miniaudio supports generation of white, pink and Brownian noise via the <span style="font-family:monospace;">ma_noise</span> API. Example:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_noise_config</span> config = ma_noise_config_init(
@@ -5767,17 +4852,11 @@ By default, the noise API will use different values for different channels. So, 
 left side in a stereo stream will be different to the right side. To instead have each channel use
 the same random value, set the <span style="font-family:monospace;">duplicateChannels</span> member of the noise config to true, like so:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 config.duplicateChannels = MA_TRUE;
 </pre></div><p>
 
 Below are the supported noise types.
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -5799,13 +4878,7 @@ ma_noise_type_pink</p>
 ma_noise_type_brownian</p>
 </td>
 </tr>
-</table></div><p>
-
-</p>
-<p>
-
-</p>
-<h1 id="AudioBuffers" class="man">13. Audio Buffers</h1>
+</table></div><h1 id="AudioBuffers" class="man">13. Audio Buffers</h1>
 <p>
 miniaudio supports reading from a buffer of raw audio data via the <span style="font-family:monospace;">ma_audio_buffer</span> API. This can
 read from memory that&#39;s managed by the application, but can also handle the memory management for
@@ -5814,9 +4887,6 @@ you internally. Memory management is flexible and should support most use cases.
 <p>
 
 Audio buffers are initialized using the standard configuration system used everywhere in miniaudio:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(
@@ -5847,9 +4917,6 @@ Sometimes it can be convenient to allocate the memory for the <span style="font-
 raw audio data in a contiguous block of memory. That is, the raw audio data will be located
 immediately after the <span style="font-family:monospace;">ma_audio_buffer</span> structure. To do this, use
 <span style="font-family:monospace;">ma_audio_buffer_alloc_and_init()</span>:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(
@@ -5885,9 +4952,6 @@ parameter is set to true. If you want to manually loop back to the start, you ca
 <span style="font-family:monospace;">ma_audio_buffer_seek_to_pcm_frame(pAudioBuffer, 0)</span>. Below is an example for reading data from an
 audio buffer.
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_uint64</span> framesRead = ma_audio_buffer_read_pcm_frames(pAudioBuffer, pFramesOut, desiredFrameCount, isLooping);
 <span style="color:#0033ff">if</span> (framesRead &lt; desiredFrameCount) {
@@ -5897,9 +4961,6 @@ audio buffer.
 
 Sometimes you may want to avoid the cost of data movement between the internal buffer and the
 output buffer. Instead you can use memory mapping to retrieve a pointer to a segment of data:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0033ff">void</span>* pMappedFrames;
@@ -5923,15 +4984,6 @@ purpose of looping with <span style="font-family:monospace;">ma_audio_buffer_at_
 <span style="font-family:monospace;">ma_audio_buffer_unmap()</span> and checking if it equals <span style="font-family:monospace;">MA_AT_END</span>. You should not treat <span style="font-family:monospace;">MA_AT_END</span>
 as an error when returned by <span style="font-family:monospace;">ma_audio_buffer_unmap()</span>.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="RingBuffers" class="man">14. Ring Buffers</h1>
 <p>
 miniaudio supports lock free (single producer, single consumer) ring buffers which are exposed via
@@ -5950,9 +5002,6 @@ you.
 
 The examples below use the PCM frame variant of the ring buffer since that&#39;s most likely the one
 you will want to use. To initialize a ring buffer, do something like the following:
-</p>
-<p>
-
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_pcm_rb</span> rb;
@@ -6020,15 +5069,6 @@ aligned to <span style="font-family:monospace;">MA_SIMD_ALIGNMENT</span>.
 Note that the ring buffer is only thread safe when used by a single consumer thread and single
 producer thread.
 </p>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="Backends" class="man">15. Backends</h1>
 <p>
 The following backends are supported by miniaudio. These are listed in order of default priority.
@@ -6039,9 +5079,6 @@ each of these backends in the order listed in the table below.
 
 Note that backends that are not usable by the build target will not be included in the build. For
 example, ALSA, which is specific to Linux, will not be included in the Windows build.
-</p>
-<p>
-
 </p>
 <div style="overflow:hidden;"><table class="doc"><tr>
 <th class="doc" valign="top"><p>
@@ -6222,9 +5259,6 @@ Cross Platform (not used on Web)</p>
 </table></div><p>
 Some backends have some nuance details you may want to be aware of.
 </p>
-<p>
-
-</p>
 <h2 id="WASAPI" class="man">15.1. WASAPI</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6235,9 +5269,6 @@ Low-latency shared mode will be disabled when using an application-defined sampl
   will result in miniaudio&#39;s internal resampler being used instead which will in turn enable the
   use of low-latency shared mode.</li>
 </ul>
-<p>
-
-</p>
 <h2 id="PulseAudio" class="man">15.2. PulseAudio</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6245,9 +5276,6 @@ If you experience bad glitching/noise on Arch Linux, consider this fix from the 
   <a href="https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling">https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling</a>.
   Alternatively, consider using a different backend such as ALSA.</li>
 </ul>
-<p>
-
-</p>
 <h2 id="Android" class="man">15.3. Android</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6266,9 +5294,6 @@ The backend API will perform resampling where possible. The reason for this as o
   miniaudio&#39;s built-in resampler is to take advantage of any potential device-specific
   optimizations the driver may implement.</li>
 </ul>
-<p>
-
-</p>
 <h2 id="BSD" class="man">BSD</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6277,9 +5302,6 @@ The sndio backend is currently only enabled on OpenBSD builds.</li>
 The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can
   use it.</li>
 </ul>
-<p>
-
-</p>
 <h2 id="UWP" class="man">15.4. UWP</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6287,9 +5309,6 @@ UWP only supports default playback and capture devices.</li>
 <li>
 UWP requires the Microphone capability to be enabled in the application&#39;s manifest (Package.appxmanifest):</li>
 </ul>
-<p>
-
-</p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 &lt;Package ...&gt;
     ...
@@ -6297,10 +5316,7 @@ UWP requires the Microphone capability to be enabled in the application&#39;s ma
         &lt;DeviceCapability Name=<span style="color:#cc3300">&quot;microphone&quot;</span> /&gt;
     &lt;/Capabilities&gt;
 &lt;/Package&gt;
-</pre></div><p>
-
-</p>
-<h2 id="WebAudio/Emscripten" class="man">15.5. Web Audio / Emscripten</h2>
+</pre></div><h2 id="WebAudio/Emscripten" class="man">15.5. Web Audio / Emscripten</h2>
 <ul style="overflow:hidden;">
 <li>
 You cannot use <span style="font-family:monospace;">-std=c*</span> compiler flags, nor <span style="font-family:monospace;">-ansi</span>. This only applies to the Emscripten build.</li>
@@ -6316,21 +5332,9 @@ Google has implemented a policy in their browsers that prevent automatic media o
   <a href="https://developers.google.com/web/updates/2017/09/autoplay-policy-changes">https://developers.google.com/web/updates/2017/09/autoplay-policy-changes</a>. Starting the device
   may fail if you try to start playback without first handling some kind of user input.</li>
 </ul>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="OptimizationTips" class="man">16. Optimization Tips</h1>
 <p>
 See below for some tips on improving performance.
-</p>
-<p>
-
 </p>
 <h2 id="LowLevelAPI" class="man">16.1. Low Level API</h2>
 <ul style="overflow:hidden;">
@@ -6343,9 +5347,6 @@ By default, miniaudio will pre-silence the data callback&#39;s output buffer. If
   will always write valid data to the output buffer you can disable pre-silencing by setting the
   <span style="font-family:monospace;">noPreSilence</span> config option in the device config to true.</li>
 </ul>
-<p>
-
-</p>
 <h2 id="HighLevelAPI" class="man">16.2. High Level API</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6361,15 +5362,6 @@ If you know all of your sounds will always be the same sample rate, set the engi
   consider setting the decoded sample rate to match your sounds. By configuring everything to
   use a consistent sample rate, sample rate conversion can be avoided.</li>
 </ul>
-<p>
-
-</p>
-<p>
-
-</p>
-<p>
-
-</p>
 <h1 id="MiscellaneousNotes" class="man">17. Miscellaneous Notes</h1>
 <ul style="overflow:hidden;">
 <li>

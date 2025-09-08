@@ -277,10 +277,12 @@ head.</p>
 
 <span style="color:#0033ff">void</span> data_callback(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_uint8</span>* pBuffer, <span style="color:#0033ff">int</span> bufferSizeInBytes)
 {
+    <span style="color:#0099cc">ma_uint32</span> bufferSizeInFrames;
+
     (<span style="color:#0033ff">void</span>)pUserData;
 
     <span style="color:#009900">/* Reading is just a matter of reading straight from the engine. */</span>
-    <span style="color:#0099cc">ma_uint32</span> bufferSizeInFrames = (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(ma_format_f32, ma_engine_get_channels(&amp;g_engine));
+    bufferSizeInFrames = (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(ma_format_f32, ma_engine_get_channels(&amp;g_engine));
     ma_engine_read_pcm_frames(&amp;g_engine, pBuffer, bufferSizeInFrames, NULL);
 }
 

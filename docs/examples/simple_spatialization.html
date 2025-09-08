@@ -326,7 +326,7 @@ orbiting effect. Terminate the program with Ctrl+C.</p>
     <span style="color:#009900">/* Rotate the listener on the spot to create an orbiting effect. */</span>
     <span style="color:#0033ff">for</span> (;;) {
         listenerAngle += 0.01f;
-        ma_engine_listener_set_direction(&amp;engine, 0, sinf(listenerAngle), 0, cosf(listenerAngle));
+        ma_engine_listener_set_direction(&amp;engine, 0, (<span style="color:#0033ff">float</span>)sin(listenerAngle), 0, (<span style="color:#0033ff">float</span>)cos(listenerAngle));
 
         ma_sleep(1);
     }

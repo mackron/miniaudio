@@ -299,6 +299,10 @@ being merged into miniaudio.h (it&#39;s currently in miniaudio_engine.h).
         <span style="color:#0099cc">ma_uint64</span> totalFramesRead;
         <span style="color:#0099cc">ma_uint8</span> temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
         <span style="color:#0099cc">ma_uint64</span> tempCapInFrames = <span style="color:#0033ff">sizeof</span>(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
+
+        <span style="color:#0033ff">if</span> (pFramesRead != NULL) {
+            *pFramesRead = 0;
+        }
         
         totalFramesRead = 0;
         <span style="color:#0033ff">while</span> (totalFramesRead &lt; frameCount) {
@@ -308,7 +312,10 @@ being merged into miniaudio.h (it&#39;s currently in miniaudio_engine.h).
                 framesToRead = tempCapInFrames;
             }
 
-            result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, framesToRead, &amp;framesJustRead);
+            result = ma_data_source_read_pcm_frames(pDataSource, temp, framesToRead, &amp;framesJustRead);
+            <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+                <span style="color:#0033ff">break</span>;
+            }
 
             ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesRead, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
             totalFramesRead += framesJustRead;
@@ -316,6 +323,10 @@ being merged into miniaudio.h (it&#39;s currently in miniaudio_engine.h).
             <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
                 <span style="color:#0033ff">break</span>;
             }
+        }
+
+        <span style="color:#0033ff">if</span> (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
         }
 
         <span style="color:#0033ff">return</span> MA_SUCCESS;

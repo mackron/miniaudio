@@ -283,9 +283,6 @@ consistently read from the head data source this state will become inconsistent 
 work correctly. When using a chain, this pointer needs to be reset if you need to play the
 chain again from the start:
 </p>
-<p>
-
-</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_data_source_set_current(&amp;headDataSource, &amp;headDataSource);
 ma_data_source_seek_to_pcm_frame(&amp;headDataSource, 0);
