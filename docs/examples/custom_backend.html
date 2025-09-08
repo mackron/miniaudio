@@ -281,7 +281,7 @@ remaining callbacks if it is successfully initialized.
 Custom backends are identified with the <span style="font-family:monospace;">ma_backend_custom</span> backend type. For the purpose of demonstration, this example only uses the
 <span style="font-family:monospace;">ma_backend_custom</span> backend type because otherwise the built-in backends would always get chosen first and none of the code for the custom
 backends would actually get hit. By default, the <span style="font-family:monospace;">ma_backend_custom</span> backend is the lowest priority backend, except for <span style="font-family:monospace;">ma_backend_null</span>.</p>
-<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto; overflow-y:hidden;">
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.c&quot;</span>
 
 <span style="color:#666666">#ifdef</span> __EMSCRIPTEN__

@@ -270,7 +270,7 @@ consistent, you must set the period size in the engine config to be consistent w
 you specify in your IPLAudioSettings object. If for some reason you want the period size of the
 engine to be different to that of your Steam Audio configuration, you&#39;ll need to implement a sort
 of buffering solution to your node.</p>
-<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto; overflow-y:hidden;">
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.c&quot;</span>
 
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdint.h&gt;</span> <span style="color:#009900">/* Required for uint32_t which is used by STEAMAUDIO_VERSION, and a random use of uint8_t. If there&#39;s a Steam Audio maintainer reading this, that needs to be fixed to use IPLuint32 and IPLuint8. */</span>
