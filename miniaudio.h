@@ -70150,7 +70150,7 @@ static MA_INLINE ma_uint32 ma_hash_getblock(const ma_uint32* blocks, int i)
     ma_uint32 block;
 
     /* Try silencing a sanitization warning about unaligned access by doing a memcpy() instead of assignment. */
-    MA_COPY_MEMORY(&block, ma_offset_ptr(blocks, i * sizeof(block)), sizeof(block));
+    MA_COPY_MEMORY(&block, ma_offset_ptr(blocks, i * (int) sizeof(block)), sizeof(block));
 
     if (ma_is_little_endian()) {
         return block;

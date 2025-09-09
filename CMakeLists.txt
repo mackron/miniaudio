@@ -341,15 +341,21 @@ endfunction()
 # vorbisfile
 #
 # The vorbisfile target is required for miniaudio_libvorbis. If the vorbisfile target has already been
-# defined we'll just use that. Otherwise we'll try to find_library(). If that fails, as a last resort
+# defined we'll just use that. Otherwise we'll try to use pkg-config. If that fails, as a last resort
 # we'll allow building it from source from the external/vorbis directory.
 if(NOT MINIAUDIO_NO_LIBVORBIS)
     if(NOT TARGET vorbisfile)
-        find_library(LIBVORBISFILE NAMES vorbisfile)
-        if(LIBVORBISFILE)
-            message(STATUS "Found libvorbisfile: ${LIBVORBISFILE}")
+        # Try pkg-config first
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_VORBISFILE vorbisfile)
+        endif()
+
+        if(PC_VORBISFILE_FOUND)
+            message(STATUS "Found vorbisfile via pkg-config: ${PC_VORBISFILE_LIBRARIES}")
             set(HAS_LIBVORBIS TRUE)
         else()
+            # Fallback to building from source.
             add_libvorbis_subdirectory()
             if(NOT TARGET vorbisfile)
                 message(STATUS "libvorbisfile not found. miniaudio_libvorbis will be excluded.")
@@ -365,27 +371,20 @@ endif()
 
 # opusfile
 #
-# This is the same as vorbisfile above.
+# This is the same as vorbisfile above, but for opusfile.
 if(NOT MINIAUDIO_NO_LIBOPUS)
     if(NOT TARGET opusfile)
-        find_library(LIBOPUSFILE NAMES opusfile)
-        if(LIBOPUSFILE)
-            message(STATUS "Found libopusfile: ${LIBOPUSFILE}")
+        # Try pkg-config first
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_OPUSFILE opusfile)
+        endif()
 
-            # opusfile is very annoying because they do "#include <opus_multistream.h>" in opusfile.h which results
-            # in an error unless we explicitly add the include path to the opus include directory.
-            find_path(OPUSFILE_INCLUDE_DIR
-                NAMES opus/opusfile.h
-                DOC "Directory containing opusfile.h"
-            )
-
-            if(OPUSFILE_INCLUDE_DIR)
-                message(STATUS "Found opusfile.h in ${OPUSFILE_INCLUDE_DIR}")
-                set(HAS_LIBOPUS TRUE)
-            else()
-                message(STATUS "Could not find opusfile.h. miniaudio_libopus will be excluded.")
-            endif()
+        if(PC_OPUSFILE_FOUND)
+            message(STATUS "Found opusfile via pkg-config: ${PC_OPUSFILE_LIBRARIES}")
+            set(HAS_LIBOPUS TRUE)
         else()
+            # Fallback to building from source.
             add_libopusfile_subdirectory()
             if(NOT TARGET opusfile)
                 message(STATUS "libopusfile not found. miniaudio_libopus will be excluded.")
@@ -548,8 +547,11 @@ add_library(libvorbis_interface INTERFACE)
 if(HAS_LIBVORBIS)
     if(TARGET vorbisfile)
         target_link_libraries(libvorbis_interface INTERFACE vorbisfile)
-    else()
-        target_link_libraries(libvorbis_interface INTERFACE ${LIBVORBISFILE})
+    elseif(PC_VORBISFILE_FOUND)
+        target_link_libraries     (libvorbis_interface INTERFACE ${PC_VORBISFILE_LIBRARIES})
+        target_include_directories(libvorbis_interface INTERFACE ${PC_VORBISFILE_INCLUDE_DIRS})
+        target_link_directories   (libvorbis_interface INTERFACE ${PC_VORBISFILE_LIBRARY_DIRS})
+        target_compile_options    (libvorbis_interface INTERFACE ${PC_VORBISFILE_CFLAGS_OTHER})
     endif()
 endif()
 
@@ -571,9 +573,11 @@ add_library(libopus_interface INTERFACE)
 if(HAS_LIBOPUS)
     if(TARGET opusfile)
         target_link_libraries     (libopus_interface INTERFACE opusfile)
-    else()
-        target_link_libraries     (libopus_interface INTERFACE ${LIBOPUSFILE})
-        target_include_directories(libopus_interface INTERFACE ${OPUSFILE_INCLUDE_DIR}/opus)
+    elseif(PC_OPUSFILE_FOUND)
+        target_link_libraries     (libopus_interface INTERFACE ${PC_OPUSFILE_LIBRARIES})
+        target_include_directories(libopus_interface INTERFACE ${PC_OPUSFILE_INCLUDE_DIRS})
+        target_link_directories   (libopus_interface INTERFACE ${PC_OPUSFILE_LIBRARY_DIRS})
+        target_compile_options    (libopus_interface INTERFACE ${PC_OPUSFILE_CFLAGS_OTHER})
     endif()
 endif()
 
@@ -877,6 +881,22 @@ else()
 endif()
 
 string(JOIN ", " MINIAUDIO_PC_REQUIRES_PRIVATE ${LINKED_LIBS})
+
+# Add vorbisfile and opusfile to pkg-config dependencies if found via pkg-config
+set(PC_REQUIRES_PRIVATE_LIST)
+if(PC_VORBISFILE_FOUND AND HAS_LIBVORBIS)
+    list(APPEND PC_REQUIRES_PRIVATE_LIST "vorbisfile")
+endif()
+if(PC_OPUSFILE_FOUND AND HAS_LIBOPUS)
+    list(APPEND PC_REQUIRES_PRIVATE_LIST "opusfile")
+endif()
+if(PC_REQUIRES_PRIVATE_LIST)
+    if(MINIAUDIO_PC_REQUIRES_PRIVATE)
+        string(APPEND MINIAUDIO_PC_REQUIRES_PRIVATE ", ")
+    endif()
+    string(JOIN ", " PC_REQUIRES_STR ${PC_REQUIRES_PRIVATE_LIST})
+    string(APPEND MINIAUDIO_PC_REQUIRES_PRIVATE "${PC_REQUIRES_STR}")
+endif()
 list(TRANSFORM COMMON_LINK_LIBRARIES PREPEND "-l")
 string(JOIN " " MINIAUDIO_PC_LIBS_PRIVATE ${COMMON_LINK_LIBRARIES})
 
