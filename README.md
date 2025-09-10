@@ -7,6 +7,7 @@
 
 <p align="center">
     <a href="https://discord.gg/9vpqbjU"><img src="https://img.shields.io/discord/712952679415939085?label=discord&logo=discord&style=flat-square" alt="discord"></a>
+    <a href="https://x.com/mackron"><img alt="x" src="https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2Fmackron&style=flat-square&logo=x&label=%40mackron"></a>
 </p>
 
 <p align="center">
