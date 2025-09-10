@@ -16,6 +16,7 @@ project(miniaudio VERSION ${MINIAUDIO_VERSION})
 # Options
 option(MINIAUDIO_BUILD_EXAMPLES                "Build miniaudio examples"            OFF)
 option(MINIAUDIO_BUILD_TESTS                   "Build miniaudio tests"               OFF)
+option(MINIAUDIO_BUILD_TOOLS                   "Build miniaudio development tools. Leave this disabled unless you know what you're doing. If you enable this and you get build errors, you clearly do not know what you're doing and yet you still enabled this option. Why would you do that?" OFF)
 option(MINIAUDIO_FORCE_CXX                     "Force compilation as C++"            OFF)
 option(MINIAUDIO_FORCE_C89                     "Force compilation as C89"            OFF)
 option(MINIAUDIO_NO_EXTRA_NODES                "Do not build extra node graph nodes" OFF)
@@ -868,6 +869,15 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
 endif()
+
+
+# Tools
+if (MINIAUDIO_BUILD_TOOLS)
+    set(TOOLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+
+    add_executable(madoc ${TOOLS_DIR}/madoc/madoc.c)
+endif()
+
 
 if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
     set(MINIAUDIO_PC_INCLUDEDIR "${CMAKE_INSTALL_INCLUDEDIR}")
