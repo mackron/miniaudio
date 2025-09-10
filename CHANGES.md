@@ -8,6 +8,7 @@ v0.11.23 - TBD
 * Fixed a memory leak in the resource manager when opening a file fails.
 * Fixed an assertion failure in the resource manager when opening a file fails.
 * Fixed a compilation warning relating to `MA_FALLTHROUGH`
+* Fixed an undefined behavior error in the s16 to s32 conversion routine.
 * Fixed an undefined behavior error relating to MurmurHash3.
 * Fixed an undefined behavior error with the LCG random number generator.
 * Fixed a compilation error with `MA_NO_SSE2`.
