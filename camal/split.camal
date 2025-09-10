@@ -16,6 +16,7 @@ content_h["$"] = "\n";
 content_c : string;
 content_c["$"] = header;
 content_c["$"] = "\n";
+content_c["$"] = '#include "miniaudio.h"\n\n';
 content_c["$"] = @(miniaudio_h["#ifndef miniaudio_c" : "#endif  /\* miniaudio_c \*/"]);
 content_c["$"] = "\n\n";
 content_c["$"] = footer;
