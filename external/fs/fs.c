@@ -3,22 +3,13 @@
 
 #include "fs.h"
 
-/* TODO: Remove this. To replicate errors, Just comment out this _XOPEN_SOURCE section and compile with `-std=c89` on GCC. */
-/*
-This is for `-std=c89` compatibility. Without this there will be a few pthread related issues as well as some stdio
-functions being unavailable. They will need workarounds.
-
-Note that this causes errors on Apple platforms, so we exclude Apple from this.
-*/
-#ifndef __APPLE__
-    #ifndef _XOPEN_SOURCE
-    #define _XOPEN_SOURCE   700
-    #else
-        #if _XOPEN_SOURCE < 500
-        #error _XOPEN_SOURCE must be >= 500. fs is not usable.
-        #endif
-    #endif
+/* BEG fs_platform_detection.c */
+#if defined(_WIN32)
+    #define FS_WIN32
+#else
+    #define FS_POSIX
 #endif
+/* END fs_platform_detection.c */
 
 #include <errno.h>
 
@@ -378,24 +369,352 @@ FS_API int fs_strnicmp(const char* str1, const char* str2, size_t count)
 }
 
 
-#if defined(_WIN32)
-#include <windows.h>    /* <-- Just can't get away from this darn thing... Needed for mutexes and file iteration. */
-
-static fs_result fs_result_from_GetLastError(DWORD error)
+/* BEG fs_result.c */
+FS_API const char* fs_result_to_string(fs_result result)
 {
-    switch (error)
+    switch (result)
     {
-        case ERROR_SUCCESS:           return FS_SUCCESS;
-        case ERROR_NOT_ENOUGH_MEMORY: return FS_OUT_OF_MEMORY;
-        case ERROR_BUSY:              return FS_BUSY;
-        case ERROR_SEM_TIMEOUT:       return FS_TIMEOUT;
-        default: break;
+        case FS_SUCCESS:                       return "No error";
+        case FS_ERROR:                         return "Unknown error";
+        case FS_INVALID_ARGS:                  return "Invalid argument";
+        case FS_INVALID_OPERATION:             return "Invalid operation";
+        case FS_OUT_OF_MEMORY:                 return "Out of memory";
+        case FS_OUT_OF_RANGE:                  return "Out of range";
+        case FS_ACCESS_DENIED:                 return "Permission denied";
+        case FS_DOES_NOT_EXIST:                return "Resource does not exist";
+        case FS_ALREADY_EXISTS:                return "Resource already exists";
+        case FS_TOO_MANY_OPEN_FILES:           return "Too many open files";
+        case FS_INVALID_FILE:                  return "Invalid file";
+        case FS_TOO_BIG:                       return "Too large";
+        case FS_PATH_TOO_LONG:                 return "Path too long";
+        case FS_NAME_TOO_LONG:                 return "Name too long";
+        case FS_NOT_DIRECTORY:                 return "Not a directory";
+        case FS_IS_DIRECTORY:                  return "Is a directory";
+        case FS_DIRECTORY_NOT_EMPTY:           return "Directory not empty";
+        case FS_AT_END:                        return "At end";
+        case FS_NO_SPACE:                      return "No space available";
+        case FS_BUSY:                          return "Device or resource busy";
+        case FS_IO_ERROR:                      return "Input/output error";
+        case FS_INTERRUPT:                     return "Interrupted";
+        case FS_UNAVAILABLE:                   return "Resource unavailable";
+        case FS_ALREADY_IN_USE:                return "Resource already in use";
+        case FS_BAD_ADDRESS:                   return "Bad address";
+        case FS_BAD_SEEK:                      return "Illegal seek";
+        case FS_BAD_PIPE:                      return "Broken pipe";
+        case FS_DEADLOCK:                      return "Deadlock";
+        case FS_TOO_MANY_LINKS:                return "Too many links";
+        case FS_NOT_IMPLEMENTED:               return "Not implemented";
+        case FS_NO_MESSAGE:                    return "No message of desired type";
+        case FS_BAD_MESSAGE:                   return "Invalid message";
+        case FS_NO_DATA_AVAILABLE:             return "No data available";
+        case FS_INVALID_DATA:                  return "Invalid data";
+        case FS_TIMEOUT:                       return "Timeout";
+        case FS_NO_NETWORK:                    return "Network unavailable";
+        case FS_NOT_UNIQUE:                    return "Not unique";
+        case FS_NOT_SOCKET:                    return "Socket operation on non-socket";
+        case FS_NO_ADDRESS:                    return "Destination address required";
+        case FS_BAD_PROTOCOL:                  return "Protocol wrong type for socket";
+        case FS_PROTOCOL_UNAVAILABLE:          return "Protocol not available";
+        case FS_PROTOCOL_NOT_SUPPORTED:        return "Protocol not supported";
+        case FS_PROTOCOL_FAMILY_NOT_SUPPORTED: return "Protocol family not supported";
+        case FS_ADDRESS_FAMILY_NOT_SUPPORTED:  return "Address family not supported";
+        case FS_SOCKET_NOT_SUPPORTED:          return "Socket type not supported";
+        case FS_CONNECTION_RESET:              return "Connection reset";
+        case FS_ALREADY_CONNECTED:             return "Already connected";
+        case FS_NOT_CONNECTED:                 return "Not connected";
+        case FS_CONNECTION_REFUSED:            return "Connection refused";
+        case FS_NO_HOST:                       return "No host";
+        case FS_IN_PROGRESS:                   return "Operation in progress";
+        case FS_CANCELLED:                     return "Operation cancelled";
+        case FS_MEMORY_ALREADY_MAPPED:         return "Memory already mapped";
+        case FS_DIFFERENT_DEVICE:              return "Different device";
+        default:                               return "Unknown error";
     }
+}
 
+#include <errno.h>
+
+FS_API fs_result fs_result_from_errno(int error)
+{
+    if (error == 0) {
+        return FS_SUCCESS;
+    }
+#ifdef EPERM
+    else if (error == EPERM) { return FS_INVALID_OPERATION; }
+#endif
+#ifdef ENOENT
+    else if (error == ENOENT) { return FS_DOES_NOT_EXIST; }
+#endif
+#ifdef ESRCH
+    else if (error == ESRCH) { return FS_DOES_NOT_EXIST; }
+#endif
+#ifdef EINTR
+    else if (error == EINTR) { return FS_INTERRUPT; }
+#endif
+#ifdef EIO
+    else if (error == EIO) { return FS_IO_ERROR; }
+#endif
+#ifdef ENXIO
+    else if (error == ENXIO) { return FS_DOES_NOT_EXIST; }
+#endif
+#ifdef E2BIG
+    else if (error == E2BIG) { return FS_INVALID_ARGS; }
+#endif
+#ifdef ENOEXEC
+    else if (error == ENOEXEC) { return FS_INVALID_FILE; }
+#endif
+#ifdef EBADF
+    else if (error == EBADF) { return FS_INVALID_FILE; }
+#endif
+#ifdef EAGAIN
+    else if (error == EAGAIN) { return FS_UNAVAILABLE; }
+#endif
+#ifdef ENOMEM
+    else if (error == ENOMEM) { return FS_OUT_OF_MEMORY; }
+#endif
+#ifdef EACCES
+    else if (error == EACCES) { return FS_ACCESS_DENIED; }
+#endif
+#ifdef EFAULT
+    else if (error == EFAULT) { return FS_BAD_ADDRESS; }
+#endif
+#ifdef EBUSY
+    else if (error == EBUSY) { return FS_BUSY; }
+#endif
+#ifdef EEXIST
+    else if (error == EEXIST) { return FS_ALREADY_EXISTS; }
+#endif
+#ifdef EXDEV
+    else if (error == EXDEV) { return FS_DIFFERENT_DEVICE; }
+#endif
+#ifdef ENODEV
+    else if (error == ENODEV) { return FS_DOES_NOT_EXIST; }
+#endif
+#ifdef ENOTDIR
+    else if (error == ENOTDIR) { return FS_NOT_DIRECTORY; }
+#endif
+#ifdef EISDIR
+    else if (error == EISDIR) { return FS_IS_DIRECTORY; }
+#endif
+#ifdef EINVAL
+    else if (error == EINVAL) { return FS_INVALID_ARGS; }
+#endif
+#ifdef ENFILE
+    else if (error == ENFILE) { return FS_TOO_MANY_OPEN_FILES; }
+#endif
+#ifdef EMFILE
+    else if (error == EMFILE) { return FS_TOO_MANY_OPEN_FILES; }
+#endif
+#ifdef ENOTTY
+    else if (error == ENOTTY) { return FS_INVALID_OPERATION; }
+#endif
+#ifdef ETXTBSY
+    else if (error == ETXTBSY) { return FS_BUSY; }
+#endif
+#ifdef EFBIG
+    else if (error == EFBIG) { return FS_TOO_BIG; }
+#endif
+#ifdef ENOSPC
+    else if (error == ENOSPC) { return FS_NO_SPACE; }
+#endif
+#ifdef ESPIPE
+    else if (error == ESPIPE) { return FS_BAD_SEEK; }
+#endif
+#ifdef EROFS
+    else if (error == EROFS) { return FS_ACCESS_DENIED; }
+#endif
+#ifdef EPIPE
+    else if (error == EPIPE) { return FS_BAD_PIPE; }
+#endif
+#ifdef EDOM
+    else if (error == EDOM) { return FS_OUT_OF_RANGE; }
+#endif
+#ifdef ERANGE
+    else if (error == ERANGE) { return FS_OUT_OF_RANGE; }
+#endif
+#ifdef EDEADLK
+    else if (error == EDEADLK) { return FS_DEADLOCK; }
+#endif
+#ifdef ENAMETOOLONG
+    else if (error == ENAMETOOLONG) { return FS_PATH_TOO_LONG; }
+#endif
+#ifdef ENOSYS
+    else if (error == ENOSYS) { return FS_NOT_IMPLEMENTED; }
+#endif
+#ifdef ENOTEMPTY
+    else if (error == ENOTEMPTY) { return FS_DIRECTORY_NOT_EMPTY; }
+#endif
+#ifdef ELNRNG
+    else if (error == ELNRNG) { return FS_OUT_OF_RANGE; }
+#endif
+#ifdef EBFONT
+    else if (error == EBFONT) { return FS_INVALID_FILE; }
+#endif
+#ifdef ENODATA
+    else if (error == ENODATA) { return FS_NO_DATA_AVAILABLE; }
+#endif
+#ifdef ETIME
+    else if (error == ETIME) { return FS_TIMEOUT; }
+#endif
+#ifdef ENOSR
+    else if (error == ENOSR) { return FS_NO_DATA_AVAILABLE; }
+#endif
+#ifdef ENONET
+    else if (error == ENONET) { return FS_NO_NETWORK; }
+#endif
+#ifdef EOVERFLOW
+    else if (error == EOVERFLOW) { return FS_TOO_BIG; }
+#endif
+#ifdef ELIBACC
+    else if (error == ELIBACC) { return FS_ACCESS_DENIED; }
+#endif
+#ifdef ELIBBAD
+    else if (error == ELIBBAD) { return FS_INVALID_FILE; }
+#endif
+#ifdef ELIBSCN
+    else if (error == ELIBSCN) { return FS_INVALID_FILE; }
+#endif
+#ifdef EILSEQ
+    else if (error == EILSEQ) { return FS_INVALID_DATA; }
+#endif
+#ifdef ENOTSOCK
+    else if (error == ENOTSOCK) { return FS_NOT_SOCKET; }
+#endif
+#ifdef EDESTADDRREQ
+    else if (error == EDESTADDRREQ) { return FS_NO_ADDRESS; }
+#endif
+#ifdef EMSGSIZE
+    else if (error == EMSGSIZE) { return FS_TOO_BIG; }
+#endif
+#ifdef EPROTOTYPE
+    else if (error == EPROTOTYPE) { return FS_BAD_PROTOCOL; }
+#endif
+#ifdef ENOPROTOOPT
+    else if (error == ENOPROTOOPT) { return FS_PROTOCOL_UNAVAILABLE; }
+#endif
+#ifdef EPROTONOSUPPORT
+    else if (error == EPROTONOSUPPORT) { return FS_PROTOCOL_NOT_SUPPORTED; }
+#endif
+#ifdef ESOCKTNOSUPPORT
+    else if (error == ESOCKTNOSUPPORT) { return FS_SOCKET_NOT_SUPPORTED; }
+#endif
+#ifdef EOPNOTSUPP
+    else if (error == EOPNOTSUPP) { return FS_INVALID_OPERATION; }
+#endif
+#ifdef EPFNOSUPPORT
+    else if (error == EPFNOSUPPORT) { return FS_PROTOCOL_FAMILY_NOT_SUPPORTED; }
+#endif
+#ifdef EAFNOSUPPORT
+    else if (error == EAFNOSUPPORT) { return FS_ADDRESS_FAMILY_NOT_SUPPORTED; }
+#endif
+#ifdef EADDRINUSE
+    else if (error == EADDRINUSE) { return FS_ALREADY_IN_USE; }
+#endif
+#ifdef ENETDOWN
+    else if (error == ENETDOWN) { return FS_NO_NETWORK; }
+#endif
+#ifdef ENETUNREACH
+    else if (error == ENETUNREACH) { return FS_NO_NETWORK; }
+#endif
+#ifdef ENETRESET
+    else if (error == ENETRESET) { return FS_NO_NETWORK; }
+#endif
+#ifdef ECONNABORTED
+    else if (error == ECONNABORTED) { return FS_NO_NETWORK; }
+#endif
+#ifdef ECONNRESET
+    else if (error == ECONNRESET) { return FS_CONNECTION_RESET; }
+#endif
+#ifdef ENOBUFS
+    else if (error == ENOBUFS) { return FS_NO_SPACE; }
+#endif
+#ifdef EISCONN
+    else if (error == EISCONN) { return FS_ALREADY_CONNECTED; }
+#endif
+#ifdef ENOTCONN
+    else if (error == ENOTCONN) { return FS_NOT_CONNECTED; }
+#endif
+#ifdef ETIMEDOUT
+    else if (error == ETIMEDOUT) { return FS_TIMEOUT; }
+#endif
+#ifdef ECONNREFUSED
+    else if (error == ECONNREFUSED) { return FS_CONNECTION_REFUSED; }
+#endif
+#ifdef EHOSTDOWN
+    else if (error == EHOSTDOWN) { return FS_NO_HOST; }
+#endif
+#ifdef EHOSTUNREACH
+    else if (error == EHOSTUNREACH) { return FS_NO_HOST; }
+#endif
+#ifdef EALREADY
+    else if (error == EALREADY) { return FS_IN_PROGRESS; }
+#endif
+#ifdef EINPROGRESS
+    else if (error == EINPROGRESS) { return FS_IN_PROGRESS; }
+#endif
+#ifdef ESTALE
+    else if (error == ESTALE) { return FS_INVALID_FILE; }
+#endif
+#ifdef EREMOTEIO
+    else if (error == EREMOTEIO) { return FS_IO_ERROR; }
+#endif
+#ifdef EDQUOT
+    else if (error == EDQUOT) { return FS_NO_SPACE; }
+#endif
+#ifdef ENOMEDIUM
+    else if (error == ENOMEDIUM) { return FS_DOES_NOT_EXIST; }
+#endif
+#ifdef ECANCELED
+    else if (error == ECANCELED) { return FS_CANCELLED; }
+#endif
+    
     return FS_ERROR;
 }
-#endif
 
+#if defined(_WIN32)
+#include <windows.h> /* For GetLastError, ERROR_* constants. */
+
+FS_API fs_result fs_result_from_GetLastError(void)
+{
+    switch (GetLastError())
+    {
+        case ERROR_SUCCESS:                return FS_SUCCESS;
+        case ERROR_NOT_ENOUGH_MEMORY:      return FS_OUT_OF_MEMORY;
+        case ERROR_OUTOFMEMORY:            return FS_OUT_OF_MEMORY;
+        case ERROR_BUSY:                   return FS_BUSY;
+        case ERROR_SEM_TIMEOUT:            return FS_TIMEOUT;
+        case ERROR_ALREADY_EXISTS:         return FS_ALREADY_EXISTS;
+        case ERROR_FILE_EXISTS:            return FS_ALREADY_EXISTS;
+        case ERROR_ACCESS_DENIED:          return FS_ACCESS_DENIED;
+        case ERROR_WRITE_PROTECT:          return FS_ACCESS_DENIED;
+        case ERROR_PRIVILEGE_NOT_HELD:     return FS_ACCESS_DENIED;
+        case ERROR_SHARING_VIOLATION:      return FS_ACCESS_DENIED;
+        case ERROR_LOCK_VIOLATION:         return FS_ACCESS_DENIED;
+        case ERROR_FILE_NOT_FOUND:         return FS_DOES_NOT_EXIST;
+        case ERROR_PATH_NOT_FOUND:         return FS_DOES_NOT_EXIST;
+        case ERROR_INVALID_NAME:           return FS_INVALID_ARGS;
+        case ERROR_BAD_PATHNAME:           return FS_INVALID_ARGS;
+        case ERROR_INVALID_PARAMETER:      return FS_INVALID_ARGS;
+        case ERROR_INVALID_HANDLE:         return FS_INVALID_ARGS;
+        case ERROR_INVALID_FUNCTION:       return FS_INVALID_OPERATION;
+        case ERROR_FILENAME_EXCED_RANGE:   return FS_PATH_TOO_LONG;
+        case ERROR_DIRECTORY:              return FS_NOT_DIRECTORY;
+        case ERROR_DIR_NOT_EMPTY:          return FS_DIRECTORY_NOT_EMPTY;
+        case ERROR_FILE_TOO_LARGE:         return FS_TOO_BIG;
+        case ERROR_DISK_FULL:              return FS_OUT_OF_RANGE;
+        case ERROR_HANDLE_EOF:             return FS_AT_END;
+        case ERROR_SEEK:                   return FS_BAD_SEEK;
+        case ERROR_OPERATION_ABORTED:      return FS_CANCELLED;
+        case ERROR_CANCELLED:              return FS_INTERRUPT;
+        case ERROR_TOO_MANY_OPEN_FILES:    return FS_TOO_MANY_OPEN_FILES;
+        case ERROR_INVALID_DATA:           return FS_INVALID_DATA;
+        case ERROR_NO_DATA:                return FS_NO_DATA_AVAILABLE;
+        case ERROR_NOT_SAME_DEVICE:        return FS_DIFFERENT_DEVICE;
+        default:                           return FS_ERROR; /* Generic error. */
+    }
+}
+#endif /* _WIN32 */
+/* END fs_result.c */
 
 
 /* BEG fs_allocation_callbacks.c */
@@ -503,38 +822,69 @@ if you wanted to amalgamate this into another project which uses c89thread and w
 code. These are the differences:
 
     * The c89 namespace is replaced with "fs_".
-    * There is no c89mtx_timedlock() equivalent.
-    * `fs_mtx_plain`, etc. have been capitalized and taken out of the enum.
-    * c89thread_success is FS_SUCCESS
-    * c89thrd_error is EINVAL
-    * c89thrd_busy is EBUSY
+    * There is no c89mtx_trylock() or c89mtx_timedlock() equivalent.
+    * c89thrd_success is FS_SUCCESS
+    * c89thrd_error is FS_ERROR
+    * c89thrd_busy is FS_BUSY
     * c89thrd_pthread_* is fs_pthread_*
 
 Parameter ordering is the same as c89thread to make amalgamation easier.
 */
 
-#if defined(_WIN32) && !defined(FS_USE_PTHREAD)
-    /* Win32. Don't include windows.h here. */
-#else
-    #include <pthread.h>
-    typedef pthread_t           fs_pthread;
-    typedef pthread_mutex_t     fs_pthread_mutex;
-    typedef pthread_cond_t      fs_pthread_cond;
-#endif
+/* BEG fs_thread_basic_types.c */
+#if defined(FS_POSIX)
+    #ifndef FS_USE_PTHREAD
+    #define FS_USE_PTHREAD
+    #endif
 
-#if defined(_WIN32)
-typedef struct
-{
-    void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
-    int type;
-} fs_mtx;
-#else
-typedef fs_pthread_mutex fs_mtx;
+    #ifndef FS_NO_PTHREAD_IN_HEADER
+        #include <pthread.h>
+        typedef pthread_t       fs_pthread_t;
+        typedef pthread_mutex_t fs_pthread_mutex_t;
+    #else
+        typedef fs_uintptr      fs_pthread_t;
+        typedef union           fs_pthread_mutex_t { char __data[40]; fs_uint64 __alignment; } fs_pthread_mutex_t;
+    #endif
 #endif
+/* END fs_thread_basic_types.c */
 
-#define FS_MTX_PLAIN        0
-#define FS_MTX_TIMED        1
-#define FS_MTX_RECURSIVE    2
+
+/* BEG fs_thread_mtx.h */
+#if defined(FS_WIN32)
+    typedef struct
+    {
+        void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
+        int type;
+    } fs_mtx;
+#else
+    /*
+    We may need to force the use of a manual recursive mutex which will happen when compiling
+    on very old compilers, or with `-std=c89`.
+    */
+
+    /* If __STDC_VERSION__ is not defined it means we're compiling in C89 mode. */
+    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && !defined(__STDC_VERSION__)
+        #define FS_USE_MANUAL_RECURSIVE_MUTEX
+    #endif
+
+    /* This is for checking if PTHREAD_MUTEX_RECURSIVE is available. */
+    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && (!defined(__USE_UNIX98) && !defined(__USE_XOPEN2K8))
+        #define FS_USE_MANUAL_RECURSIVE_MUTEX
+    #endif
+
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+        typedef struct
+        {
+            fs_pthread_mutex_t mutex;    /* The underlying pthread mutex. */
+            fs_pthread_mutex_t guard;    /* Guard for metadata (owner and recursionCount). */
+            fs_pthread_t owner;
+            int recursionCount;
+            int type;
+        } fs_mtx;
+    #else
+        typedef fs_pthread_mutex_t fs_mtx;
+    #endif
+#endif
 
 enum
 {
@@ -542,14 +892,16 @@ enum
     fs_mtx_timed     = 0x00000001,
     fs_mtx_recursive = 0x00000002
 };
+/* END fs_thread_mtx.h */
 
-#if defined(_WIN32)
-FS_API int fs_mtx_init(fs_mtx* mutex, int type)
+/* BEG fs_thread_mtx.c */
+#if defined(FS_WIN32) && !defined(FS_USE_PTHREAD)
+static int fs_mtx_init(fs_mtx* mutex, int type)
 {
     HANDLE hMutex;
 
     if (mutex == NULL) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
     /* Initialize the object to zero for safety. */
@@ -561,14 +913,14 @@ FS_API int fs_mtx_init(fs_mtx* mutex, int type)
     event (CreateEvent()) is not thread-aware and will deadlock (will not allow recursiveness). In
     Win32 I'm making all mutex's timeable.
     */
-    if ((type & FS_MTX_RECURSIVE) != 0) {
+    if ((type & fs_mtx_recursive) != 0) {
         hMutex = CreateMutexA(NULL, FALSE, NULL);
     } else {
         hMutex = CreateEventA(NULL, FALSE, TRUE, NULL);
     }
 
     if (hMutex == NULL) {
-        return fs_result_from_GetLastError(GetLastError());
+        return fs_result_from_GetLastError();
     }
 
     mutex->handle = (void*)hMutex;
@@ -577,7 +929,7 @@ FS_API int fs_mtx_init(fs_mtx* mutex, int type)
     return FS_SUCCESS;
 }
 
-FS_API void fs_mtx_destroy(fs_mtx* mutex)
+static void fs_mtx_destroy(fs_mtx* mutex)
 {
     if (mutex == NULL) {
         return;
@@ -586,146 +938,260 @@ FS_API void fs_mtx_destroy(fs_mtx* mutex)
     CloseHandle((HANDLE)mutex->handle);
 }
 
-FS_API int fs_mtx_lock(fs_mtx* mutex)
+static int fs_mtx_lock(fs_mtx* mutex)
 {
     DWORD result;
 
     if (mutex == NULL) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
     result = WaitForSingleObject((HANDLE)mutex->handle, INFINITE);
     if (result != WAIT_OBJECT_0) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
     return FS_SUCCESS;
 }
 
-FS_API int fs_mtx_trylock(fs_mtx* mutex)
-{
-    DWORD result;
-
-    if (mutex == NULL) {
-        return EINVAL;
-    }
-
-    result = WaitForSingleObject((HANDLE)mutex->handle, 0);
-    if (result != WAIT_OBJECT_0) {
-        return EBUSY;
-    }
-
-    return FS_SUCCESS;
-}
-
-FS_API int fs_mtx_unlock(fs_mtx* mutex)
+static int fs_mtx_unlock(fs_mtx* mutex)
 {
     BOOL result;
 
     if (mutex == NULL) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
-    if ((mutex->type & FS_MTX_RECURSIVE) != 0) {
+    if ((mutex->type & fs_mtx_recursive) != 0) {
         result = ReleaseMutex((HANDLE)mutex->handle);
     } else {
         result = SetEvent((HANDLE)mutex->handle);
     }
 
     if (!result) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
     return FS_SUCCESS;
 }
 #else
-FS_API int fs_mtx_init(fs_mtx* mutex, int type)
+static int fs_mtx_init(fs_mtx* mutex, int type)
 {
     int result;
-    pthread_mutexattr_t attr;   /* For specifying whether or not the mutex is recursive. */
 
     if (mutex == NULL) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
-    pthread_mutexattr_init(&attr);
-    if ((type & FS_MTX_RECURSIVE) != 0) {
-        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    } else {
-        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);     /* Will deadlock. Consistent with Win32. */
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+    {
+        /* Initialize the main mutex */
+        result = pthread_mutex_init(&mutex->mutex, NULL);
+        if (result != 0) {
+            return FS_ERROR;
+        }
+        
+        /* For recursive mutexes, we need the guard mutex and metadata */
+        if ((type & fs_mtx_recursive) != 0) {
+            if (pthread_mutex_init(&mutex->guard, NULL) != 0) {
+                pthread_mutex_destroy(&mutex->mutex);
+                return FS_ERROR;
+            }
+
+            mutex->owner = 0;  /* No owner initially. */
+            mutex->recursionCount = 0;
+        }
+        
+        mutex->type = type;
+        
+        return FS_SUCCESS;
     }
+    #else
+    {
+        pthread_mutexattr_t attr;   /* For specifying whether or not the mutex is recursive. */
 
-    result = pthread_mutex_init((pthread_mutex_t*)mutex, &attr);
-    pthread_mutexattr_destroy(&attr);
+        pthread_mutexattr_init(&attr);
+        if ((type & fs_mtx_recursive) != 0) {
+            pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        } else {
+            pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);     /* Will deadlock. Consistent with Win32. */
+        }
 
-    if (result != 0) {
-        return EINVAL;
+        result = pthread_mutex_init((pthread_mutex_t*)mutex, &attr);
+        pthread_mutexattr_destroy(&attr);
+
+        if (result != 0) {
+            return FS_ERROR;
+        }
+
+        return FS_SUCCESS;
     }
-
-    return FS_SUCCESS;
+    #endif
 }
 
-FS_API void fs_mtx_destroy(fs_mtx* mutex)
+static void fs_mtx_destroy(fs_mtx* mutex)
 {
     if (mutex == NULL) {
         return;
     }
 
-    pthread_mutex_destroy((pthread_mutex_t*)mutex);
-}
-
-FS_API int fs_mtx_lock(fs_mtx* mutex)
-{
-    int result;
-
-    if (mutex == NULL) {
-        return EINVAL;
-    }
-
-    result = pthread_mutex_lock((pthread_mutex_t*)mutex);
-    if (result != 0) {
-        return EINVAL;
-    }
-
-    return FS_SUCCESS;
-}
-
-FS_API int fs_mtx_trylock(fs_mtx* mutex)
-{
-    int result;
-
-    if (mutex == NULL) {
-        return EINVAL;
-    }
-
-    result = pthread_mutex_trylock((pthread_mutex_t*)mutex);
-    if (result != 0) {
-        if (result == EBUSY) {
-            return EBUSY;
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+    {
+        /* Only destroy the guard mutex if it was initialized (for recursive mutexes) */
+        if ((mutex->type & fs_mtx_recursive) != 0) {
+            pthread_mutex_destroy(&mutex->guard);
         }
 
-        return EINVAL;
+        pthread_mutex_destroy(&mutex->mutex);
     }
-
-    return FS_SUCCESS;
+    #else
+    {
+        pthread_mutex_destroy((pthread_mutex_t*)mutex);
+    }
+    #endif
 }
 
-FS_API int fs_mtx_unlock(fs_mtx* mutex)
+static int fs_mtx_lock(fs_mtx* mutex)
 {
     int result;
 
     if (mutex == NULL) {
-        return EINVAL;
+        return FS_ERROR;
     }
 
-    result = pthread_mutex_unlock((pthread_mutex_t*)mutex);
-    if (result != 0) {
-        return EINVAL;
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+    {
+        pthread_t currentThread;
+
+        /* Optimized path for plain mutexes. */
+        if ((mutex->type & fs_mtx_recursive) == 0) {
+            result = pthread_mutex_lock(&mutex->mutex);
+            if (result != 0) {
+                return FS_ERROR;
+            }
+
+            return FS_SUCCESS;
+        }
+
+        /* Getting here means it's a recursive mutex. */
+        currentThread = pthread_self();
+        
+        /* First, lock the guard mutex to safely access the metadata. */
+        result = pthread_mutex_lock(&mutex->guard);
+        if (result != 0) {
+            return FS_ERROR;
+        }
+
+        /* We can bomb out early if the current thread already owns this mutex. */
+        if (mutex->recursionCount > 0 && pthread_equal(mutex->owner, currentThread)) {
+            mutex->recursionCount += 1;
+            pthread_mutex_unlock(&mutex->guard);
+            return FS_SUCCESS;
+        }
+
+        /* The guard mutex needs to be unlocked before locking the main mutex or else we'll deadlock. */
+        pthread_mutex_unlock(&mutex->guard);
+        
+        result = pthread_mutex_lock(&mutex->mutex);
+        if (result != 0) {
+            return FS_ERROR;
+        }
+        
+        /* Update metadata. */
+        result = pthread_mutex_lock(&mutex->guard);
+        if (result != 0) {
+            pthread_mutex_unlock(&mutex->mutex);
+            return FS_ERROR;
+        }
+        
+        mutex->owner = currentThread;
+        mutex->recursionCount = 1;
+        
+        pthread_mutex_unlock(&mutex->guard);
+
+        return FS_SUCCESS;
+    }
+    #else
+    {
+        result = pthread_mutex_lock((pthread_mutex_t*)mutex);
+        if (result != 0) {
+            return FS_ERROR;
+        }
+
+        return FS_SUCCESS;
+    }
+    #endif
+}
+
+static int fs_mtx_unlock(fs_mtx* mutex)
+{
+    int result;
+
+    if (mutex == NULL) {
+        return FS_ERROR;
     }
 
-    return FS_SUCCESS;
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+    {
+        pthread_t currentThread;
+
+        /* Optimized path for plain mutexes. */
+        if ((mutex->type & fs_mtx_recursive) == 0) {
+            result = pthread_mutex_unlock(&mutex->mutex);
+            if (result != 0) {
+                return FS_ERROR;
+            }
+
+            return FS_SUCCESS;
+        }
+        
+        /* Getting here means it's a recursive mutex. */
+        currentThread = pthread_self();
+        
+        /* Lock the guard mutex to safely access the metadata */
+        result = pthread_mutex_lock(&mutex->guard);
+        if (result != 0) {
+            return FS_ERROR;
+        }
+        
+        /* Check if the current thread owns the mutex */
+        if (mutex->recursionCount == 0 || !pthread_equal(mutex->owner, currentThread)) {
+            /* Getting here means we are trying to unlock a mutex that is not owned by this thread. Bomb out. */
+            pthread_mutex_unlock(&mutex->guard);
+            return FS_ERROR;
+        }
+        
+        mutex->recursionCount -= 1;
+
+        if (mutex->recursionCount == 0) {
+            /* Last unlock. Clear ownership and unlock the main mutex. */
+            mutex->owner = 0;
+            pthread_mutex_unlock(&mutex->guard);
+
+            result = pthread_mutex_unlock(&mutex->mutex);
+            if (result != 0) {
+                return FS_ERROR;
+            }
+        } else {
+            /* Still recursively locked, just unlock the guard mutex. */
+            pthread_mutex_unlock(&mutex->guard);
+        }
+        
+        return FS_SUCCESS;
+    }
+    #else
+    {
+        result = pthread_mutex_unlock((pthread_mutex_t*)mutex);
+        if (result != 0) {
+            return FS_ERROR;
+        }
+
+        return FS_SUCCESS;
+    }
+    #endif
 }
 #endif
+/* END fs_thread_mtx.c */
 /* END fs_thread.c */
 
 
@@ -1048,6 +1514,10 @@ FS_API fs_result fs_stream_read_to_end(fs_stream* pStream, fs_format format, con
 
 
 /* BEG fs.c */
+const char* FS_STDIN  = "<si>";
+const char* FS_STDOUT = "<so>";
+const char* FS_STDERR = "<se>";
+
 static size_t fs_backend_alloc_size(const fs_backend* pBackend, const void* pBackendConfig)
 {
     FS_ASSERT(pBackend != NULL);
@@ -1158,17 +1628,6 @@ static fs_result fs_backend_file_open(const fs_backend* pBackend, fs* pFS, fs_st
     }
 }
 
-static fs_result fs_backend_file_open_handle(const fs_backend* pBackend, fs* pFS, void* hBackendFile, fs_file* pFile)
-{
-    FS_ASSERT(pBackend != NULL);
-
-    if (pBackend->file_open_handle == NULL) {
-        return FS_NOT_IMPLEMENTED;
-    } else {
-        return pBackend->file_open_handle(pFS, hBackendFile, pFile);
-    }
-}
-
 static void fs_backend_file_close(const fs_backend* pBackend, fs_file* pFile)
 {
     FS_ASSERT(pBackend != NULL);
@@ -1232,6 +1691,17 @@ static fs_result fs_backend_file_flush(const fs_backend* pBackend, fs_file* pFil
         return FS_NOT_IMPLEMENTED;
     } else {
         return pBackend->file_flush(pFile);
+    }
+}
+
+static fs_result fs_backend_file_truncate(const fs_backend* pBackend, fs_file* pFile)
+{
+    FS_ASSERT(pBackend != NULL);
+
+    if (pBackend->file_truncate == NULL) {
+        return FS_NOT_IMPLEMENTED;
+    } else {
+        return pBackend->file_truncate(pFile);
     }
 }
 
@@ -1300,6 +1770,17 @@ static void fs_backend_free_iterator(const fs_backend* pBackend, fs_iterator* pI
 }
 
 
+FS_API fs_archive_type fs_archive_type_init(const fs_backend* pBackend, const char* pExtension)
+{
+    fs_archive_type archiveType;
+
+    archiveType.pBackend   = pBackend;
+    archiveType.pExtension = pExtension;
+
+    return archiveType;
+}
+
+
 /*
 This is the maximum number of ureferenced opened archive files that will be kept in memory
 before garbage collection of those archives is triggered.
@@ -1321,7 +1802,7 @@ FS_API fs_config fs_config_init_default(void)
     return config;
 }
 
-FS_API fs_config fs_config_init(const fs_backend* pBackend, void* pBackendConfig, fs_stream* pStream)
+FS_API fs_config fs_config_init(const fs_backend* pBackend, const void* pBackendConfig, fs_stream* pStream)
 {
     fs_config config = fs_config_init_default();
     config.pBackend       = pBackend;
@@ -1387,8 +1868,36 @@ typedef enum fs_mount_priority
 } fs_mount_priority;
 
 
-static void fs_gc_archives_nolock(fs* pFS, int policy); /* Defined further down in the file. */
+static void fs_gc(fs* pFS, int policy, fs* pSpecificArchive); /* Generic internal GC function. */
 
+
+static const char* fs_mount_point_real_path(const fs_mount_point* pMountPoint)
+{
+    FS_ASSERT(pMountPoint != NULL);
+
+    return (const char*)FS_OFFSET_PTR(pMountPoint, sizeof(fs_mount_point) + pMountPoint->pathOff);
+}
+
+static size_t fs_mount_point_real_path_len(const fs_mount_point* pMountPoint)
+{
+    FS_ASSERT(pMountPoint != NULL);
+
+    return pMountPoint->pathLen;
+}
+
+static const char* fs_mount_point_virtual_path(const fs_mount_point* pMountPoint)
+{
+    FS_ASSERT(pMountPoint != NULL);
+
+    return (const char*)FS_OFFSET_PTR(pMountPoint, sizeof(fs_mount_point) + pMountPoint->mountPointOff);
+}
+
+static size_t fs_mount_point_virtual_path_len(const fs_mount_point* pMountPoint)
+{
+    FS_ASSERT(pMountPoint != NULL);
+
+    return pMountPoint->mountPointLen;
+}
 
 static size_t fs_mount_point_size(size_t pathLen, size_t mountPointLen)
 {
@@ -1592,10 +2101,21 @@ static fs_result fs_mount_list_remove(fs_mount_list* pList, fs_mount_point* pMou
 
 
 
+static const fs_backend* fs_get_default_backend(void)
+{
+    /*  */ if (FS_BACKEND_POSIX != NULL) {
+        return FS_BACKEND_POSIX;
+    } else if (FS_BACKEND_WIN32 != NULL) {
+        return FS_BACKEND_WIN32;
+    } else {
+        return NULL;
+    }
+}
+
 static const fs_backend* fs_get_backend_or_default(const fs* pFS)
 {
     if (pFS == NULL) {
-        return FS_STDIO;
+        return fs_get_default_backend();
     } else {
         return pFS->pBackend;
     }
@@ -1611,7 +2131,7 @@ typedef struct fs_registered_backend_iterator
     size_t extensionLen;
 } fs_registered_backend_iterator;
 
-FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMode, fs_file** ppFile, fs_file_info* pInfo);
+static fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMode, fs_file** ppFile, fs_file_info* pInfo);
 static fs_result fs_next_registered_backend(fs_registered_backend_iterator* pIterator);
 
 static fs_result fs_first_registered_backend(fs* pFS, fs_registered_backend_iterator* pIterator)
@@ -1768,7 +2288,224 @@ static size_t fs_archive_type_sizeof(const fs_archive_type* pArchiveType)
 }
 
 
-static fs_mount_point* fs_find_best_write_mount_point(fs* pFS, const char* pPath, const char** ppMountPointPath, const char** ppSubPath)
+typedef struct
+{
+    size_t      len;
+    char        stack[1024];
+    char*       heap;
+    const char* ref;
+} fs_string;
+
+static fs_string fs_string_new(void)
+{
+    fs_string str;
+
+    str.len      = 0;
+    str.stack[0] = '\0';
+    str.heap     = NULL;
+    str.ref      = NULL;
+
+    return str;
+}
+
+static fs_string fs_string_new_ref(const char* ref, size_t len)
+{
+    fs_string str = fs_string_new();
+    str.ref = ref;
+    str.len = len;
+
+    if (str.len == FS_NULL_TERMINATED) {
+        str.len = strlen(ref);
+    }
+
+    return str;
+}
+
+static fs_result fs_string_alloc(size_t len, const fs_allocation_callbacks* pAllocationCallbacks, fs_string* pString)
+{
+    *pString = fs_string_new();
+
+    if (len < sizeof(pString->stack)) {
+        pString->stack[0] = '\0';
+    } else {
+        pString->heap = (char*)fs_malloc(len + 1, pAllocationCallbacks);
+        if (pString->heap == NULL) {
+            return FS_OUT_OF_MEMORY;
+        }
+    
+        pString->heap[0] = '\0';
+    }
+
+    return FS_SUCCESS;
+}
+
+static void fs_string_free(fs_string* pString, const fs_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pString == NULL) {
+        return;
+    }
+
+    if (pString->heap != NULL) {
+        fs_free(pString->heap, pAllocationCallbacks);
+        pString->heap = NULL;
+    }
+}
+
+static const char* fs_string_cstr(const fs_string* pString)
+{
+    FS_ASSERT(pString != NULL);
+
+    if (pString->ref != NULL) {
+        return pString->ref;
+    }
+
+    if (pString->heap != NULL) {
+        return pString->heap;
+    }
+
+    return pString->stack;
+}
+
+static size_t fs_string_len(const fs_string* pString)
+{
+    return pString->len;
+}
+
+static void fs_string_append_preallocated(fs_string* pString, const char* pSrc, size_t srcLen)
+{
+    char* pDst;
+
+    FS_ASSERT(pSrc         != NULL);
+    FS_ASSERT(pString      != NULL);
+    FS_ASSERT(pString->ref == NULL); /* Can't concatenate to a reference string. */
+
+    if (srcLen == FS_NULL_TERMINATED) {
+        srcLen = strlen(pSrc);
+    }
+
+    if (pString->heap != NULL) {
+        pDst = pString->heap;
+    } else {
+        pDst = pString->stack;
+    }
+
+    FS_COPY_MEMORY(pDst + pString->len, pSrc, srcLen);
+    pString->len += srcLen;
+    pDst[pString->len] = '\0';
+}
+
+
+static const char* fs_path_trim_mount_point_base(const char* pPath, size_t pathLen, const char* pMountPoint, size_t mountPointLen)
+{
+    FS_ASSERT(pPath != NULL && pMountPoint != NULL);
+
+    /*
+    Special case here, and why we need to use this function instead of fs_path_trim_base() directly. For mount
+    points, the "" mount is *not* considered to match with a path that starts with "/".
+    */
+    if (pathLen > 0 && pPath[0] == '/' && pMountPoint[0] == '\0') {
+        return NULL;    /* Path starts with "/", but the mount point is "". This is not a match. */
+    }
+
+    return fs_path_trim_base(pPath, pathLen, pMountPoint, mountPointLen);
+}
+
+/*
+This will return an error if the path is not prefixed with the mount point, or if it attempts to
+navigate above the mount point when disallowed.
+*/
+static fs_result fs_resolve_sub_path_from_mount_point(fs* pFS, fs_mount_point* pMountPoint, const char* pPath, int openMode, fs_string* pResolvedSubPath)
+{
+    fs_result result;
+    int stringLen;
+    int normalizeOptions = (openMode & FS_NO_ABOVE_ROOT_NAVIGATION);
+    const char* pSubPath;
+
+    FS_ASSERT(pPath            != NULL);
+    FS_ASSERT(pResolvedSubPath != NULL);
+
+    *pResolvedSubPath = fs_string_new();
+
+    if (pFS == NULL || pMountPoint == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    pSubPath = fs_path_trim_mount_point_base(pPath, FS_NULL_TERMINATED, fs_mount_point_virtual_path(pMountPoint), fs_mount_point_virtual_path_len(pMountPoint));
+    if (pSubPath == NULL) {
+        return FS_DOES_NOT_EXIST;   /* The file path does not start with this mount point. */
+    }
+
+    /* A path starting with a slash does not allow for navigating above the root. */
+    if (pPath[0] == '/' || pPath[0] == '\\') {
+        normalizeOptions |= FS_NO_ABOVE_ROOT_NAVIGATION;
+    }
+
+    /*
+    The sub-path needs to be cleaned. This is where FS_NO_ABOVE_ROOT_NAVIGATION is validated. We can skip this
+    process if special directories have been disabled since a clean path will be implied and therefore there
+    should be no possibility of navigating above the root.
+    */
+    if ((openMode & FS_NO_SPECIAL_DIRS) == 0) {
+        stringLen = fs_path_normalize(pResolvedSubPath->stack, sizeof(pResolvedSubPath->stack), pSubPath, FS_NULL_TERMINATED, normalizeOptions);
+        if (stringLen < 0) {
+            return FS_DOES_NOT_EXIST;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. */
+        }
+
+        pResolvedSubPath->len = (size_t)stringLen;
+
+        if ((size_t)stringLen >= sizeof(pResolvedSubPath->stack)) {
+            result = fs_string_alloc((size_t)stringLen, fs_get_allocation_callbacks(pFS), pResolvedSubPath);
+            if (result != FS_SUCCESS) {
+                return result;
+            }
+
+            fs_path_normalize(pResolvedSubPath->heap, pResolvedSubPath->len + 1, pSubPath, FS_NULL_TERMINATED, normalizeOptions);    /* <-- This should never fail. */
+        }
+    } else {
+        *pResolvedSubPath = fs_string_new_ref(pSubPath, FS_NULL_TERMINATED);
+    }
+
+    return FS_SUCCESS;
+}
+
+/* This is similar to fs_resolve_sub_path_from_mount_point() but returns the real path instead of the sub-path. */
+static fs_result fs_resolve_real_path_from_mount_point(fs* pFS, fs_mount_point* pMountPoint, const char* pPath, int openMode, fs_string* pResolvedRealPath)
+{
+    fs_result result;
+    fs_string subPath;
+    int stringLen;
+
+    *pResolvedRealPath = fs_string_new();
+
+    result = fs_resolve_sub_path_from_mount_point(pFS, pMountPoint, pPath, openMode, &subPath);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    stringLen = fs_path_append(pResolvedRealPath->stack, sizeof(pResolvedRealPath->stack), fs_mount_point_real_path(pMountPoint), fs_mount_point_real_path_len(pMountPoint), fs_string_cstr(&subPath), fs_string_len(&subPath));
+    if (stringLen < 0) {
+        fs_string_free(&subPath, fs_get_allocation_callbacks(pFS));
+        return FS_PATH_TOO_LONG;    /* The only error we would get here is if the path is too long. */
+    }
+
+    pResolvedRealPath->len = (size_t)stringLen;
+
+    if ((size_t)stringLen >= sizeof(pResolvedRealPath->stack)) {
+        result = fs_string_alloc((size_t)stringLen, fs_get_allocation_callbacks(pFS), pResolvedRealPath);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        fs_path_append(pResolvedRealPath->heap, pResolvedRealPath->len + 1, fs_mount_point_real_path(pMountPoint), fs_mount_point_real_path_len(pMountPoint), fs_string_cstr(&subPath), fs_string_len(&subPath));    /* <-- This should never fail. */
+    }
+
+    /* Now that actual path has been constructed we can discard of our sub-path. */
+    fs_string_free(&subPath, fs_get_allocation_callbacks(pFS));
+
+    return FS_SUCCESS;
+}
+
+static fs_mount_point* fs_find_best_write_mount_point(fs* pFS, const char* pPath, int openMode, fs_string* pResolvedRealPath)
 {
     /*
     This is a bit different from read mounts because we want to use the mount point that most closely
@@ -1787,27 +2524,28 @@ static fs_mount_point* fs_find_best_write_mount_point(fs* pFS, const char* pPath
     fs_result result;
     fs_mount_list_iterator iMountPoint;
     fs_mount_point* pBestMountPoint = NULL;
-    const char* pBestMountPointPath = NULL;
     const char* pBestMountPointFileSubPath = NULL;
-    
+
     for (result = fs_mount_list_first(pFS->pWriteMountPoints, &iMountPoint); result == FS_SUCCESS; result = fs_mount_list_next(&iMountPoint)) {
-        const char* pFileSubPath = fs_path_trim_base(pPath, FS_NULL_TERMINATED, iMountPoint.pMountPointPath, FS_NULL_TERMINATED);
+        const char* pFileSubPath = fs_path_trim_mount_point_base(pPath, FS_NULL_TERMINATED, iMountPoint.pMountPointPath, FS_NULL_TERMINATED);
         if (pFileSubPath == NULL) {
             continue;   /* The file path doesn't start with this mount point so skip. */
         }
 
         if (pBestMountPointFileSubPath == NULL || strlen(pFileSubPath) < strlen(pBestMountPointFileSubPath)) {
             pBestMountPoint = iMountPoint.internal.pMountPoint;
-            pBestMountPointPath = iMountPoint.pPath;
             pBestMountPointFileSubPath = pFileSubPath;
         }
     }
 
-    if (ppMountPointPath != NULL) {
-        *ppMountPointPath = pBestMountPointPath;
+    if (pBestMountPoint == NULL) {
+        return NULL;
     }
-    if (ppSubPath != NULL) {
-        *ppSubPath = pBestMountPointFileSubPath;
+
+    /* At this point we have identified the best mount point. We now need to resolve the absolute path. */
+    result = fs_resolve_real_path_from_mount_point(pFS, pBestMountPoint, pPath, openMode, pResolvedRealPath);
+    if (result != FS_SUCCESS) {
+        return NULL;    /* This probably failed because the path was trying to navigate above the mount point when not allowed to do so. */
     }
 
     return pBestMountPoint;
@@ -1838,7 +2576,7 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
 
     pBackend = pConfig->pBackend;
     if (pBackend == NULL) {
-        pBackend = FS_STDIO;
+        pBackend = fs_get_default_backend();
     }
 
     /* If the backend is still null at this point it means the default backend has been disabled. */
@@ -1859,7 +2597,7 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
     }
 
     pFS->pBackend              = pBackend;
-    pFS->pStream               = pConfig->pStream; /* <-- This is allowed to be null, which will be the case for standard OS file system APIs like stdio. Streams are used for things like archives like Zip files, or in-memory file systems. */
+    pFS->pStream               = pConfig->pStream; /* <-- This is allowed to be null, which will be the case for standard OS file system APIs. Streams are used for things like archives like Zip files, or in-memory file systems. */
     pFS->refCount              = 1;
     pFS->allocationCallbacks   = fs_allocation_callbacks_init_copy(pConfig->pAllocationCallbacks);
     pFS->backendDataSize       = backendDataSizeInBytes;
@@ -1903,13 +2641,13 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
     We need a mutex for fs_open_archive() and fs_close_archive(). This needs to be recursive because
     during garbage collection we may end up closing archives in archives.
     */
-    fs_mtx_init(&pFS->archiveLock, FS_MTX_RECURSIVE);
+    fs_mtx_init(&pFS->archiveLock, fs_mtx_recursive);
 
     /*
     We need a mutex for the reference counting. This is needed because we may have multiple threads
     opening and closing files at the same time.
     */
-    fs_mtx_init(&pFS->refLock, FS_MTX_RECURSIVE);
+    fs_mtx_init(&pFS->refLock, fs_mtx_recursive);
 
     /* We're now ready to initialize the backend. */
     result = fs_backend_init(pBackend, pFS, pConfig->pBackendConfig, pConfig->pStream);
@@ -1990,26 +2728,93 @@ FS_API fs_result fs_ioctl(fs* pFS, int request, void* pArg)
     return fs_backend_ioctl(pFS->pBackend, pFS, request, pArg);
 }
 
-FS_API fs_result fs_remove(fs* pFS, const char* pFilePath)
+FS_API fs_result fs_remove(fs* pFS, const char* pFilePath, int options)
 {
-    if (pFS == NULL || pFilePath == NULL) {
+    fs_result result;
+    const fs_backend* pBackend;
+
+    if (pFilePath == NULL) {
         return FS_INVALID_ARGS;
     }
 
-    return fs_backend_remove(pFS->pBackend, pFS, pFilePath);
+    pBackend = fs_get_backend_or_default(pFS);
+    if (pBackend == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    /* If we're using the default file system, ignore mount points since there's no real notion of them. */
+    if (pFS == NULL) {
+        options |= FS_IGNORE_MOUNTS;
+    }
+
+    if ((options & FS_IGNORE_MOUNTS) != 0) {
+        result = fs_backend_remove(pBackend, pFS, pFilePath);
+    } else {
+        fs_string realFilePath;
+        fs_mount_point* pMountPoint;
+
+        pMountPoint = fs_find_best_write_mount_point(pFS, pFilePath, options, &realFilePath);
+        if (pMountPoint == NULL) {
+            return FS_DOES_NOT_EXIST;   /* Couldn't find a mount point. */
+        }
+
+        result = fs_backend_remove(pBackend, pFS, fs_string_cstr(&realFilePath));
+        fs_string_free(&realFilePath, fs_get_allocation_callbacks(pFS));
+    }
+
+    return result;
 }
 
-FS_API fs_result fs_rename(fs* pFS, const char* pOldName, const char* pNewName)
+FS_API fs_result fs_rename(fs* pFS, const char* pOldPath, const char* pNewPath, int options)
 {
-    if (pFS == NULL || pOldName == NULL || pNewName == NULL) {
+    fs_result result;
+    const fs_backend* pBackend;
+
+    if (pOldPath == NULL || pNewPath == NULL) {
         return FS_INVALID_ARGS;
     }
 
-    return fs_backend_rename(pFS->pBackend, pFS, pOldName, pNewName);
+    pBackend = fs_get_backend_or_default(pFS);
+    if (pBackend == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    /* If we're using the default file system, ignore mount points since there's no real notion of them. */
+    if (pFS == NULL) {
+        options |= FS_IGNORE_MOUNTS;
+    }
+
+    /* If we're ignoring mounts we can just call straight into the backend. */
+    if ((options & FS_IGNORE_MOUNTS) != 0) {
+        result = fs_backend_rename(pBackend, pFS, pOldPath, pNewPath);
+    } else {    
+        fs_string realOldPath;
+        fs_string realNewPath;
+        fs_mount_point* pMountPointOld;
+        fs_mount_point* pMountPointNew;
+
+        pMountPointOld = fs_find_best_write_mount_point(pFS, pOldPath, options, &realOldPath);
+        if (pMountPointOld == NULL) {
+            return FS_DOES_NOT_EXIST;   /* Couldn't find a mount point. */
+        }
+
+        pMountPointNew = fs_find_best_write_mount_point(pFS, pNewPath, options, &realNewPath);
+        if (pMountPointNew == NULL) {
+            fs_string_free(&realNewPath, fs_get_allocation_callbacks(pFS));
+            return FS_DOES_NOT_EXIST;   /* Couldn't find a mount point. */
+        }
+
+        result = fs_backend_rename(pBackend, pFS, fs_string_cstr(&realOldPath), fs_string_cstr(&realNewPath));
+        fs_string_free(&realOldPath, fs_get_allocation_callbacks(pFS));
+        fs_string_free(&realNewPath, fs_get_allocation_callbacks(pFS));
+    }
+
+    return result;
 }
 
 FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
 {
+    fs_result result;
     char pRunningPathStack[1024];
     char* pRunningPathHeap = NULL;
     char* pRunningPath = pRunningPathStack;
@@ -2017,8 +2822,7 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
     fs_path_iterator iSegment;
     const fs_backend* pBackend;
     fs_mount_point* pMountPoint = NULL;
-    const char* pMountPointPath = NULL;
-    const char* pMountPointSubPath = NULL;
+    fs_string realPath;
 
     pBackend = fs_get_backend_or_default(pFS);
 
@@ -2038,51 +2842,57 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
     /* If we're using mount points we'll want to find the best one from our input path. */
     if ((options & FS_IGNORE_MOUNTS) != 0) {
         pMountPoint = NULL;
-        pMountPointPath = "";
-        pMountPointSubPath = pPath;
+        realPath = fs_string_new_ref(pPath, FS_NULL_TERMINATED);
     } else {
-        pMountPoint = fs_find_best_write_mount_point(pFS, pPath, &pMountPointPath, &pMountPointSubPath);
+        pMountPoint = fs_find_best_write_mount_point(pFS, pPath, options, &realPath);
         if (pMountPoint == NULL) {
-            return FS_INVALID_FILE; /* Couldn't find a mount point. */
+            return FS_DOES_NOT_EXIST;   /* Couldn't find a mount point. */
         }
     }
 
+    /*
+    Before trying to create the directory structure, just try creating it directly on the backend. If this
+    fails with FS_DOES_NOT_EXIST, it means one of the parent directories does not exist. In this case we
+    need to create the parent directories first, but only if FS_NO_CREATE_DIRS is not set.
+    */
+    result = fs_backend_mkdir(pBackend, pFS, fs_string_cstr(&realPath));
+    if (result != FS_DOES_NOT_EXIST) {
+        fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
+        return result; /* Either success or some other error. */
+    }
+
+    /*
+    Getting here means there is a missing parent directory somewhere. We'll need to try creating it by
+    iterating over each segment and creating each directory. We only do this if FS_NO_CREATE_DIRS is not
+    set in which case we just return FS_DOES_NOT_EXIST.
+    */
+    if ((options & FS_NO_CREATE_DIRS) != 0) {
+        fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
+
+        FS_ASSERT(result == FS_DOES_NOT_EXIST);
+        return result;
+    }
 
     /* We need to iterate over each segment and create the directory. If any of these fail we'll need to abort. */
-    if (fs_path_first(pMountPointSubPath, FS_NULL_TERMINATED, &iSegment) != FS_SUCCESS) {
-        return FS_SUCCESS;  /* It's an empty path. */
+    if (fs_path_first(fs_string_cstr(&realPath), FS_NULL_TERMINATED, &iSegment) != FS_SUCCESS) {
+        /*
+        If we get here it means the path is empty. We should actually never get here because the backend
+        should have already handled this in our initial attempt at fs_backend_mkdir(). If this assert is
+        getting triggered it means there's a bug in the backend.
+        */
+        FS_ASSERT(FS_FALSE);
+        fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
+        return FS_ALREADY_EXISTS;  /* It's an empty path. */
     }
 
-
-    /* We need to pre-fill our running path with the mount point. */
-    runningPathLen = strlen(pMountPointPath);
-    if (runningPathLen + 1 >= sizeof(pRunningPathStack)) {
-        pRunningPathHeap = (char*)fs_malloc(runningPathLen + 1 + 1, fs_get_allocation_callbacks(pFS));
-        if (pRunningPathHeap == NULL) {
-            return FS_OUT_OF_MEMORY;
-        }
-
-        pRunningPath = pRunningPathHeap;
-    }
-
-    FS_COPY_MEMORY(pRunningPath, pMountPointPath, runningPathLen);
-    pRunningPath[runningPathLen] = '\0';
-
-    /* We need to make sure we have a trailing slash. */
-    if (runningPathLen > 0 && pRunningPath[runningPathLen - 1] != '/') {
-        pRunningPath[runningPathLen] = '/';
-        runningPathLen += 1;
-        pRunningPath[runningPathLen] = '\0';
-    }
-
+    pRunningPath[0] = '\0';
 
     for (;;) {
-        fs_result result;
-
         if (runningPathLen + iSegment.segmentLength + 1 + 1 >= sizeof(pRunningPathStack)) {
             if (pRunningPath == pRunningPathStack) {
                 pRunningPathHeap = (char*)fs_malloc(runningPathLen + iSegment.segmentLength + 1 + 1, fs_get_allocation_callbacks(pFS));
                 if (pRunningPathHeap == NULL) {
+                    fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
                     return FS_OUT_OF_MEMORY;
                 }
 
@@ -2094,6 +2904,7 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
                 pNewRunningPathHeap = (char*)fs_realloc(pRunningPathHeap, runningPathLen + iSegment.segmentLength + 1 + 1, fs_get_allocation_callbacks(pFS));
                 if (pNewRunningPathHeap == NULL) {
                     fs_free(pRunningPathHeap, fs_get_allocation_callbacks(pFS));
+                    fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
                     return FS_OUT_OF_MEMORY;
                 }
 
@@ -2105,7 +2916,16 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
         runningPathLen += iSegment.segmentLength;
         pRunningPath[runningPathLen] = '\0';
 
-        result = fs_backend_mkdir(pBackend, pFS, pRunningPath);
+        /*
+        The running path might be an empty string due to the way we parse our path. For example, a path
+        such as `/foo/bar` will have an empty segment before the first slash. In this case we want to
+        treat the empty segment as a valid already-existing directory.
+        */
+        if (runningPathLen > 0) {
+            result = fs_backend_mkdir(pBackend, pFS, pRunningPath);
+        } else {
+            result = FS_ALREADY_EXISTS;
+        }
 
         /* We just pretend to be successful if the directory already exists. */
         if (result == FS_ALREADY_EXISTS) {
@@ -2113,10 +2933,8 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
         }
 
         if (result != FS_SUCCESS) {
-            if (pRunningPathHeap != NULL) {
-                fs_free(pRunningPathHeap, fs_get_allocation_callbacks(pFS));
-            }
-
+            fs_free(pRunningPathHeap, fs_get_allocation_callbacks(pFS));
+            fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
             return result;
         }
 
@@ -2129,9 +2947,8 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
         }
     }
 
-    if (pRunningPathHeap != NULL) {
-        fs_free(pRunningPathHeap, fs_get_allocation_callbacks(pFS));
-    }
+    fs_free(pRunningPathHeap, fs_get_allocation_callbacks(pFS));
+    fs_string_free(&realPath, fs_get_allocation_callbacks(pFS));
 
     return FS_SUCCESS;
 }
@@ -2270,314 +3087,49 @@ FS_API fs_uint32 fs_refcount(fs* pFS)
 }
 
 
-static void fs_on_refcount_changed_internal(void* pUserData, fs* pFS, fs_uint32 newRefCount, fs_uint32 oldRefCount)
-{
-    fs* pOwnerFS;
 
-    (void)pUserData;
-    (void)pFS;
-    (void)newRefCount;
-    (void)oldRefCount;
-
-    pOwnerFS = (fs*)pUserData;
-    FS_ASSERT(pOwnerFS != NULL);
-
-    if (newRefCount == 1) {
-        /* In this case there are no more files referencing this archive. We'll want to do some garbage collection. */
-        fs_gc_archives(pOwnerFS, FS_GC_POLICY_THRESHOLD);
-    }
-}
-
-static fs_result fs_open_archive_nolock(fs* pFS, const fs_backend* pBackend, void* pBackendConfig, const char* pArchivePath, size_t archivePathLen, int openMode, fs** ppArchive)
+static fs_result fs_find_registered_archive_type_by_path(fs* pFS, const char* pPath, size_t pathLen, const fs_backend** ppBackend, const void** ppBackendConfig)
 {
     fs_result result;
-    fs* pArchive;
-    fs_config archiveConfig;
-    fs_file* pArchiveFile;
-    char pArchivePathNTStack[1024];
-    char* pArchivePathNTHeap = NULL;    /* <-- Must be initialized to null. */
-    char* pArchivePathNT;
-    fs_opened_archive* pOpenedArchive;
-
-    /*
-    The first thing to do is check if the archive has already been opened. If so, we just increment
-    the reference count and return the already-loaded fs object.
-    */
-    pOpenedArchive = fs_find_opened_archive(pFS, pArchivePath, archivePathLen);
-    if (pOpenedArchive != NULL) {
-        pArchive = pOpenedArchive->pArchive;
-    } else {
-        /*
-        Getting here means the archive is not cached. We'll need to open it. Unfortunately our path is
-        not null terminated so we'll need to do that now. We'll try to avoid a heap allocation if we
-        can.
-        */
-        if (archivePathLen == FS_NULL_TERMINATED) {
-            pArchivePathNT = (char*)pArchivePath;   /* <-- Safe cast. We won't be modifying this. */
-        } else {
-            if (archivePathLen >= sizeof(pArchivePathNTStack)) {
-                pArchivePathNTHeap = (char*)fs_malloc(archivePathLen + 1, fs_get_allocation_callbacks(pFS));
-                if (pArchivePathNTHeap == NULL) {
-                    return FS_OUT_OF_MEMORY;
-                }
-
-                pArchivePathNT = pArchivePathNTHeap;
-            } else {
-                pArchivePathNT = pArchivePathNTStack;
-            }
-
-            FS_COPY_MEMORY(pArchivePathNT, pArchivePath, archivePathLen);
-            pArchivePathNT[archivePathLen] = '\0';
-        }
-
-        result = fs_file_open(pFS, pArchivePathNT, openMode, &pArchiveFile);
-        if (result != FS_SUCCESS) {
-            fs_free(pArchivePathNTHeap, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-        archiveConfig = fs_config_init(pBackend, pBackendConfig, fs_file_get_stream(pArchiveFile));
-        archiveConfig.pAllocationCallbacks = fs_get_allocation_callbacks(pFS);
-        archiveConfig.onRefCountChanged = fs_on_refcount_changed_internal;
-        archiveConfig.pRefCountChangedUserData = pFS;   /* The user data is always the fs object that owns this archive. */
-
-        result = fs_init(&archiveConfig, &pArchive);
-        fs_free(pArchivePathNTHeap, fs_get_allocation_callbacks(pFS));
-
-        if (result != FS_SUCCESS) { /* <-- This is the result of fs_init().*/
-            fs_file_close(pArchiveFile);
-            return result;
-        }
-
-        /*
-        We need to support the ability to open archives within archives. To do this, the archive fs
-        object needs to inherit the registered archive types. Fortunately this is easy because we do
-        this as one single allocation which means we can just reference it directly. The API has a
-        restriction that archive type registration cannot be modified after a file has been opened.
-        */
-        pArchive->pArchiveTypes         = pFS->pArchiveTypes;
-        pArchive->archiveTypesAllocSize = pFS->archiveTypesAllocSize;
-        pArchive->isOwnerOfArchiveTypes = FS_FALSE;
-
-        /* Add the new archive to the cache. */
-        result = fs_add_opened_archive(pFS, pArchive, pArchivePath, archivePathLen);
-        if (result != FS_SUCCESS) {
-            fs_uninit(pArchive);
-            fs_file_close(pArchiveFile);
-            return result;
-        }
-    }
-
-    FS_ASSERT(pArchive != NULL);
-
-    *ppArchive = ((openMode & FS_NO_INCREMENT_REFCOUNT) == 0) ? fs_ref(pArchive) : pArchive;
-    return FS_SUCCESS;
-}
-
-FS_API fs_result fs_open_archive_ex(fs* pFS, const fs_backend* pBackend, void* pBackendConfig, const char* pArchivePath, size_t archivePathLen, int openMode, fs** ppArchive)
-{
-    fs_result result;
-
-    if (ppArchive == NULL) {
-        return FS_INVALID_ARGS;
-    }
-
-    *ppArchive = NULL;
-
-    if (pFS == NULL || pBackend == NULL || pArchivePath == NULL || archivePathLen == 0) {
-        return FS_INVALID_ARGS;
-    }
-
-    /*
-    It'd be nice to be able to resolve the path here to eliminate any "." and ".." segments thereby
-    making the path always consistent for a given archive. However, I cannot think of a way to do
-    this robustly without having a backend-specific function like a `resolve()` or whatnot. The
-    problem is that the path might be absolute, or it might be relative, and to get it right,
-    parcticularly when dealing with different operating systems' ways of specifying an absolute
-    path, you really need to have the support of the backend. I might add support for this later.
-    */
-
-    fs_mtx_lock(&pFS->archiveLock);
-    {
-        result = fs_open_archive_nolock(pFS, pBackend, pBackendConfig, pArchivePath, archivePathLen, openMode, ppArchive);
-    }
-    fs_mtx_unlock(&pFS->archiveLock);
-
-    return result;
-}
-
-FS_API fs_result fs_open_archive(fs* pFS, const char* pArchivePath, int openMode, fs** ppArchive)
-{
-    fs_result backendIteratorResult;
     fs_registered_backend_iterator iBackend;
+
+    if (ppBackend != NULL) {
+        *ppBackend = NULL;
+    }
+    if (ppBackendConfig != NULL) {
+        *ppBackendConfig = NULL;
+    }
+
+    for (result = fs_first_registered_backend(pFS, &iBackend); result == FS_SUCCESS; result = fs_next_registered_backend(&iBackend)) {
+        if (fs_path_extension_equal(pPath, pathLen, iBackend.pExtension, iBackend.extensionLen)) {
+            if (ppBackend != NULL) {
+                *ppBackend = iBackend.pBackend;
+            }
+            if (ppBackendConfig != NULL) {
+                *ppBackendConfig = iBackend.pBackendConfig;
+            }
+            
+            return FS_SUCCESS;
+        }
+    }
+
+    return FS_DOES_NOT_EXIST;
+}
+
+FS_API fs_bool32 fs_path_looks_like_archive(fs* pFS, const char* pPath, size_t pathLen)
+{
     fs_result result;
 
-    if (ppArchive == NULL) {
-        return FS_INVALID_ARGS;
+    if (pFS == NULL || pPath == NULL || pathLen == 0 || pPath[0] == '\0') {
+        return FS_FALSE;
     }
 
-    *ppArchive = NULL;  /* Safety. */
-
-    if (pFS == NULL || pArchivePath == NULL) {
-        return FS_INVALID_ARGS;
+    result = fs_find_registered_archive_type_by_path(pFS, pPath, pathLen, NULL, NULL);
+    if (result == FS_SUCCESS) {
+        return FS_TRUE;
     }
 
-    /*
-    There can be multiple backends registered to the same extension. We just iterate over each one in order
-    and use the first that works.
-    */
-    result = FS_NO_BACKEND;
-    for (backendIteratorResult = fs_first_registered_backend(pFS, &iBackend); backendIteratorResult == FS_SUCCESS; backendIteratorResult = fs_next_registered_backend(&iBackend)) {
-        if (fs_path_extension_equal(pArchivePath, FS_NULL_TERMINATED, iBackend.pExtension, iBackend.extensionLen)) {
-            result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, pArchivePath, FS_NULL_TERMINATED, openMode, ppArchive);
-            if (result == FS_SUCCESS) {
-                return FS_SUCCESS;
-            }
-        }
-    }
-
-    /* Failed to open from any archive backend. */
-    return result;
-}
-
-FS_API void fs_close_archive(fs* pArchive)
-{
-    fs_uint32 newRefCount;
-
-    if (pArchive == NULL) {
-        return;
-    }
-
-    /* In fs_open_archive() we incremented the reference count. Now we need to decrement it. */
-    newRefCount = fs_unref(pArchive);
-
-    /*
-    If the reference count of the archive is 1 it means we don't currently have any files opened. We should
-    look at garbage collecting.
-    */
-    if (newRefCount == 1) {
-        /*
-        This is a bit hacky and should probably change. When we initialized the archive in fs_open_archive() we set the user
-        data of the onRefCountChanged callback to be the fs object that owns this archive. We'll just use that to fire the
-        garbage collection process.
-        */
-        fs* pArchiveOwnerFS = (fs*)pArchive->pRefCountChangedUserData;
-        FS_ASSERT(pArchiveOwnerFS != NULL);
-
-        fs_gc_archives(pArchiveOwnerFS, FS_GC_POLICY_THRESHOLD);
-    }
-}
-
-static void fs_gc_archives_nolock(fs* pFS, int policy)
-{
-    size_t unreferencedCount = 0;
-    size_t collectionCount = 0;
-    size_t cursor = 0;
-
-    FS_ASSERT(pFS != NULL);
-
-    /*
-    If we're doing a full garbage collection we need to recursively run the garbage collection process
-    on opened archives.
-    */
-    if ((policy & FS_GC_POLICY_FULL) != 0) {
-        cursor = 0;
-        while (cursor < pFS->openedArchivesSize) {
-            fs_opened_archive* pOpenedArchive = (fs_opened_archive*)FS_OFFSET_PTR(pFS->pOpenedArchives, cursor);
-            FS_ASSERT(pOpenedArchive != NULL);
-
-            fs_gc_archives(pOpenedArchive->pArchive, policy);
-            cursor += FS_ALIGN(sizeof(fs*) + sizeof(size_t) + strlen(pOpenedArchive->pPath) + 1, FS_SIZEOF_PTR);
-        }
-    }
-
-
-    /* The first thing to do is count how many unreferenced archives there are. */
-    cursor = 0;
-    while (cursor < pFS->openedArchivesSize) {
-        fs_opened_archive* pOpenedArchive = (fs_opened_archive*)FS_OFFSET_PTR(pFS->pOpenedArchives, cursor);
-
-        if (fs_refcount(pOpenedArchive->pArchive) == 1) {
-            unreferencedCount += 1;
-        }
-
-        /* Getting here means this archive is not the one we're looking for. */
-        cursor += FS_ALIGN(sizeof(fs*) + sizeof(size_t) + strlen(pOpenedArchive->pPath) + 1, FS_SIZEOF_PTR);
-    }
-
-    /* Now we need to determine how many archives we should unload. */
-    if ((policy & FS_GC_POLICY_THRESHOLD) != 0) {
-        if (unreferencedCount > fs_get_archive_gc_threshold(pFS)) {
-            collectionCount = unreferencedCount - fs_get_archive_gc_threshold(pFS);
-        } else {
-            collectionCount = 0;    /* We're below the threshold. Don't collect anything. */
-        }
-    } else if ((policy & FS_GC_POLICY_FULL) != 0) {
-        collectionCount = unreferencedCount;
-    } else {
-        FS_ASSERT(!"Invalid GC policy.");
-    }
-
-    /* Now we need to unload the archives. */
-    cursor = 0;
-    while (collectionCount > 0 && cursor < pFS->openedArchivesSize) {
-        fs_opened_archive* pOpenedArchive = (fs_opened_archive*)FS_OFFSET_PTR(pFS->pOpenedArchives, cursor);
-
-        if (fs_refcount(pOpenedArchive->pArchive) == 1) {
-            fs_file* pArchiveFile;
-
-            /* For our cached archives, the stream should always be a file. */
-            pArchiveFile = (fs_file*)pOpenedArchive->pArchive->pStream;
-            FS_ASSERT(pArchiveFile != NULL);
-
-            fs_uninit(pOpenedArchive->pArchive);
-            fs_file_close(pArchiveFile);
-
-            /* We can remove the archive from the list only after it's been closed. */
-            fs_remove_opened_archive(pFS, pOpenedArchive);
-
-            collectionCount -= 1;
-
-            /* Note that we're not advancing the cursor here because we just removed this entry. */
-        } else {
-            cursor += FS_ALIGN(sizeof(fs*) + sizeof(size_t) + strlen(pOpenedArchive->pPath) + 1, FS_SIZEOF_PTR);
-        }
-    }
-}
-
-FS_API void fs_gc_archives(fs* pFS, int policy)
-{
-    if (pFS == NULL) {
-        return;
-    }
-
-    if (policy == 0 || ((policy & FS_GC_POLICY_THRESHOLD) != 0 && (policy & FS_GC_POLICY_FULL) != 0)) {
-        return; /* Invalid policy. Must specify FS_GC_POLICY_THRESHOLD or FS_GC_POLICY_FULL, but not both. */
-    }
-
-    fs_mtx_lock(&pFS->archiveLock);
-    {
-        fs_gc_archives_nolock(pFS, policy);
-    }
-    fs_mtx_unlock(&pFS->archiveLock);
-}
-
-FS_API void fs_set_archive_gc_threshold(fs* pFS, size_t threshold)
-{
-    if (pFS == NULL) {
-        return;
-    }
-
-    pFS->archiveGCThreshold = threshold;
-}
-
-FS_API size_t fs_get_archive_gc_threshold(fs* pFS)
-{
-    if (pFS == NULL) {
-        return 0;
-    }
-
-    return pFS->archiveGCThreshold;
+    return FS_FALSE;
 }
 
 
@@ -2707,7 +3259,6 @@ static fs_result fs_open_or_info_from_archive(fs* pFS, const char* pFilePath, in
 
     do
     {
-        fs_result backendIteratorResult;
         fs_registered_backend_iterator iBackend;
         fs_bool32 isArchive = FS_FALSE;
 
@@ -2720,8 +3271,11 @@ static fs_result fs_open_or_info_from_archive(fs* pFS, const char* pFilePath, in
         }
 
         /* If an archive has been explicitly listed in the path, we must try loading from that. */
-        for (backendIteratorResult = fs_first_registered_backend(pFS, &iBackend); backendIteratorResult == FS_SUCCESS; backendIteratorResult = fs_next_registered_backend(&iBackend)) {
+        for (result = fs_first_registered_backend(pFS, &iBackend); result == FS_SUCCESS; result = fs_next_registered_backend(&iBackend)) {
             if (fs_path_extension_equal(iFilePathSeg.pFullPath + iFilePathSeg.segmentOffset, iFilePathSeg.segmentLength, iBackend.pExtension, iBackend.extensionLen)) {
+                const fs_backend* pBackend = iBackend.pBackend;
+                const void* pBackendConfig = iBackend.pBackendConfig;
+
                 isArchive = FS_TRUE;
 
                 /* This path points to an explicit archive. If this is the file we're trying to actually load, we'll want to handle that too. */
@@ -2735,7 +3289,7 @@ static fs_result fs_open_or_info_from_archive(fs* pFS, const char* pFilePath, in
                 } else {
                     fs* pArchive;
 
-                    result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, iFilePathSeg.pFullPath, iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength, FS_NO_INCREMENT_REFCOUNT | FS_OPAQUE | openMode, &pArchive);
+                    result = fs_open_archive_ex(pFS, pBackend, pBackendConfig, iFilePathSeg.pFullPath, iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength, FS_NO_INCREMENT_REFCOUNT | FS_OPAQUE | openMode, &pArchive);
                     if (result != FS_SUCCESS) {
                         /*
                         We failed to open the archive. If it's due to the archive not existing we just continue searching. Otherwise
@@ -2792,36 +3346,27 @@ static fs_result fs_open_or_info_from_archive(fs* pFS, const char* pFilePath, in
             fs_iterator* pIterator;
 
             for (pIterator = fs_backend_first(fs_get_backend_or_default(pFS), pFS, iFilePathSeg.pFullPath, iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength); pIterator != NULL; pIterator = fs_backend_next(fs_get_backend_or_default(pFS), pIterator)) {
-                for (backendIteratorResult = fs_first_registered_backend(pFS, &iBackend); backendIteratorResult == FS_SUCCESS; backendIteratorResult = fs_next_registered_backend(&iBackend)) {
+                for (result = fs_first_registered_backend(pFS, &iBackend); result == FS_SUCCESS; result = fs_next_registered_backend(&iBackend)) {
                     if (fs_path_extension_equal(pIterator->pName, pIterator->nameLen, iBackend.pExtension, iBackend.extensionLen)) {
                         /* Looks like an archive. We can load this one up and try opening from it. */
+                        const fs_backend* pBackend = iBackend.pBackend;
+                        const void* pBackendConfig = iBackend.pBackendConfig;
                         fs* pArchive;
-                        char pArchivePathNTStack[1024];
-                        char* pArchivePathNTHeap = NULL;    /* <-- Must be initialized to null. */
-                        char* pArchivePathNT;
-                        size_t archivePathLen;
+                        fs_string archivePath;
 
-                        archivePathLen = iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength + 1 + pIterator->nameLen;
-                        if (archivePathLen >= sizeof(pArchivePathNTStack)) {
-                            pArchivePathNTHeap = (char*)fs_malloc(archivePathLen + 1, fs_get_allocation_callbacks(pFS));
-                            if (pArchivePathNTHeap == NULL) {
-                                fs_backend_free_iterator(fs_get_backend_or_default(pFS), pIterator);
-                                return FS_OUT_OF_MEMORY;
-                            }
-
-                            pArchivePathNT = pArchivePathNTHeap;
-                        } else {
-                            pArchivePathNT = pArchivePathNTStack;
+                        result = fs_string_alloc(iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength + 1 + pIterator->nameLen, fs_get_allocation_callbacks(pFS), &archivePath);
+                        if (result != FS_SUCCESS) {
+                            fs_backend_free_iterator(fs_get_backend_or_default(pFS), pIterator);
+                            return result;
                         }
 
-                        FS_COPY_MEMORY(pArchivePathNT, iFilePathSeg.pFullPath, iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength);
-                        pArchivePathNT[iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength] = '/';
-                        FS_COPY_MEMORY(pArchivePathNT + iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength + 1, pIterator->pName, pIterator->nameLen);
-                        pArchivePathNT[archivePathLen] = '\0';
+                        fs_string_append_preallocated(&archivePath, iFilePathSeg.pFullPath, iFilePathSeg.segmentOffset + iFilePathSeg.segmentLength);
+                        fs_string_append_preallocated(&archivePath, "/", FS_NULL_TERMINATED);
+                        fs_string_append_preallocated(&archivePath, pIterator->pName, pIterator->nameLen);
 
                         /* At this point we've constructed the archive name and we can now open it. */
-                        result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, pArchivePathNT, FS_NULL_TERMINATED, FS_NO_INCREMENT_REFCOUNT | FS_OPAQUE | openMode, &pArchive);
-                        fs_free(pArchivePathNTHeap, fs_get_allocation_callbacks(pFS));
+                        result = fs_open_archive_ex(pFS, pBackend, pBackendConfig, fs_string_cstr(&archivePath), FS_NULL_TERMINATED, FS_NO_INCREMENT_REFCOUNT | FS_OPAQUE | openMode, &pArchive);
+                        fs_string_free(&archivePath, fs_get_allocation_callbacks(pFS));
 
                         if (result != FS_SUCCESS) { /* <-- This is checking the result of fs_open_archive_ex(). */
                             continue;   /* Failed to open this archive. Keep looking. */
@@ -2850,7 +3395,7 @@ static fs_result fs_open_or_info_from_archive(fs* pFS, const char* pFilePath, in
                         return FS_SUCCESS;
                     }
                 }
-
+                
                 /*
                 Getting here means this file could not be loaded from any registered archive types. Just move on
                 to the next file.
@@ -2924,21 +3469,11 @@ static fs_result fs_file_alloc(fs* pFS, fs_file** ppFile)
     return FS_SUCCESS;
 }
 
-static fs_result fs_file_alloc_if_necessary(fs* pFS, fs_file** ppFile)
-{
-    FS_ASSERT(ppFile != NULL);
-
-    if (*ppFile == NULL) {
-        return fs_file_alloc(pFS, ppFile);
-    } else {
-        return FS_SUCCESS;
-    }
-}
-
-static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char* pFilePath, int openMode, fs_file** ppFile, fs_file_info* pInfo)
+static fs_result fs_file_alloc_and_open_or_info(fs* pFS, const char* pFilePath, int openMode, fs_file** ppFile, fs_file_info* pInfo)
 {
     fs_result result;
     const fs_backend* pBackend;
+    fs_bool32 isStandardIOFile;
 
     pBackend = fs_get_backend_or_default(pFS);
     if (pBackend == NULL) {
@@ -2946,9 +3481,10 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
     }
 
     if (ppFile != NULL) {
-        result = fs_file_alloc_if_necessary(pFS, ppFile);
+        FS_ASSERT(*ppFile == NULL);
+
+        result = fs_file_alloc(pFS, ppFile);
         if (result != FS_SUCCESS) {
-            *ppFile = NULL;
             return result;
         }
     }
@@ -2957,16 +3493,15 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
     Take a copy of the file system's stream if necessary. We only need to do this if we're opening the file, and if
     the owner `fs` object `pFS` itself has a stream.
     */
-    if (pFS != NULL && ppFile != NULL) {
-        fs_stream* pFSStream = pFS->pStream;
-        if (pFSStream != NULL) {
-            result = fs_stream_duplicate(pFSStream, fs_get_allocation_callbacks(pFS), &(*ppFile)->pStreamForBackend);
-            if (result != FS_SUCCESS) {
-                fs_file_free(ppFile);
-                return result;
-            }
+    if (pFS != NULL && ppFile != NULL && pFS->pStream != NULL) {
+        result = fs_stream_duplicate(pFS->pStream, fs_get_allocation_callbacks(pFS), &(*ppFile)->pStreamForBackend);
+        if (result != FS_SUCCESS) {
+            fs_file_free(ppFile);
+            return result;
         }
     }
+
+    isStandardIOFile = (pFilePath == FS_STDIN || pFilePath == FS_STDOUT || pFilePath == FS_STDERR);
 
     /*
     This is the lowest level opening function. We never want to look at mounts when opening from here. The input
@@ -2980,7 +3515,7 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
 
     if (ppFile != NULL) {
         /* Create the directory structure if necessary. */
-        if ((openMode & FS_WRITE) != 0 && (openMode & FS_NO_CREATE_DIRS) == 0) {
+        if ((openMode & FS_WRITE) != 0 && (openMode & FS_NO_CREATE_DIRS) == 0 && !isStandardIOFile) {
             char pDirPathStack[1024];
             char* pDirPathHeap = NULL;
             char* pDirPath;
@@ -3000,7 +3535,7 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
                     fs_stream_delete_duplicate((*ppFile)->pStreamForBackend, fs_get_allocation_callbacks(pFS));
                     fs_file_free(ppFile);
                     fs_free(pDirPathHeap, fs_get_allocation_callbacks(pFS));
-                    return FS_ERROR;    /* Should never hit this. */
+                    return FS_ERROR;
                 }
 
                 pDirPath = pDirPathHeap;
@@ -3009,7 +3544,7 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
             }
 
             result = fs_mkdir(pFS, pDirPath, FS_IGNORE_MOUNTS);
-            if (result != FS_SUCCESS) {
+            if (result != FS_SUCCESS && result != FS_ALREADY_EXISTS) {
                 fs_stream_delete_duplicate((*ppFile)->pStreamForBackend, fs_get_allocation_callbacks(pFS));
                 fs_file_free(ppFile);
                 return result;
@@ -3020,6 +3555,8 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
 
         if (result != FS_SUCCESS) {
             fs_stream_delete_duplicate((*ppFile)->pStreamForBackend, fs_get_allocation_callbacks(pFS));
+            fs_file_free(ppFile);
+            goto try_opening_from_archive;
         }
 
         /* Grab the info from the opened file if we're also grabbing that. */
@@ -3034,17 +3571,15 @@ static fs_result fs_file_alloc_if_necessary_and_open_or_info(fs* pFS, const char
         }
     }
 
-    if (!FS_IS_OPAQUE(openMode) && (openMode & FS_WRITE) == 0) {
+try_opening_from_archive:
+    if (!FS_IS_OPAQUE(openMode) && (openMode & FS_WRITE) == 0 && !isStandardIOFile) {
         /*
         If we failed to open the file because it doesn't exist we need to try loading it from an
         archive. We can only do this if the file is being loaded by an explicitly initialized fs
         object.
         */
         if (pFS != NULL && (result == FS_DOES_NOT_EXIST || result == FS_NOT_DIRECTORY)) {
-            if (ppFile != NULL) {
-                fs_file_free(ppFile);
-            }
-
+            fs_file_free(ppFile);
             result = fs_open_or_info_from_archive(pFS, pFilePath, openMode, ppFile, pInfo);
         }
     }
@@ -3072,7 +3607,7 @@ static fs_result fs_validate_path(const char* pPath, size_t pathLen, int mode)
     return FS_SUCCESS;
 }
 
-FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMode, fs_file** ppFile, fs_file_info* pInfo)
+static fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMode, fs_file** ppFile, fs_file_info* pInfo)
 {
     fs_result result;
     fs_result mountPointIerationResult;
@@ -3090,6 +3625,11 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
         return FS_INVALID_ARGS;
     }
 
+    /* Special case for standard IO files. */
+    if (pFilePath == FS_STDIN || pFilePath == FS_STDOUT || pFilePath == FS_STDERR) {
+        return fs_file_alloc_and_open_or_info(pFS, pFilePath, openMode, ppFile, pInfo);
+    }
+
     result = fs_validate_path(pFilePath, FS_NULL_TERMINATED, openMode);
     if (result != FS_SUCCESS) {
         return result;
@@ -3097,80 +3637,21 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
 
     if ((openMode & FS_WRITE) != 0) {
         /* Opening in write mode. */
-        if (pFS != NULL) {
+        if (pFS != NULL && (openMode & FS_IGNORE_MOUNTS) == 0) {
             fs_mount_point* pBestMountPoint = NULL;
-            const char* pBestMountPointPath = NULL;
-            const char* pBestMountPointFileSubPath = NULL;
-            
-            pBestMountPoint = fs_find_best_write_mount_point(pFS, pFilePath, &pBestMountPointPath, &pBestMountPointFileSubPath);
+            fs_string fileRealPath;
+
+            pBestMountPoint = fs_find_best_write_mount_point(pFS, pFilePath, openMode, &fileRealPath);
             if (pBestMountPoint != NULL) {
-                char pActualPathStack[1024];
-                char* pActualPathHeap = NULL;
-                char* pActualPath;
-                int actualPathLen;
-                char pActualPathCleanStack[1024];
-                char* pActualPathCleanHeap = NULL;
-                char* pActualPathClean;
-                int actualPathCleanLen;
-                unsigned int cleanOptions = (openMode & FS_NO_ABOVE_ROOT_NAVIGATION);            
-
-                /* If the mount point starts with a root segment, i.e. "/", we cannot allow navigation above that. */
-                if (pBestMountPointPath[0] == '/' || pBestMountPointPath[0] == '\\') {
-                    cleanOptions |= FS_NO_ABOVE_ROOT_NAVIGATION;
-                }
-
-
-                /* Here is where we append the cleaned sub-path to the mount points actual path. */
-                actualPathLen = fs_path_append(pActualPathStack, sizeof(pActualPathStack), pBestMountPointPath, pBestMountPoint->pathLen, pBestMountPointFileSubPath, FS_NULL_TERMINATED);
-                if (actualPathLen > 0 && (size_t)actualPathLen >= sizeof(pActualPathStack)) {
-                    /* Not enough room on the stack. Allocate on the heap. */
-                    pActualPathHeap = (char*)fs_malloc(actualPathLen + 1, fs_get_allocation_callbacks(pFS));
-                    if (pActualPathHeap == NULL) {
-                        return FS_OUT_OF_MEMORY;
-                    }
-
-                    fs_path_append(pActualPathHeap, actualPathLen + 1, pBestMountPointPath, pBestMountPoint->pathLen, pBestMountPointFileSubPath, FS_NULL_TERMINATED);  /* <-- This should never fail. */
-                    pActualPath = pActualPathHeap;
-                } else {
-                    pActualPath = pActualPathStack;
-                }
-
-
-                /* Now we need to clean the path. */
-                actualPathCleanLen = fs_path_normalize(pActualPathCleanStack, sizeof(pActualPathCleanStack), pActualPath, FS_NULL_TERMINATED, cleanOptions);
-                if (actualPathCleanLen < 0) {
-                    fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-                    return FS_INVALID_OPERATION;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. */
-                }
-
-                if (actualPathCleanLen >= (int)sizeof(pActualPathCleanStack)) {
-                    pActualPathCleanHeap = (char*)fs_malloc(actualPathCleanLen + 1, fs_get_allocation_callbacks(pFS));
-                    if (pActualPathCleanHeap == NULL) {
-                        fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-                        return FS_OUT_OF_MEMORY;
-                    }
-
-                    fs_path_normalize(pActualPathCleanHeap, actualPathCleanLen + 1, pActualPath, FS_NULL_TERMINATED, cleanOptions);    /* <-- This should never fail. */
-                    pActualPathClean = pActualPathCleanHeap;
-                } else {
-                    pActualPathClean = pActualPathCleanStack;
-                }
-
-                fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-                pActualPathHeap = NULL;
-
-
                 /* We now have enough information to open the file. */
-                result = fs_file_alloc_if_necessary_and_open_or_info(pFS, pActualPathClean, openMode, ppFile, pInfo);
+                result = fs_file_alloc_and_open_or_info(pFS, fs_string_cstr(&fileRealPath), openMode, ppFile, pInfo);
+                fs_string_free(&fileRealPath, fs_get_allocation_callbacks(pFS));
 
-                fs_free(pActualPathCleanHeap, fs_get_allocation_callbacks(pFS));
-                pActualPathCleanHeap = NULL;
-
-                if (result == FS_SUCCESS) {
-                    return FS_SUCCESS;
-                } else {
-                    return FS_DOES_NOT_EXIST;   /* Couldn't find the file from the best mount point. */
+                if (result != FS_SUCCESS) {
+                    return result;
                 }
+
+                return FS_SUCCESS;
             } else {
                 return FS_DOES_NOT_EXIST;   /* Couldn't find an appropriate mount point. */
             }
@@ -3180,7 +3661,7 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
             opening a file using `fopen()`.
             */
             if ((openMode & FS_ONLY_MOUNTS) == 0) {
-                return fs_file_alloc_if_necessary_and_open_or_info(pFS, pFilePath, openMode, ppFile, pInfo);
+                return fs_file_alloc_and_open_or_info(pFS, pFilePath, openMode, ppFile, pInfo);
             } else {
                 /*
                 Getting here means only the mount points can be used to open the file (cannot open straight from
@@ -3195,100 +3676,42 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
 
         if (pFS != NULL && (openMode & FS_IGNORE_MOUNTS) == 0) {
             for (mountPointIerationResult = fs_mount_list_first(pFS->pReadMountPoints, &iMountPoint); mountPointIerationResult == FS_SUCCESS; mountPointIerationResult = fs_mount_list_next(&iMountPoint)) {
-                /*
-                The first thing to do is check if the start of our file path matches the mount point. If it
-                doesn't match we just skip to the next mount point.
-                */
-                char  pFileSubPathCleanStack[1024];
-                char* pFileSubPathCleanHeap = NULL;
-                char* pFileSubPathClean;
-                int fileSubPathCleanLen;
-                unsigned int cleanOptions = (openMode & FS_NO_ABOVE_ROOT_NAVIGATION);
-
-                const char* pFileSubPath = fs_path_trim_base(pFilePath, FS_NULL_TERMINATED, iMountPoint.pMountPointPath, FS_NULL_TERMINATED);
-                if (pFileSubPath == NULL) {
-                    continue;
-                }
-
-
-                /* If the mount point starts with a root segment, i.e. "/", we cannot allow navigation above that. */
-                if (iMountPoint.pMountPointPath[0] == '/' || iMountPoint.pMountPointPath[0] == '\\') {
-                    cleanOptions |= FS_NO_ABOVE_ROOT_NAVIGATION;
-                }
-
-                /* We need to clean the file sub-path, but can skip it if FS_NO_SPECIAL_DIRS is specified since it's implied. */
-                if ((openMode & FS_NO_SPECIAL_DIRS) == 0) {
-                    fileSubPathCleanLen = fs_path_normalize(pFileSubPathCleanStack, sizeof(pFileSubPathCleanStack), pFileSubPath, FS_NULL_TERMINATED, cleanOptions);
-                    if (fileSubPathCleanLen < 0) {
-                        continue;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. Keep looking. */
-                    }
-
-                    if (fileSubPathCleanLen >= (int)sizeof(pFileSubPathCleanStack)) {
-                        pFileSubPathCleanHeap = (char*)fs_malloc(fileSubPathCleanLen + 1, fs_get_allocation_callbacks(pFS));
-                        if (pFileSubPathCleanHeap == NULL) {
-                            return FS_OUT_OF_MEMORY;
-                        }
-
-                        fs_path_normalize(pFileSubPathCleanHeap, fileSubPathCleanLen + 1, pFileSubPath, FS_NULL_TERMINATED, cleanOptions);    /* <-- This should never fail. */
-                        pFileSubPathClean = pFileSubPathCleanHeap;
-                    } else {
-                        pFileSubPathClean = pFileSubPathCleanStack;
-                    }
-                } else {
-                    pFileSubPathClean = (char*)pFileSubPath;  /* Safe cast. Will not be modified past this point. */
-                    fileSubPathCleanLen = (int)strlen(pFileSubPathClean);
-                }
-
-
-                /* The mount point could either be a directory or an archive. Both of these require slightly different handling. */
+                /* We need to run a slightly different code path depending on whether or not the mount point is an archive. */
                 if (iMountPoint.pArchive != NULL) {
-                    /* The mount point is an archive. This is the simpler case. We just load the file directly from the archive. */
-                    result = fs_file_open_or_info(iMountPoint.pArchive, pFileSubPathClean, openMode, ppFile, pInfo);
-                    if (result == FS_SUCCESS) {
-                        return FS_SUCCESS;
-                    } else {
-                        /* Failed to load from this archive. Keep looking. */
+                    /* The mount point is an archive. In this case we need to grab the file's sub-path and just open that from the archive. */
+                    fs_string fileSubPath;
+
+                    result = fs_resolve_sub_path_from_mount_point(pFS, iMountPoint.internal.pMountPoint, pFilePath, openMode, &fileSubPath);
+                    if (result != FS_SUCCESS) {
+                        continue;   /* Not a valid mount point, or trying to navigate above the root. */
                     }
+
+                    result = fs_file_open_or_info(iMountPoint.pArchive, fs_string_cstr(&fileSubPath), openMode, ppFile, pInfo);
+                    fs_string_free(&fileSubPath, fs_get_allocation_callbacks(pFS));
                 } else {
-                    /* The mount point is a directory. We need to combine the sub-path with the mount point's original path and then load the file. */
-                    char  pActualPathStack[1024];
-                    char* pActualPathHeap = NULL;
-                    char* pActualPath;
-                    int actualPathLen;
+                    /* Not loading from an archive. In this case we need to resolve the real path and load the file from that. */
+                    fs_string fileRealPath;
 
-                    actualPathLen = fs_path_append(pActualPathStack, sizeof(pActualPathStack), iMountPoint.pPath, FS_NULL_TERMINATED, pFileSubPathClean, fileSubPathCleanLen);
-                    if (actualPathLen > 0 && (size_t)actualPathLen >= sizeof(pActualPathStack)) {
-                        /* Not enough room on the stack. Allocate on the heap. */
-                        pActualPathHeap = (char*)fs_malloc(actualPathLen + 1, fs_get_allocation_callbacks(pFS));
-                        if (pActualPathHeap == NULL) {
-                            return FS_OUT_OF_MEMORY;
-                        }
-
-                        fs_path_append(pActualPathHeap, actualPathLen + 1, iMountPoint.pPath, FS_NULL_TERMINATED, pFileSubPathClean, fileSubPathCleanLen);   /* <-- This should never fail. */
-                        pActualPath = pActualPathHeap;
-                    } else {
-                        pActualPath = pActualPathStack;
+                    result = fs_resolve_real_path_from_mount_point(pFS, iMountPoint.internal.pMountPoint, pFilePath, openMode, &fileRealPath);
+                    if (result != FS_SUCCESS) {
+                        continue;   /* Not a valid mount point, or trying to navigate above the root. */
                     }
 
-                    result = fs_file_alloc_if_necessary_and_open_or_info(pFS, pActualPath, openMode, ppFile, pInfo);
+                    result = fs_file_alloc_and_open_or_info(pFS, fs_string_cstr(&fileRealPath), openMode, ppFile, pInfo);
+                    fs_string_free(&fileRealPath, fs_get_allocation_callbacks(pFS));
+                }
 
-                    if (pActualPathHeap != NULL) {
-                        fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-                        pActualPathHeap = NULL;
-                    }
-
-                    if (result == FS_SUCCESS) {
-                        return FS_SUCCESS;
-                    } else {
-                        /* Failed to load from this directory. Keep looking. */
-                    }
+                if (result == FS_SUCCESS) {
+                    return FS_SUCCESS;
+                } else {
+                    /* Failed to load from this mount point. Keep looking. */
                 }
             }
         }
 
         /* If we get here it means we couldn't find the file from our search paths. Try opening directly. */
         if ((openMode & FS_ONLY_MOUNTS) == 0) {
-            result = fs_file_alloc_if_necessary_and_open_or_info(pFS, pFilePath, openMode, ppFile, pInfo);
+            result = fs_file_alloc_and_open_or_info(pFS, pFilePath, openMode, ppFile, pInfo);
             if (result == FS_SUCCESS) {
                 return FS_SUCCESS;
             }
@@ -3319,51 +3742,7 @@ FS_API fs_result fs_file_open(fs* pFS, const char* pFilePath, int openMode, fs_f
 
     *ppFile = NULL;
 
-    if ((openMode & FS_TEMP) == FS_TEMP) {
-        /*
-        We're creating a temporary file. We can use fs_mktmp() to generate a file path for us. The
-        input path will act as the prefix.
-
-        We'll use a stack allocation for the temporary file path. We can make this more robust later
-        by checking for FS_PATH_TOO_LONG and allocating on the heap if necessary.
-        */
-        char pTmpPath[4096];
-        fs_result result;
-
-        result = fs_mktmp(pFilePath, pTmpPath, sizeof(pTmpPath), FS_MKTMP_FILE);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-
-        return fs_file_open_or_info(pFS, pTmpPath, openMode | FS_IGNORE_MOUNTS, ppFile, NULL);
-    } else {
-        return fs_file_open_or_info(pFS, pFilePath, openMode, ppFile, NULL);
-    }
-}
-
-FS_API fs_result fs_file_open_from_handle(fs* pFS, void* hBackendFile, fs_file** ppFile)
-{
-    fs_result result;
-
-    if (ppFile == NULL) {
-        return FS_INVALID_ARGS;
-    }
-
-    *ppFile = NULL;
-
-    result = fs_file_alloc_if_necessary(pFS, ppFile);
-    if (result != FS_SUCCESS) {
-        *ppFile = NULL;
-        return result;
-    }
-
-    result = fs_backend_file_open_handle(fs_get_backend_or_default(pFS), pFS, hBackendFile, *ppFile);
-    if (result != FS_SUCCESS) {
-        fs_file_free(ppFile);
-        return result;
-    }
-
-    return FS_SUCCESS;
+    return fs_file_open_or_info(pFS, pFilePath, openMode, ppFile, NULL);
 }
 
 static void fs_file_uninit(fs_file* pFile)
@@ -3539,6 +3918,20 @@ FS_API fs_result fs_file_flush(fs_file* pFile)
     FS_ASSERT(pBackend != NULL);
 
     return fs_backend_file_flush(pBackend, pFile);
+}
+
+FS_API fs_result fs_file_truncate(fs_file* pFile)
+{
+    const fs_backend* pBackend;
+
+    if (pFile == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    pBackend = fs_file_get_backend(pFile);
+    FS_ASSERT(pBackend != NULL);
+
+    return fs_backend_file_truncate(pBackend, pFile);
 }
 
 FS_API fs_result fs_file_get_info(fs_file* pFile, fs_file_info* pInfo)
@@ -3787,6 +4180,15 @@ static fs_iterator_internal* fs_iterator_internal_gather(fs_iterator_internal* p
     if (pFS != NULL && !FS_IS_OPAQUE(mode)) {
         fs_path_iterator iDirPathSeg;
 
+        /*
+        When we get here, we are iterating over the actual files in archives that are located in the
+        file system `pFS`. There's no real concept of mounts here. In order to make iteration work
+        as expected, we need to modify our mode flags to ensure it does not attempt to read from
+        mounts.
+        */
+        mode |=  FS_IGNORE_MOUNTS;
+        mode &= ~FS_ONLY_MOUNTS;
+
         /* If no archive types have been configured we can abort early. */
         if (pFS->archiveTypesAllocSize == 0) {
             return pIterator;
@@ -3835,7 +4237,7 @@ static fs_iterator_internal* fs_iterator_internal_gather(fs_iterator_internal* p
 
                     isArchive = FS_TRUE;
 
-                    result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, iDirPathSeg.pFullPath, iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength, FS_READ | FS_IGNORE_MOUNTS | mode, &pArchive);
+                    result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, iDirPathSeg.pFullPath, iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength, FS_READ | (mode & ~FS_WRITE), &pArchive);
                     if (result != FS_SUCCESS) {
                         /*
                         We failed to open the archive. If it's due to the archive not existing we just continue searching. Otherwise
@@ -3895,37 +4297,25 @@ static fs_iterator_internal* fs_iterator_internal_gather(fs_iterator_internal* p
                             /* Looks like an archive. We can load this one up and try iterating from it. */
                             fs* pArchive;
                             fs_iterator* pArchiveIterator;
-                            char pArchivePathNTStack[1024];
-                            char* pArchivePathNTHeap = NULL;    /* <-- Must be initialized to null. */
-                            char* pArchivePathNT;
-                            size_t archivePathLen;
+                            fs_string archivePath;
 
-                            archivePathLen = iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength + 1 + pInnerIterator->nameLen;
-                            if (archivePathLen >= sizeof(pArchivePathNTStack)) {
-                                pArchivePathNTHeap = (char*)fs_malloc(archivePathLen + 1, fs_get_allocation_callbacks(pFS));
-                                if (pArchivePathNTHeap == NULL) {
-                                    fs_backend_free_iterator(pBackend, pInnerIterator);
-                                    return pIterator;
-                                }
-
-                                pArchivePathNT = pArchivePathNTHeap;
-                            } else {
-                                pArchivePathNT = pArchivePathNTStack;
+                            result = fs_string_alloc(iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength + 1 + pInnerIterator->nameLen, fs_get_allocation_callbacks(pFS), &archivePath);
+                            if (result != FS_SUCCESS) {
+                                fs_backend_free_iterator(pBackend, pInnerIterator);
+                                return pIterator;
                             }
 
-                            FS_COPY_MEMORY(pArchivePathNT, iDirPathSeg.pFullPath, iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength);
-                            pArchivePathNT[iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength] = '/';
-                            FS_COPY_MEMORY(pArchivePathNT + iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength + 1, pInnerIterator->pName, pInnerIterator->nameLen);
-                            pArchivePathNT[archivePathLen] = '\0';
+                            fs_string_append_preallocated(&archivePath, iDirPathSeg.pFullPath, iDirPathSeg.segmentOffset + iDirPathSeg.segmentLength);
+                            fs_string_append_preallocated(&archivePath, "/", FS_NULL_TERMINATED);
+                            fs_string_append_preallocated(&archivePath, pInnerIterator->pName, pInnerIterator->nameLen);
 
                             /* At this point we've constructed the archive name and we can now open it. */
-                            result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, pArchivePathNT, FS_NULL_TERMINATED, FS_READ | FS_IGNORE_MOUNTS | mode, &pArchive);
-                            fs_free(pArchivePathNTHeap, fs_get_allocation_callbacks(pFS));
+                            result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, fs_string_cstr(&archivePath), FS_NULL_TERMINATED, FS_READ | (mode & ~FS_WRITE), &pArchive);
+                            fs_string_free(&archivePath, fs_get_allocation_callbacks(pFS));
 
                             if (result != FS_SUCCESS) { /* <-- This is checking the result of fs_open_archive_ex(). */
                                 continue;   /* Failed to open this archive. Keep looking. */
                             }
-
 
                             if (dirPathRemainingLen == 0) {
                                 pArchiveIterator = fs_first_ex(pArchive, "", 0, mode);
@@ -3977,6 +4367,12 @@ FS_API fs_iterator* fs_first_ex(fs* pFS, const char* pDirectoryPath, size_t dire
         directoryPathLen = strlen(pDirectoryPath);
     }
 
+    /* Make sure we never try using mounts if we are not using a fs object. */
+    if (pFS == NULL) {
+        mode |=  FS_IGNORE_MOUNTS;
+        mode &= ~FS_ONLY_MOUNTS;
+    }
+
     /*
     The first thing we need to do is gather files and directories from the backend. This needs to be done in the
     same order that we attempt to load files for reading:
@@ -3988,99 +4384,56 @@ FS_API fs_iterator* fs_first_ex(fs* pFS, const char* pDirectoryPath, size_t dire
     to be consistent with what would happen when opening files.
     */
     /* Gather files. */
-    {
+    if ((mode & FS_WRITE) != 0) {
+        /* Write mode. */
+        if (pFS != NULL && (mode & FS_IGNORE_MOUNTS) == 0) {
+            fs_mount_point* pBestMountPoint = NULL;
+            fs_string fileRealPath;
+
+            pBestMountPoint = fs_find_best_write_mount_point(pFS, pDirectoryPath, mode, &fileRealPath);
+            if (pBestMountPoint != NULL) {
+                pIterator = fs_iterator_internal_gather(pIterator, pBackend, pFS, fs_string_cstr(&fileRealPath), fs_string_len(&fileRealPath), mode);
+                fs_string_free(&fileRealPath, fs_get_allocation_callbacks(pFS));
+            }
+        } else {
+            /* No "fs" object was supplied, or we're ignoring mounts. Need to gather directly from the file system. */
+            if ((mode & FS_ONLY_MOUNTS) == 0) {
+                pIterator = fs_iterator_internal_gather(pIterator, pBackend, pFS, pDirectoryPath, directoryPathLen, mode);
+            }
+        }
+    } else {
+        /* Read mode. */
         fs_result mountPointIerationResult;
         fs_mount_list_iterator iMountPoint;
 
         /* Check mount points. */
         if (pFS != NULL && (mode & FS_IGNORE_MOUNTS) == 0) {
             for (mountPointIerationResult = fs_mount_list_first(pFS->pReadMountPoints, &iMountPoint); mountPointIerationResult == FS_SUCCESS; mountPointIerationResult = fs_mount_list_next(&iMountPoint)) {
-                /*
-                Just like when opening a file, we need to check that the directory path starts with the mount point. If it
-                doesn't match we just skip to the next mount point.
-                */
-                char  pDirSubPathCleanStack[1024];
-                char* pDirSubPathCleanHeap = NULL;
-                char* pDirSubPathClean;
-                int dirSubPathCleanLen;
-                unsigned int cleanOptions = (mode & FS_NO_ABOVE_ROOT_NAVIGATION);
-
-                size_t dirSubPathLen;
-                const char* pDirSubPath = fs_path_trim_base(pDirectoryPath, directoryPathLen, iMountPoint.pMountPointPath, FS_NULL_TERMINATED);
-                if (pDirSubPath == NULL) {
-                    continue;
-                }
-
-                dirSubPathLen = directoryPathLen - (size_t)(pDirSubPath - pDirectoryPath); 
-
-
-                /* If the mount point starts with a root segment, i.e. "/", we cannot allow navigation above that. */
-                if (iMountPoint.pMountPointPath[0] == '/' || iMountPoint.pMountPointPath[0] == '\\') {
-                    cleanOptions |= FS_NO_ABOVE_ROOT_NAVIGATION;
-                }
-
-                /* We need to clean the file sub-path, but can skip it if FS_NO_SPECIAL_DIRS is specified since it's implied. */
-                if ((mode & FS_NO_SPECIAL_DIRS) == 0) {
-                    dirSubPathCleanLen = fs_path_normalize(pDirSubPathCleanStack, sizeof(pDirSubPathCleanStack), pDirSubPath, dirSubPathLen, cleanOptions);
-                    if (dirSubPathCleanLen < 0) {
-                        continue;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. */
-                    }
-
-                    if (dirSubPathCleanLen >= (int)sizeof(pDirSubPathCleanStack)) {
-                        pDirSubPathCleanHeap = (char*)fs_malloc(dirSubPathCleanLen + 1, fs_get_allocation_callbacks(pFS));
-                        if (pDirSubPathCleanHeap == NULL) {
-                            return NULL;    /* Out of memory. */
-                        }
-
-                        fs_path_normalize(pDirSubPathCleanHeap, dirSubPathCleanLen + 1, pDirSubPath, dirSubPathLen, cleanOptions);    /* <-- This should never fail. */
-                        pDirSubPathClean = pDirSubPathCleanHeap;
-                    } else {
-                        pDirSubPathClean = pDirSubPathCleanStack;
-                    }
-                } else {
-                    pDirSubPathClean = (char*)pDirSubPath;  /* Safe cast. Will not be modified past this point. */
-                    dirSubPathCleanLen = (int)dirSubPathLen;
-                }
-
-                
                 if (iMountPoint.pArchive != NULL) {
-                    /* The mount point is an archive. We need to iterate over the contents of the archive. */
-                    pBackendIterator = fs_first_ex(iMountPoint.pArchive, pDirSubPathClean, dirSubPathCleanLen, mode);
+                    fs_string dirSubPath;
+
+                    result = fs_resolve_sub_path_from_mount_point(pFS, iMountPoint.internal.pMountPoint, pDirectoryPath, mode, &dirSubPath);
+                    if (result != FS_SUCCESS) {
+                        continue;
+                    }
+
+                    pBackendIterator = fs_first_ex(iMountPoint.pArchive, fs_string_cstr(&dirSubPath), fs_string_len(&dirSubPath), mode);
                     while (pBackendIterator != NULL) {
                         pIterator = fs_iterator_internal_append(pIterator, pBackendIterator, pFS, mode);
                         pBackendIterator = fs_next(pBackendIterator);
                     }
+
+                    fs_string_free(&dirSubPath, fs_get_allocation_callbacks(pFS));
                 } else {
-                    /*
-                    The mount point is a directory. We need to construct a path that is the concatenation of the mount point's internal path and
-                    our input directory. This is the path we'll be using to iterate over the contents of the directory.
-                    */
-                    char pInterpolatedPathStack[1024];
-                    char* pInterpolatedPathHeap = NULL;
-                    char* pInterpolatedPath;
-                    int interpolatedPathLen;
+                    fs_string dirRealPath;
 
-                    interpolatedPathLen = fs_path_append(pInterpolatedPathStack, sizeof(pInterpolatedPathStack), iMountPoint.pPath, FS_NULL_TERMINATED, pDirSubPathClean, dirSubPathCleanLen);
-                    if (interpolatedPathLen > 0 && (size_t)interpolatedPathLen >= sizeof(pInterpolatedPathStack)) {
-                        /* Not enough room on the stack. Allocate on the heap. */
-                        pInterpolatedPathHeap = (char*)fs_malloc(interpolatedPathLen + 1, fs_get_allocation_callbacks(pFS));
-                        if (pInterpolatedPathHeap == NULL) {
-                            fs_free_iterator((fs_iterator*)pIterator);
-                            return NULL;    /* Out of memory. */
-                        }
-
-                        fs_path_append(pInterpolatedPathHeap, interpolatedPathLen + 1, iMountPoint.pPath, FS_NULL_TERMINATED, pDirSubPathClean, dirSubPathCleanLen);    /* <-- This should never fail. */
-                        pInterpolatedPath = pInterpolatedPathHeap;
-                    } else {
-                        pInterpolatedPath = pInterpolatedPathStack;
+                    result = fs_resolve_real_path_from_mount_point(pFS, iMountPoint.internal.pMountPoint, pDirectoryPath, mode, &dirRealPath);
+                    if (result != FS_SUCCESS) {
+                        continue;
                     }
 
-                    pIterator = fs_iterator_internal_gather(pIterator, pBackend, pFS, pInterpolatedPath, FS_NULL_TERMINATED, mode);
-
-                    if (pInterpolatedPathHeap != NULL) {
-                        fs_free(pInterpolatedPathHeap, fs_get_allocation_callbacks(pFS));
-                        pInterpolatedPathHeap = NULL;
-                    }
+                    pIterator = fs_iterator_internal_gather(pIterator, pBackend, pFS, fs_string_cstr(&dirRealPath), fs_string_len(&dirRealPath), mode);
+                    fs_string_free(&dirRealPath, fs_get_allocation_callbacks(pFS));
                 }
             }
         }
@@ -4151,72 +4504,331 @@ FS_API void fs_free_iterator(fs_iterator* pIterator)
 }
 
 
-static fs_result fs_mount_read(fs* pFS, const char* pActualPath, const char* pVirtualPath, int options)
+
+static void fs_on_refcount_changed_internal(void* pUserData, fs* pFS, fs_uint32 newRefCount, fs_uint32 oldRefCount)
+{
+    fs* pOwnerFS;
+
+    (void)pUserData;
+    (void)pFS;
+    (void)newRefCount;
+    (void)oldRefCount;
+
+    pOwnerFS = (fs*)pUserData;
+    FS_ASSERT(pOwnerFS != NULL);
+
+    if (newRefCount == 1) {
+        /* In this case there are no more files referencing this archive. We'll want to do some garbage collection. */
+        fs_gc_archives(pOwnerFS, FS_GC_POLICY_THRESHOLD);
+    }
+}
+
+static fs_result fs_open_archive_nolock(fs* pFS, const fs_backend* pBackend, const void* pBackendConfig, const char* pArchivePath, size_t archivePathLen, int openMode, fs** ppArchive)
 {
     fs_result result;
-    fs_mount_list_iterator iterator;
-    fs_result iteratorResult;
-    fs_mount_list* pMountPoints;
-    fs_mount_point* pNewMountPoint;
-    fs_file_info fileInfo;
-    int openMode;
-
-    FS_ASSERT(pFS != NULL);
-    FS_ASSERT(pActualPath != NULL);
-    FS_ASSERT(pVirtualPath != NULL);
-    FS_ASSERT((options & FS_READ) == FS_READ);
+    fs* pArchive;
+    fs_config archiveConfig;
+    fs_file* pArchiveFile;
+    char pArchivePathNTStack[1024];
+    char* pArchivePathNTHeap = NULL;    /* <-- Must be initialized to null. */
+    char* pArchivePathNT;
+    fs_opened_archive* pOpenedArchive;
 
     /*
-    The first thing we're going to do is check for duplicates. We allow for the same path to be mounted
-    to different mount points, and different paths to be mounted to the same mount point, but we don't
-    want to have any duplicates where the same path is mounted to the same mount point.
+    The first thing to do is check if the archive has already been opened. If so, we just increment
+    the reference count and return the already-loaded fs object.
     */
-    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
-        if (strcmp(pActualPath, iterator.pPath) == 0 && strcmp(pVirtualPath, iterator.pMountPointPath) == 0) {
-            return FS_SUCCESS;  /* Just pretend we're successful. */
-        }
-    }
-
-    /*
-    Getting here means we're not mounting a duplicate so we can now add it. We'll be either adding it to
-    the end of the list, or to the beginning of the list depending on the priority.
-    */
-    pMountPoints = fs_mount_list_alloc(pFS->pReadMountPoints, pActualPath, pVirtualPath, ((options & FS_LOWEST_PRIORITY) == FS_LOWEST_PRIORITY) ? FS_MOUNT_PRIORITY_LOWEST : FS_MOUNT_PRIORITY_HIGHEST, fs_get_allocation_callbacks(pFS), &pNewMountPoint);
-    if (pMountPoints == NULL) {
-        return FS_OUT_OF_MEMORY;
-    }
-
-    pFS->pReadMountPoints = pMountPoints;
-
-    /*
-    We need to determine if we're mounting a directory or an archive. If it's an archive, we need to
-    open it.
-    */
-    openMode = FS_READ | FS_VERBOSE;
-
-    /* Must use fs_backend_info() instead of fs_info() because otherwise fs_info() will attempt to read from mounts when we're in the process of trying to add one (this function). */
-    result = fs_backend_info(fs_get_backend_or_default(pFS), pFS, (pActualPath[0] != '\0') ? pActualPath : ".", FS_IGNORE_MOUNTS, &fileInfo);
-    if (result != FS_SUCCESS && result != FS_DOES_NOT_EXIST) {
-        return result;
-    }
-
-    /* If we failed to find the info (result == FS_DOES_NOT_EXIST), we can just assume we're trying to mount a directory. */
-    if (fileInfo.directory || result == FS_DOES_NOT_EXIST) {
-        pNewMountPoint->pArchive = NULL;
-        pNewMountPoint->closeArchiveOnUnmount = FS_FALSE;
+    pOpenedArchive = fs_find_opened_archive(pFS, pArchivePath, archivePathLen);
+    if (pOpenedArchive != NULL) {
+        pArchive = pOpenedArchive->pArchive;
     } else {
-        result = fs_open_archive(pFS, pActualPath, openMode, &pNewMountPoint->pArchive);
+        /*
+        Getting here means the archive is not cached. We'll need to open it. Unfortunately our path is
+        not null terminated so we'll need to do that now. We'll try to avoid a heap allocation if we
+        can.
+        */
+        if (archivePathLen == FS_NULL_TERMINATED) {
+            pArchivePathNT = (char*)pArchivePath;   /* <-- Safe cast. We won't be modifying this. */
+        } else {
+            if (archivePathLen >= sizeof(pArchivePathNTStack)) {
+                pArchivePathNTHeap = (char*)fs_malloc(archivePathLen + 1, fs_get_allocation_callbacks(pFS));
+                if (pArchivePathNTHeap == NULL) {
+                    return FS_OUT_OF_MEMORY;
+                }
+
+                pArchivePathNT = pArchivePathNTHeap;
+            } else {
+                pArchivePathNT = pArchivePathNTStack;
+            }
+
+            FS_COPY_MEMORY(pArchivePathNT, pArchivePath, archivePathLen);
+            pArchivePathNT[archivePathLen] = '\0';
+        }
+
+        result = fs_file_open(pFS, pArchivePathNT, openMode, &pArchiveFile);
         if (result != FS_SUCCESS) {
+            fs_free(pArchivePathNTHeap, fs_get_allocation_callbacks(pFS));
             return result;
         }
 
-        pNewMountPoint->closeArchiveOnUnmount = FS_TRUE;
+        archiveConfig = fs_config_init(pBackend, pBackendConfig, fs_file_get_stream(pArchiveFile));
+        archiveConfig.pAllocationCallbacks = fs_get_allocation_callbacks(pFS);
+        archiveConfig.onRefCountChanged = fs_on_refcount_changed_internal;
+        archiveConfig.pRefCountChangedUserData = pFS;   /* The user data is always the fs object that owns this archive. */
+
+        result = fs_init(&archiveConfig, &pArchive);
+        fs_free(pArchivePathNTHeap, fs_get_allocation_callbacks(pFS));
+
+        if (result != FS_SUCCESS) { /* <-- This is the result of fs_init().*/
+            fs_file_close(pArchiveFile);
+            return result;
+        }
+
+        /*
+        We need to support the ability to open archives within archives. To do this, the archive fs
+        object needs to inherit the registered archive types. Fortunately this is easy because we do
+        this as one single allocation which means we can just reference it directly. The API has a
+        restriction that archive type registration cannot be modified after a file has been opened.
+        */
+        pArchive->pArchiveTypes         = pFS->pArchiveTypes;
+        pArchive->archiveTypesAllocSize = pFS->archiveTypesAllocSize;
+        pArchive->isOwnerOfArchiveTypes = FS_FALSE;
+
+        /* Add the new archive to the cache. */
+        result = fs_add_opened_archive(pFS, pArchive, pArchivePath, archivePathLen);
+        if (result != FS_SUCCESS) {
+            fs_uninit(pArchive);
+            fs_file_close(pArchiveFile);
+            return result;
+        }
     }
 
+    FS_ASSERT(pArchive != NULL);
+
+    *ppArchive = ((openMode & FS_NO_INCREMENT_REFCOUNT) == 0) ? fs_ref(pArchive) : pArchive;
     return FS_SUCCESS;
 }
 
-FS_API fs_result fs_unmount_read(fs* pFS, const char* pActualPath, int options)
+FS_API fs_result fs_open_archive_ex(fs* pFS, const fs_backend* pBackend, const void* pBackendConfig, const char* pArchivePath, size_t archivePathLen, int openMode, fs** ppArchive)
+{
+    fs_result result;
+
+    if (ppArchive == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    *ppArchive = NULL;
+
+    if (pFS == NULL || pBackend == NULL || pArchivePath == NULL || archivePathLen == 0) {
+        return FS_INVALID_ARGS;
+    }
+
+    /*
+    It'd be nice to be able to resolve the path here to eliminate any "." and ".." segments thereby
+    making the path always consistent for a given archive. However, I cannot think of a way to do
+    this robustly without having a backend-specific function like a `resolve()` or whatnot. The
+    problem is that the path might be absolute, or it might be relative, and to get it right,
+    parcticularly when dealing with different operating systems' ways of specifying an absolute
+    path, you really need to have the support of the backend. I might add support for this later.
+    */
+
+    fs_mtx_lock(&pFS->archiveLock);
+    {
+        result = fs_open_archive_nolock(pFS, pBackend, pBackendConfig, pArchivePath, archivePathLen, openMode, ppArchive);
+    }
+    fs_mtx_unlock(&pFS->archiveLock);
+
+    return result;
+}
+
+FS_API fs_result fs_open_archive(fs* pFS, const char* pArchivePath, int openMode, fs** ppArchive)
+{
+    fs_result backendIteratorResult;
+    fs_registered_backend_iterator iBackend;
+    fs_result result;
+
+    if (ppArchive == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    *ppArchive = NULL;  /* Safety. */
+
+    if (pFS == NULL || pArchivePath == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    /*
+    There can be multiple backends registered to the same extension. We just iterate over each one in order
+    and use the first that works.
+    */
+    result = FS_NO_BACKEND;
+    for (backendIteratorResult = fs_first_registered_backend(pFS, &iBackend); backendIteratorResult == FS_SUCCESS; backendIteratorResult = fs_next_registered_backend(&iBackend)) {
+        if (fs_path_extension_equal(pArchivePath, FS_NULL_TERMINATED, iBackend.pExtension, iBackend.extensionLen)) {
+            result = fs_open_archive_ex(pFS, iBackend.pBackend, iBackend.pBackendConfig, pArchivePath, FS_NULL_TERMINATED, openMode, ppArchive);
+            if (result == FS_SUCCESS) {
+                return FS_SUCCESS;
+            }
+        }
+    }
+
+    /* Failed to open from any archive backend. */
+    return result;
+}
+
+FS_API void fs_close_archive(fs* pArchive)
+{
+    fs_uint32 newRefCount;
+
+    if (pArchive == NULL) {
+        return;
+    }
+
+    /* In fs_open_archive() we incremented the reference count. Now we need to decrement it. */
+    newRefCount = fs_unref(pArchive);
+
+    /*
+    If the reference count of the archive is 1 it means we don't currently have any files opened. We should
+    look at garbage collecting.
+    */
+    if (newRefCount == 1) {
+        /*
+        This is a bit hacky and should probably change. When we initialized the archive in fs_open_archive() we set the user
+        data of the onRefCountChanged callback to be the fs object that owns this archive. We'll just use that to fire the
+        garbage collection process.
+        */
+        fs* pArchiveOwnerFS = (fs*)pArchive->pRefCountChangedUserData;
+        FS_ASSERT(pArchiveOwnerFS != NULL);
+
+        fs_gc(pArchiveOwnerFS, FS_GC_POLICY_FULL, pArchive);
+    }
+}
+
+static void fs_gc_nolock(fs* pFS, int policy, fs* pSpecificArchive)
+{
+    size_t unreferencedCount = 0;
+    size_t collectionCount = 0;
+    size_t cursor = 0;
+
+    FS_ASSERT(pFS != NULL);
+
+    /*
+    If we're doing a full garbage collection we need to recursively run the garbage collection process
+    on opened archives. For specific GC, we only recursively collect the target archive.
+    */
+    if ((policy & FS_GC_POLICY_FULL) != 0) {
+        /* For full GC, recursively collect all opened archives. */
+        if (pSpecificArchive != NULL) {
+            fs_gc_archives(pSpecificArchive, FS_GC_POLICY_FULL);
+        } else {
+            cursor = 0;
+            while (cursor < pFS->openedArchivesSize) {
+                fs_opened_archive* pOpenedArchive = (fs_opened_archive*)FS_OFFSET_PTR(pFS->pOpenedArchives, cursor);
+                FS_ASSERT(pOpenedArchive != NULL);
+
+                fs_gc_archives(pOpenedArchive->pArchive, policy);
+                cursor += FS_ALIGN(sizeof(fs*) + sizeof(size_t) + strlen(pOpenedArchive->pPath) + 1, FS_SIZEOF_PTR);
+            }
+        }
+    }
+
+    /* Count unreferenced archives. */
+    cursor = 0;
+    while (cursor < pFS->openedArchivesSize) {
+        fs_opened_archive* pOpenedArchive = (fs_opened_archive*)FS_OFFSET_PTR(pFS->pOpenedArchives, cursor);
+
+        if (fs_refcount(pOpenedArchive->pArchive) == 1) {
+            unreferencedCount += 1;
+        }
+
+        /* If this is a specific GC, check if this is the target archive. */
+        if (pSpecificArchive != NULL && pSpecificArchive == pOpenedArchive->pArchive) {
+            if (fs_refcount(pSpecificArchive) == 1) {
+                break;
+            } else {
+                /* Archive is still referenced, so we can't collect it. */
+                return;
+            }
+        }
+
+        cursor += FS_ALIGN(sizeof(fs*) + sizeof(size_t) + strlen(pOpenedArchive->pPath) + 1, FS_SIZEOF_PTR);
+    }
+
+    /* Determine how many archives to collect. */
+    if ((policy & FS_GC_POLICY_THRESHOLD) != 0) {
+        if (unreferencedCount > fs_get_archive_gc_threshold(pFS)) {
+            collectionCount = unreferencedCount - fs_get_archive_gc_threshold(pFS);
+        } else {
+            collectionCount = 0;    /* We're below the threshold. Don't collect anything. */
+        }
+    } else if ((policy & FS_GC_POLICY_FULL) != 0) {
+        collectionCount = unreferencedCount;
+    } else {
+        FS_ASSERT(!"Invalid GC policy.");
+    }
+
+    /* Collect archives. */
+    cursor = 0;
+    while (collectionCount > 0 && cursor < pFS->openedArchivesSize) {
+        fs_opened_archive* pOpenedArchive = (fs_opened_archive*)FS_OFFSET_PTR(pFS->pOpenedArchives, cursor);
+
+        if (fs_refcount(pOpenedArchive->pArchive) == 1 && (pSpecificArchive == NULL || pSpecificArchive == pOpenedArchive->pArchive)) {
+            fs_file* pArchiveFile = (fs_file*)pOpenedArchive->pArchive->pStream;
+            FS_ASSERT(pArchiveFile != NULL);
+
+            fs_uninit(pOpenedArchive->pArchive);
+            fs_file_close(pArchiveFile);
+            fs_remove_opened_archive(pFS, pOpenedArchive);
+
+            collectionCount -= 1;
+            /* Note that we're not advancing the cursor here because we just removed this entry. */
+        } else {
+            cursor += FS_ALIGN(sizeof(fs*) + sizeof(size_t) + strlen(pOpenedArchive->pPath) + 1, FS_SIZEOF_PTR);
+        }
+    }
+}
+
+static void fs_gc(fs* pFS, int policy, fs* pSpecificArchive)
+{
+    if (pFS == NULL) {
+        return;
+    }
+
+    if (policy == 0 || ((policy & FS_GC_POLICY_THRESHOLD) != 0 && (policy & FS_GC_POLICY_FULL) != 0)) {
+        return; /* Invalid policy. Must specify FS_GC_POLICY_THRESHOLD or FS_GC_POLICY_FULL, but not both. */
+    }
+
+    fs_mtx_lock(&pFS->archiveLock);
+    {
+        fs_gc_nolock(pFS, policy, pSpecificArchive);
+    }
+    fs_mtx_unlock(&pFS->archiveLock);
+}
+
+FS_API void fs_gc_archives(fs* pFS, int policy)
+{
+    fs_gc(pFS, policy, NULL);
+}
+
+FS_API void fs_set_archive_gc_threshold(fs* pFS, size_t threshold)
+{
+    if (pFS == NULL) {
+        return;
+    }
+
+    pFS->archiveGCThreshold = threshold;
+}
+
+FS_API size_t fs_get_archive_gc_threshold(fs* pFS)
+{
+    if (pFS == NULL) {
+        return 0;
+    }
+
+    return pFS->archiveGCThreshold;
+}
+
+
+static fs_result fs_unmount_read(fs* pFS, const char* pActualPath, int options)
 {
     fs_result iteratorResult;
     fs_mount_list_iterator iterator;
@@ -4248,12 +4860,107 @@ FS_API fs_result fs_unmount_read(fs* pFS, const char* pActualPath, int options)
     return FS_SUCCESS;
 }
 
+static fs_result fs_mount_read(fs* pFS, const char* pActualPath, const char* pVirtualPath, int options)
+{
+    fs_result result;
+    fs_mount_list_iterator iterator;
+    fs_result iteratorResult;
+    fs_mount_list* pMountPoints;
+    fs_mount_point* pNewMountPoint;
+    fs_file_info fileInfo;
+
+    FS_ASSERT(pFS != NULL);
+    FS_ASSERT(pActualPath != NULL);
+    FS_ASSERT(pVirtualPath != NULL);
+    FS_ASSERT((options & FS_READ) == FS_READ);
+
+    /*
+    The first thing we're going to do is check for duplicates. We allow for the same path to be mounted
+    to different mount points, and different paths to be mounted to the same mount point, but we don't
+    want to have any duplicates where the same path is mounted to the same mount point.
+    */
+    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+        if (strcmp(pActualPath, iterator.pPath) == 0 && strcmp(pVirtualPath, iterator.pMountPointPath) == 0) {
+            return FS_SUCCESS;  /* Just pretend we're successful. */
+        }
+    }
+
+    /*
+    Getting here means we're not mounting a duplicate so we can now add it. We'll be either adding it to
+    the end of the list, or to the beginning of the list depending on the priority.
+    */
+    pMountPoints = fs_mount_list_alloc(pFS->pReadMountPoints, pActualPath, pVirtualPath, ((options & FS_LOWEST_PRIORITY) == FS_LOWEST_PRIORITY) ? FS_MOUNT_PRIORITY_LOWEST : FS_MOUNT_PRIORITY_HIGHEST, fs_get_allocation_callbacks(pFS), &pNewMountPoint);
+    if (pMountPoints == NULL) {
+        return FS_OUT_OF_MEMORY;
+    }
+
+    pNewMountPoint->pArchive = NULL;
+    pNewMountPoint->closeArchiveOnUnmount = FS_FALSE;
+
+    pFS->pReadMountPoints = pMountPoints;
+
+    /*
+    We need to determine if we're mounting a directory or an archive. If it's an archive, we need to
+    open it.
+    */
+
+    /* Must use fs_backend_info() instead of fs_info() because otherwise fs_info() will attempt to read from mounts when we're in the process of trying to add one (this function). */
+    result = fs_backend_info(fs_get_backend_or_default(pFS), pFS, (pActualPath[0] != '\0') ? pActualPath : ".", FS_IGNORE_MOUNTS, &fileInfo);
+    if (result != FS_SUCCESS) {
+        fs_unmount_read(pFS, pActualPath, options);
+        return result;
+    }
+
+    /* if the path is not pointing to a directory, assume it's a file, and therefore an archive. */
+    if (!fileInfo.directory) {
+        result = fs_open_archive(pFS, pActualPath, FS_READ | FS_VERBOSE, &pNewMountPoint->pArchive);
+        if (result != FS_SUCCESS) {
+            fs_unmount_read(pFS, pActualPath, options);
+            return result;
+        }
+
+        pNewMountPoint->closeArchiveOnUnmount = FS_TRUE;
+    }
+
+    return FS_SUCCESS;
+}
+
+
+static fs_result fs_unmount_write(fs* pFS, const char* pActualPath, int options)
+{
+    fs_result iteratorResult;
+    fs_mount_list_iterator iterator;
+
+    FS_ASSERT(pFS != NULL);
+    FS_ASSERT(pActualPath != NULL);
+
+    FS_UNUSED(options);
+
+    for (iteratorResult = fs_mount_list_first(pFS->pWriteMountPoints, &iterator); iteratorResult == FS_SUCCESS && !fs_mount_list_at_end(&iterator); /*iteratorResult = fs_mount_list_next(&iterator)*/) {
+        if (strcmp(pActualPath, iterator.pPath) == 0) {
+            fs_mount_list_remove(pFS->pWriteMountPoints, iterator.internal.pMountPoint);
+
+            /*
+            Since we just removed this item we don't want to advance the cursor. We do, however, need to re-resolve
+            the members in preparation for the next iteration.
+            */
+            fs_mount_list_iterator_resolve_members(&iterator, iterator.internal.cursor);
+        } else {
+            iteratorResult = fs_mount_list_next(&iterator);
+        }
+    }
+
+    return FS_SUCCESS;
+}
+
 static fs_result fs_mount_write(fs* pFS, const char* pActualPath, const char* pVirtualPath, int options)
 {
+    fs_result result;
     fs_mount_list_iterator iterator;
     fs_result iteratorResult;
     fs_mount_point* pNewMountPoint;
     fs_mount_list* pMountList;
+    fs_file_info fileInfo;
 
     if (pFS == NULL || pActualPath == NULL) {
         return FS_INVALID_ARGS;
@@ -4278,39 +4985,31 @@ static fs_result fs_mount_write(fs* pFS, const char* pActualPath, const char* pV
 
     pFS->pWriteMountPoints = pMountList;
     
-    /* We don't support mounting archives. Explicitly disable this. */
+    /*
+    We need to determine if we're mounting a directory or an archive. If it's an archive we need
+    to fail because we do not support mounting archives in write mode.
+    */
     pNewMountPoint->pArchive = NULL;
     pNewMountPoint->closeArchiveOnUnmount = FS_FALSE;
 
-    /* Since we'll be wanting to write out files to the mount point we should ensure the folder actually exists. */
-    if ((options & FS_NO_CREATE_DIRS) == 0) {
-        fs_mkdir(pFS, pActualPath, FS_IGNORE_MOUNTS);
+    /* Must use fs_backend_info() instead of fs_info() because otherwise fs_info() will attempt to read from mounts when we're in the process of trying to add one (this function). */
+    result = fs_backend_info(fs_get_backend_or_default(pFS), pFS, (pActualPath[0] != '\0') ? pActualPath : ".", FS_IGNORE_MOUNTS, &fileInfo);
+    if (result != FS_SUCCESS && result != FS_DOES_NOT_EXIST) {
+        fs_unmount_write(pFS, pActualPath, options);
+        return result;
     }
 
-    return FS_SUCCESS;
-}
+    if (!fileInfo.directory && result != FS_DOES_NOT_EXIST) {
+        fs_unmount_write(pFS, pActualPath, options);
+        return FS_INVALID_ARGS;
+    }
 
-static fs_result fs_unmount_write(fs* pFS, const char* pActualPath, int options)
-{
-    fs_result iteratorResult;
-    fs_mount_list_iterator iterator;
-
-    FS_ASSERT(pFS != NULL);
-    FS_ASSERT(pActualPath != NULL);
-
-    FS_UNUSED(options);
-
-    for (iteratorResult = fs_mount_list_first(pFS->pWriteMountPoints, &iterator); iteratorResult == FS_SUCCESS; /*iteratorResult = fs_mount_list_next(&iterator)*/) {
-        if (strcmp(pActualPath, iterator.pPath) == 0) {
-            fs_mount_list_remove(pFS->pWriteMountPoints, iterator.internal.pMountPoint);
-
-            /*
-            Since we just removed this item we don't want to advance the cursor. We do, however, need to re-resolve
-            the members in preparation for the next iteration.
-            */
-            fs_mount_list_iterator_resolve_members(&iterator, iterator.internal.cursor);
-        } else {
-            iteratorResult = fs_mount_list_next(&iterator);
+    /* Since we'll be wanting to write out files to the mount point we should ensure the folder actually exists. */
+    if ((options & FS_NO_CREATE_DIRS) == 0) {
+        fs_result result = fs_mkdir(pFS, pActualPath, FS_IGNORE_MOUNTS);
+        if (result != FS_SUCCESS && result != FS_ALREADY_EXISTS) {
+            fs_unmount_write(pFS, pActualPath, options);
+            return result;
         }
     }
 
@@ -4333,15 +5032,15 @@ FS_API fs_result fs_mount(fs* pFS, const char* pActualPath, const char* pVirtual
         return FS_INVALID_ARGS;
     }
 
-    if ((options & FS_READ) == FS_READ) {
-        fs_result result = fs_mount_read(pFS, pActualPath, pVirtualPath, options);
+    if ((options & FS_WRITE) == FS_WRITE) {
+        fs_result result = fs_mount_write(pFS, pActualPath, pVirtualPath, options);
         if (result != FS_SUCCESS) {
             return result;
         }
     }
 
-    if ((options & FS_WRITE) == FS_WRITE) {
-        fs_result result = fs_mount_write(pFS, pActualPath, pVirtualPath, options);
+    if ((options & FS_READ) == FS_READ) {
+        fs_result result = fs_mount_read(pFS, pActualPath, pVirtualPath, options);
         if (result != FS_SUCCESS) {
             return result;
         }
@@ -4350,23 +5049,23 @@ FS_API fs_result fs_mount(fs* pFS, const char* pActualPath, const char* pVirtual
     return FS_SUCCESS;
 }
 
-FS_API fs_result fs_unmount(fs* pFS, const char* pPathToMount_NotMountPoint, int options)
+FS_API fs_result fs_unmount(fs* pFS, const char* pActualPath, int options)
 {
     fs_result result;
 
-    if (pFS == NULL || pPathToMount_NotMountPoint == NULL) {
+    if (pFS == NULL || pActualPath == NULL) {
         return FS_INVALID_ARGS;
     }
 
     if ((options & FS_READ) == FS_READ) {
-        result = fs_unmount_read(pFS, pPathToMount_NotMountPoint, options);
+        result = fs_unmount_read(pFS, pActualPath, options);
         if (result != FS_SUCCESS) {
             return result;
         }
     }
 
     if ((options & FS_WRITE) == FS_WRITE) {
-        result = fs_unmount_write(pFS, pPathToMount_NotMountPoint, options);
+        result = fs_unmount_write(pFS, pActualPath, options);
         if (result != FS_SUCCESS) {
             return result;
         }
@@ -4580,7 +5279,7 @@ FS_API fs_result fs_file_open_and_read(fs* pFS, const char* pFilePath, fs_format
     fs_result result;
     fs_file* pFile;
 
-    if (pFilePath == NULL || ppData == NULL || pDataSize == NULL) {
+    if (pFilePath == NULL || ppData == NULL || (pDataSize == NULL && format != FS_FORMAT_TEXT)) {
         return FS_INVALID_ARGS;
     }
 
@@ -4596,7 +5295,7 @@ FS_API fs_result fs_file_open_and_read(fs* pFS, const char* pFilePath, fs_format
     return result;
 }
 
-FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, void* pData, size_t dataSize)
+FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, const void* pData, size_t dataSize)
 {
     fs_result result;
     fs_file* pFile;
@@ -4610,7 +5309,7 @@ FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, void* pD
         return FS_INVALID_ARGS;
     }
 
-    result = fs_file_open(pFS, pFilePath, FS_TRUNCATE, &pFile);
+    result = fs_file_open(pFS, pFilePath, FS_WRITE | FS_TRUNCATE, &pFile);
     if (result != FS_SUCCESS) {
         return result;
     }
@@ -4625,186 +5324,99 @@ FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, void* pD
 }
 
 
+/* BEG fs_backend_posix.c */
+#if !defined(_WIN32)    /* <-- Add any platforms that lack POSIX support here. */
+    #define FS_SUPPORTS_POSIX
+#endif
 
-/******************************************************************************
-*
-*
-* stdio Backend
-*
-*
-******************************************************************************/
-#ifndef FS_NO_STDIO
+#if !defined(FS_NO_POSIX) && defined(FS_SUPPORTS_POSIX)
+    #define FS_HAS_POSIX
+#endif
+
+#if defined(FS_HAS_POSIX)
+
+/* For 64-bit seeks. */
+#ifndef _FILE_OFFSET_BITS
+#define _FILE_OFFSET_BITS 64
+#endif
+
+#include <string.h> /* memset() */
 #include <stdio.h>
-#include <wchar.h>      /* For wcstombs(). */
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h>
 #include <sys/stat.h>
 
-#if defined(_WIN32)
-#include <direct.h>     /* For _mkdir() */
-#endif
 
-#ifndef S_ISDIR
-#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
-#endif
-
-#ifndef S_ISLNK
-    #if defined(_WIN32)
-        #define S_ISLNK(m) (0)
-    #else
-        #define S_ISLNK(m) (((m) & _S_IFMT) == _S_IFLNK)
-    #endif
-#endif
-
-static int fs_fopen(FILE** ppFile, const char* pFilePath, const char* pOpenMode)
+static size_t fs_alloc_size_posix(const void* pBackendConfig)
 {
-#if defined(_MSC_VER) && _MSC_VER >= 1400
-    int err;
-#endif
+    (void)pBackendConfig;
+    return 0;
+}
 
-    if (ppFile != NULL) {
-        *ppFile = NULL;  /* Safety. */
-    }
-
-    if (pFilePath == NULL || pOpenMode == NULL || ppFile == NULL) {
-        return EINVAL;
-    }
-
-#if defined(_MSC_VER) && _MSC_VER >= 1400
-    err = fopen_s(ppFile, pFilePath, pOpenMode);
-    if (err != 0) {
-        return err;
-    }
-#else
-#if defined(_WIN32) || defined(__APPLE__)
-    *ppFile = fopen(pFilePath, pOpenMode);
-#else
-    #if defined(_FILE_OFFSET_BITS) && _FILE_OFFSET_BITS == 64 && defined(_LARGEFILE64_SOURCE)
-        *ppFile = fopen64(pFilePath, pOpenMode);
-    #else
-        *ppFile = fopen(pFilePath, pOpenMode);
-    #endif
-#endif
-    if (*ppFile == NULL) {
-        int result = errno;
-        if (result == 0) {
-            result = ENOENT;   /* Just a safety check to make sure we never ever return success when pFile == NULL. */
-        }
-
-        return result;
-    }
-#endif
+static fs_result fs_init_posix(fs* pFS, const void* pBackendConfig, fs_stream* pStream)
+{
+    (void)pFS;
+    (void)pBackendConfig;
+    (void)pStream;
 
     return FS_SUCCESS;
 }
 
-/*
-_wfopen() isn't always available in all compilation environments.
-
-    * Windows only.
-    * MSVC seems to support it universally as far back as VC6 from what I can tell (haven't checked further back).
-    * MinGW-64 (both 32- and 64-bit) seems to support it.
-    * MinGW wraps it in !defined(__STRICT_ANSI__).
-    * OpenWatcom wraps it in !defined(_NO_EXT_KEYS).
-
-This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
-fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
-*/
-#if defined(_WIN32)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
-        #define FS_HAS_WFOPEN
-    #endif
-#endif
-
-int fs_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_t* pOpenMode)
+static void fs_uninit_posix(fs* pFS)
 {
-    if (ppFile != NULL) {
-        *ppFile = NULL;  /* Safety. */
+    (void)pFS;
+}
+
+static fs_result fs_ioctl_posix(fs* pFS, int op, void* pArg)
+{
+    (void)pFS;
+    (void)op;
+    (void)pArg;
+
+    return FS_NOT_IMPLEMENTED;
+}
+
+static fs_result fs_remove_posix(fs* pFS, const char* pFilePath)
+{
+    int result = remove(pFilePath);
+    if (result < 0) {
+        return fs_result_from_errno(errno);
     }
 
-    if (pFilePath == NULL || pOpenMode == NULL || ppFile == NULL) {
-        return FS_INVALID_ARGS;
+    (void)pFS;
+    return FS_SUCCESS;
+}
+
+static fs_result fs_rename_posix(fs* pFS, const char* pOldPath, const char* pNewPath)
+{
+    int result = rename(pOldPath, pNewPath);
+    if (result < 0) {
+        return fs_result_from_errno(errno);
     }
 
-    #if defined(FS_HAS_WFOPEN)
-    {
-        /* Use _wfopen() on Windows. */
-        #if defined(_MSC_VER) && _MSC_VER >= 1400
-        {
-            errno_t err = _wfopen_s(ppFile, pFilePath, pOpenMode);
-            if (err != 0) {
-                return err;
-            }
-        }
-        #else
-        {
-            *ppFile = _wfopen(pFilePath, pOpenMode);
-            if (*ppFile == NULL) {
-                return errno;
-            }
-        }
-        #endif
+    (void)pFS;
+    return FS_SUCCESS;
+}
+
+static fs_result fs_mkdir_posix(fs* pFS, const char* pPath)
+{
+    int result = mkdir(pPath, S_IRWXU);
+    if (result < 0) {
+        return fs_result_from_errno(errno);
     }
-    #else
-    {
-        /*
-        Use fopen() on anything other than Windows. Requires a conversion. This is annoying because fopen() is locale specific. The only real way I can
-        think of to do this is with wcsrtombs(). Note that wcstombs() is apparently not thread-safe because it uses a static global mbstate_t object for
-        maintaining state. I've checked this with -std=c89 and it works, but if somebody get's a compiler error I'll look into improving compatibility.
-        */
-        mbstate_t mbs;
-        size_t lenMB;
-        const wchar_t* pFilePathTemp = pFilePath;
-        char* pFilePathMB = NULL;
-        char pOpenModeMB[32] = {0};
 
-        /* Get the length first. */
-        FS_ZERO_OBJECT(&mbs);
-        lenMB = wcsrtombs(NULL, &pFilePathTemp, 0, &mbs);
-        if (lenMB == (size_t)-1) {
-            return errno;
-        }
-
-        pFilePathMB = (char*)fs_malloc(lenMB + 1, NULL);
-        if (pFilePathMB == NULL) {
-            return ENOMEM;
-        }
-
-        pFilePathTemp = pFilePath;
-        FS_ZERO_OBJECT(&mbs);
-        wcsrtombs(pFilePathMB, &pFilePathTemp, lenMB + 1, &mbs);
-
-        /* The open mode should always consist of ASCII characters so we should be able to do a trivial conversion. */
-        {
-            size_t i = 0;
-            for (;;) {
-                if (pOpenMode[i] == 0) {
-                    pOpenModeMB[i] = '\0';
-                    break;
-                }
-
-                pOpenModeMB[i] = (char)pOpenMode[i];
-                i += 1;
-            }
-        }
-
-        *ppFile = fopen(pFilePathMB, pOpenModeMB);
-
-        fs_free(pFilePathMB, NULL);
-
-        if (*ppFile == NULL) {
-            return errno;
-        }
-    }
-    #endif
-
-    return 0;
+    (void)pFS;
+    return FS_SUCCESS;
 }
 
 
-static fs_file_info fs_file_info_from_stat(struct stat* pStat)
+static fs_file_info fs_file_info_from_stat_posix(struct stat* pStat)
 {
     fs_file_info info;
 
-    FS_ZERO_OBJECT(&info);
+    memset(&info, 0, sizeof(info));
     info.size             = pStat->st_size;
     info.lastAccessTime   = pStat->st_atime;
     info.lastModifiedTime = pStat->st_mtime;
@@ -4814,415 +5426,183 @@ static fs_file_info fs_file_info_from_stat(struct stat* pStat)
     return info;
 }
 
-#if defined(_WIN32)
-static fs_uint64 fs_FILETIME_to_unix(const FILETIME* pFT)
+static fs_result fs_info_posix(fs* pFS, const char* pPath, int openMode, fs_file_info* pInfo)
 {
-    ULARGE_INTEGER li;
-
-    li.HighPart = pFT->dwHighDateTime;
-    li.LowPart  = pFT->dwLowDateTime;
-
-    return (fs_uint64)(li.QuadPart / 10000000UL - 11644473600UL);   /* Convert from Windows epoch to Unix epoch. */
-}
-
-static fs_file_info fs_file_info_from_WIN32_FIND_DATAW(const WIN32_FIND_DATAW* pFD)
-{
-    fs_file_info info;
-
-    FS_ZERO_OBJECT(&info);
-    info.size             = ((fs_uint64)pFD->nFileSizeHigh << 32) | (fs_uint64)pFD->nFileSizeLow;
-    info.lastModifiedTime = fs_FILETIME_to_unix(&pFD->ftLastWriteTime);
-    info.lastAccessTime   = fs_FILETIME_to_unix(&pFD->ftLastAccessTime);
-    info.directory        = (pFD->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)     != 0;
-    info.symlink          = (pFD->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-
-    return info;
-}
-#endif
-
-
-typedef struct fs_stdio_registered_file
-{
-    size_t pathLen;
-    FILE* pFile;
-} fs_stdio_registered_file;
-
-typedef struct fs_stdio
-{
-    int _unused;
-} fs_stdio;
-
-static size_t fs_alloc_size_stdio(const void* pBackendConfig)
-{
-    FS_UNUSED(pBackendConfig);
-
-    return sizeof(fs_stdio);
-}
-
-static fs_result fs_init_stdio(fs* pFS, const void* pBackendConfig, fs_stream* pStream)
-{
-    FS_UNUSED(pFS);
-    FS_UNUSED(pBackendConfig);
-    FS_UNUSED(pStream);
-
-    return FS_SUCCESS;
-}
-
-static void fs_uninit_stdio(fs* pFS)
-{
-    FS_UNUSED(pFS);
-    return;
-}
-
-static fs_result fs_ioctl_stdio(fs* pFS, int op, void* pArgs)
-{
-    FS_UNUSED(pFS);
-    FS_UNUSED(op);
-    FS_UNUSED(pArgs);
-
-    /* Not used by the stdio backend. */
-    return FS_INVALID_OPERATION;
-}
-
-static fs_result fs_remove_stdio(fs* pFS, const char* pFilePath)
-{
-    int result = remove(pFilePath);
-    if (result != 0) {
-        return fs_result_from_errno(errno);
-    }
-
-    FS_UNUSED(pFS);
-
-    return FS_SUCCESS;
-}
-
-static fs_result fs_rename_stdio(fs* pFS, const char* pOldName, const char* pNewName)
-{
-    int result = rename(pOldName, pNewName);
-    if (result != 0) {
-        return fs_result_from_errno(errno);
-    }
-
-    FS_UNUSED(pFS);
-
-    return FS_SUCCESS;
-}
-
-
-#if defined(_WIN32)
-static fs_result fs_mkdir_stdio_win32(const char* pPath)
-{
+    struct stat info;
     int result;
 
-    /* If it's a drive letter segment just pretend it's successful. */
-    if ((pPath[0] >= 'a' && pPath[0] <= 'z') || (pPath[0] >= 'A' && pPath[0] <= 'Z')) {
-        if (pPath[1] == ':' && pPath[2] == '\0') {
-            return FS_SUCCESS;
-        }
+    /*  */ if (pPath == FS_STDIN ) {
+        result = fstat(STDIN_FILENO,  &info);
+    } else if (pPath == FS_STDOUT) {
+        result = fstat(STDOUT_FILENO, &info);
+    } else if (pPath == FS_STDERR) {
+        result = fstat(STDERR_FILENO, &info);
+    } else {
+        result = stat(pPath, &info);
     }
-    
-    result = _mkdir(pPath);
+
     if (result != 0) {
         return fs_result_from_errno(errno);
     }
 
+    *pInfo = fs_file_info_from_stat_posix(&info);
+
+    (void)pFS;
+    (void)openMode;
     return FS_SUCCESS;
 }
-#else
-static fs_result fs_mkdir_stdio_posix(const char* pPath)
+
+
+typedef struct fs_file_posix
 {
-    int result = mkdir(pPath, S_IRWXU);
-    if (result != 0) {
-        return fs_result_from_errno(errno);
-    }
+    int fd;
+    fs_bool32 isStandardHandle;
+    int openMode;       /* The original open mode for duplication purposes. */
+    char* pFilePath;    /* A copy of the original file path for duplication purposes. */
+    char  pFilePathStack[128];
+    char* pFilePathHeap;
+} fs_file_posix;
 
-    return FS_SUCCESS;
-}
-#endif
-
-static fs_result fs_mkdir_stdio(fs* pFS, const char* pPath)
+static size_t fs_file_alloc_size_posix(fs* pFS)
 {
-    fs_result result;
-
-    FS_UNUSED(pFS);
-
-#if defined(_WIN32)
-    result = fs_mkdir_stdio_win32(pPath);
-#else
-    result = fs_mkdir_stdio_posix(pPath);
-#endif
-
-    if (result == FS_DOES_NOT_EXIST) {
-        result =  FS_SUCCESS;
-    }
-
-    return result;
+    (void)pFS;
+    return sizeof(fs_file_posix);
 }
 
-static fs_result fs_info_stdio(fs* pFS, const char* pPath, int openMode, fs_file_info* pInfo)
+static fs_result fs_file_open_posix(fs* pFS, fs_stream* pStream, const char* pFilePath, int openMode, fs_file* pFile)
 {
-    /* We don't want to use stat() with Win32 because, from what I can tell, there's no way to determine if it's a symbolic link. S_IFLNK does not seem to be defined. */
-    #if defined(_WIN32)
-    {
-        int pathLen;
-        wchar_t  pPathWStack[1024];
-        wchar_t* pPathWHeap = NULL;
-        wchar_t* pPathW;
-        HANDLE hFind;
-        WIN32_FIND_DATAW fd;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
+    int fd;
+    int flags = 0;
+    size_t filePathLen;
 
-        /* Use Win32 to convert from UTF-8 to wchar_t. */
-        pathLen = MultiByteToWideChar(CP_UTF8, 0, pPath, -1, NULL, 0);
-        if (pathLen == 0) {
-            return fs_result_from_GetLastError(GetLastError());
-        }
-
-        if (pathLen <= (int)FS_COUNTOF(pPathWStack)) {
-            pPathW = pPathWStack;
+    if ((openMode & FS_READ) != 0) {
+        if ((openMode & FS_WRITE) != 0) {
+            flags |= O_RDWR | O_CREAT;
         } else {
-            pPathWHeap = (wchar_t*)fs_malloc(pathLen * sizeof(wchar_t), fs_get_allocation_callbacks(pFS));  /* pathLen includes the null terminator. */
-            if (pPathWHeap == NULL) {
+            flags |= O_RDONLY;
+        }
+    } else if ((openMode & FS_WRITE) != 0) {
+        flags |= O_WRONLY | O_CREAT;
+    }
+
+    if ((openMode & FS_WRITE) != 0) {
+        if ((openMode & FS_EXCLUSIVE) != 0) {
+            flags |= O_EXCL;
+        } else if ((openMode & FS_APPEND) != 0) {
+            flags |= O_APPEND;
+        } else if ((openMode & FS_TRUNCATE) != 0) {
+            flags |= O_TRUNC;
+        }
+    }
+
+
+    /* For ancient versions of Linux. */
+    #if defined(O_LARGEFILE)
+    flags |= O_LARGEFILE;
+    #endif
+
+    /*  */ if (pFilePath == FS_STDIN ) {
+        fd = STDIN_FILENO;
+        pFilePosix->isStandardHandle = FS_TRUE;
+    } else if (pFilePath == FS_STDOUT) {
+        fd = STDOUT_FILENO;
+        pFilePosix->isStandardHandle = FS_TRUE;
+    } else if (pFilePath == FS_STDERR) {
+        fd = STDERR_FILENO;
+        pFilePosix->isStandardHandle = FS_TRUE;
+    } else {
+        fd = open(pFilePath, flags, 0666);
+    }
+
+    if (fd < 0) {
+        return fs_result_from_errno(errno);
+    }
+
+    pFilePosix->fd = fd;
+
+    /*
+    In order to support duplication we need to keep track of the original file path and open modes. Using dup() is
+    not an option because that results in a shared read/write pointer, whereas we need them to be separate. We need
+    not do this for standard handles.
+    */
+    if (!pFilePosix->isStandardHandle) {  
+        pFilePosix->openMode = openMode;
+
+        filePathLen = strlen(pFilePath);
+
+        if (filePathLen < FS_COUNTOF(pFilePosix->pFilePathStack)) {
+            pFilePosix->pFilePath = pFilePosix->pFilePathStack;
+        } else {
+            pFilePosix->pFilePathHeap = (char*)fs_malloc(filePathLen + 1, fs_get_allocation_callbacks(pFS));
+            if (pFilePosix->pFilePathHeap == NULL) {
+                close(fd);
                 return FS_OUT_OF_MEMORY;
             }
 
-            pPathW = pPathWHeap;
+            pFilePosix->pFilePath = pFilePosix->pFilePathHeap;
         }
 
-        MultiByteToWideChar(CP_UTF8, 0, pPath, -1, pPathW, pathLen);
-
-        hFind = FindFirstFileW(pPathW, &fd);
-
-        fs_free(pPathWHeap, fs_get_allocation_callbacks(pFS));
-        pPathWHeap = NULL;
-
-        if (hFind == INVALID_HANDLE_VALUE) {
-            return fs_result_from_errno(GetLastError());
-        }
-
-        FindClose(hFind);
-        hFind = NULL;
-
-        *pInfo = fs_file_info_from_WIN32_FIND_DATAW(&fd);
+        fs_strcpy(pFilePosix->pFilePath, pFilePath);
     }
-    #else
-    {
-        struct stat info;
 
-        FS_UNUSED(pFS);
 
-        if (stat(pPath, &info) != 0) {
-            return fs_result_from_errno(errno);
-        }
-
-        *pInfo = fs_file_info_from_stat(&info);
-    }
-    #endif
-
-    (void)openMode;
-
+    (void)pFS;
+    (void)pStream;
     return FS_SUCCESS;
 }
 
-
-typedef struct fs_file_stdio
+static void fs_file_close_posix(fs_file* pFile)
 {
-    FILE* pFile;
-    char openMode[4];   /* For duplication. */
-    fs_bool32 isRegisteredOrHandle; /* When set to true, will not be closed with fs_file_close(). */
-} fs_file_stdio;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
 
-static size_t fs_file_alloc_size_stdio(fs* pFS)
-{
-    FS_UNUSED(pFS);
-    return sizeof(fs_file_stdio);
-}
-
-static fs_result fs_file_open_stdio(fs* pFS, fs_stream* pStream, const char* pPath, int openMode, fs_file* pFile)
-{
-    fs_file_stdio* pFileStdio;
-    int result;
-
-    FS_UNUSED(pFS);
-    FS_UNUSED(pStream);
-
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    if (pFileStdio == NULL) {
-        return FS_INVALID_ARGS;
-    }
-    
-    if ((openMode & FS_WRITE) != 0) {
-        if ((openMode & FS_READ) != 0) {
-            /* Read and write. */
-            if ((openMode & FS_APPEND) == FS_APPEND) {
-                pFileStdio->openMode[0] = 'a'; pFileStdio->openMode[1] = '+'; pFileStdio->openMode[2] = 'b'; pFileStdio->openMode[3] = 0;   /* Read-and-write, appending. */
-            } else if ((openMode & FS_OVERWRITE) == FS_OVERWRITE) {
-                pFileStdio->openMode[0] = 'r'; pFileStdio->openMode[1] = '+'; pFileStdio->openMode[2] = 'b'; pFileStdio->openMode[3] = 0;   /* Read-and-write, overwriting. */
-            } else {
-                pFileStdio->openMode[0] = 'w'; pFileStdio->openMode[1] = '+'; pFileStdio->openMode[2] = 'b'; pFileStdio->openMode[3] = 0;   /* Read-and-write, truncating. */
-            }
-        } else {
-            /* Write-only. */
-            if ((openMode & FS_APPEND) == FS_APPEND) {
-                pFileStdio->openMode[0] = 'a'; pFileStdio->openMode[1] = 'b'; pFileStdio->openMode[2] = 0; /* Write-only, appending. */
-            } else if ((openMode & FS_OVERWRITE) == FS_OVERWRITE) {
-                pFileStdio->openMode[0] = 'r'; pFileStdio->openMode[1] = '+'; pFileStdio->openMode[2] = 'b'; pFileStdio->openMode[3] = 0;   /* Write-only, overwriting. Need to use the "+" option here because there does not appear to be an option for a write-only overwrite mode. */
-            } else {
-                pFileStdio->openMode[0] = 'w'; pFileStdio->openMode[1] = 'b'; pFileStdio->openMode[2] = 0; /* Write-only, truncating. */
-            }
-        }
-    } else {
-        if ((openMode & FS_READ) != 0) {
-            pFileStdio->openMode[0] = 'r'; pFileStdio->openMode[1] = 'b'; pFileStdio->openMode[2] = 0;    /* Read-only. */
-        } else {
-            return FS_INVALID_ARGS;
-        }
-    }
-
-    #if defined(_WIN32) && defined(FS_HAS_WFOPEN)
-    {
-        size_t i;
-        int pathLen;
-        wchar_t  pOpenModeW[4];
-        wchar_t  pFilePathWStack[1024];
-        wchar_t* pFilePathWHeap = NULL;
-        wchar_t* pFilePathW;
-
-        /* Use Win32 to convert from UTF-8 to wchar_t. */
-        pathLen = MultiByteToWideChar(CP_UTF8, 0, pPath, -1, NULL, 0);
-        if (pathLen > 0) {
-            if (pathLen <= (int)FS_COUNTOF(pFilePathWStack)) {
-                pFilePathW = pFilePathWStack;
-            } else {
-                pFilePathWHeap = (wchar_t*)fs_malloc(pathLen * sizeof(wchar_t), fs_get_allocation_callbacks(pFS));
-                if (pFilePathWHeap == NULL) {
-                    return FS_OUT_OF_MEMORY;
-                }
-
-                pFilePathW = pFilePathWHeap;
-            }
-
-            MultiByteToWideChar(CP_UTF8, 0, pPath, -1, pFilePathW, pathLen);
-            
-            for (i = 0; i < FS_COUNTOF(pOpenModeW); i += 1) {
-                pOpenModeW[i] = (wchar_t)pFileStdio->openMode[i];
-            }
-
-            result = fs_wfopen(&pFileStdio->pFile, pFilePathW, pOpenModeW);
-
-            fs_free(pFilePathWHeap, fs_get_allocation_callbacks(pFS));
-            pFilePathWHeap = NULL;
-
-            if (result == 0) {
-                return FS_SUCCESS;
-            }
-        }
-    }
-    #endif
-
-    /* Getting here means we're either not opening with wfopen(), or wfopen() failed (or the conversion from char to wchar_t). */
-    result = fs_fopen(&pFileStdio->pFile, pPath, pFileStdio->openMode);
-    if (result != 0) {
-        return fs_result_from_errno(result);
-    }
-
-    return FS_SUCCESS;
-}
-
-static fs_result fs_file_open_handle_stdio(fs* pFS, void* hBackendFile, fs_file* pFile)
-{
-    fs_file_stdio* pFileStdio;
-
-    FS_UNUSED(pFS);
-
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    if (pFileStdio == NULL) {
-        return FS_INVALID_ARGS;
-    }
-    
-    pFileStdio->pFile = (FILE*)hBackendFile;
-    pFileStdio->isRegisteredOrHandle = FS_TRUE;
-
-    return FS_SUCCESS;
-}
-
-static void fs_file_close_stdio(fs_file* pFile)
-{
-    fs_file_stdio* pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    if (pFileStdio == NULL) {
+    /* No need to do anything if the file was opened from stdin, stdout, or stderr. */
+    if (pFilePosix->isStandardHandle) {
         return;
     }
 
-    if (!pFileStdio->isRegisteredOrHandle) {
-        fclose(pFileStdio->pFile);
-    }
+    close(pFilePosix->fd);
+    fs_free(pFilePosix->pFilePathHeap, fs_get_allocation_callbacks(fs_file_get_fs(pFile)));
 }
 
-static fs_result fs_file_read_stdio(fs_file* pFile, void* pDst, size_t bytesToRead, size_t* pBytesRead)
+static fs_result fs_file_read_posix(fs_file* pFile, void* pDst, size_t bytesToRead, size_t* pBytesRead)
 {
-    size_t bytesRead;
-    fs_file_stdio* pFileStdio;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
+    ssize_t bytesRead;
 
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile      != NULL);
-    FS_ASSERT(pDst       != NULL);
-    FS_ASSERT(pBytesRead != NULL);
+    bytesRead = read(pFilePosix->fd, pDst, bytesToRead);
+    if (bytesRead < 0) {
+        return fs_result_from_errno(errno);
+    }
 
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
+    *pBytesRead = (size_t)bytesRead;
 
-    bytesRead = fread(pDst, 1, bytesToRead, pFileStdio->pFile);
-
-    *pBytesRead = bytesRead;
-    
-    /* If the value returned by fread is less than the bytes requested, it was either EOF or an error. We don't return EOF unless the number of bytes read is 0. */
-    if (bytesRead != bytesToRead) {
-        if (feof(pFileStdio->pFile)) {
-            if (bytesRead == 0) {
-                return FS_AT_END;
-            }
-        } else {
-            return fs_result_from_errno(ferror(pFileStdio->pFile));
-        }
+    if (*pBytesRead == 0) {
+        return FS_AT_END;
     }
 
     return FS_SUCCESS;
 }
 
-static fs_result fs_file_write_stdio(fs_file* pFile, const void* pSrc, size_t bytesToWrite, size_t* pBytesWritten)
+static fs_result fs_file_write_posix(fs_file* pFile, const void* pSrc, size_t bytesToWrite, size_t* pBytesWritten)
 {
-    size_t bytesWritten;
-    fs_file_stdio* pFileStdio;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
+    ssize_t bytesWritten;
 
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile         != NULL);
-    FS_ASSERT(pSrc          != NULL);
-    FS_ASSERT(pBytesWritten != NULL);
-
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
-
-    bytesWritten = fwrite(pSrc, 1, bytesToWrite, pFileStdio->pFile);
-
-    *pBytesWritten = bytesWritten;
-
-    if (bytesWritten != bytesToWrite) {
-        return fs_result_from_errno(ferror(pFileStdio->pFile));
+    bytesWritten = write(pFilePosix->fd, pSrc, bytesToWrite);
+    if (bytesWritten < 0) {
+        return fs_result_from_errno(errno);
     }
 
+    *pBytesWritten = (size_t)bytesWritten;
     return FS_SUCCESS;
 }
 
-static fs_result fs_file_seek_stdio(fs_file* pFile, fs_int64 offset, fs_seek_origin origin)
+static fs_result fs_file_seek_posix(fs_file* pFile, fs_int64 offset, fs_seek_origin origin)
 {
-    fs_file_stdio* pFileStdio;
-    int result;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
     int whence;
-
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile != NULL);
-    
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
+    off_t result;
 
     if (origin == FS_SEEK_SET) {
         whence = SEEK_SET;
@@ -5232,358 +5612,174 @@ static fs_result fs_file_seek_stdio(fs_file* pFile, fs_int64 offset, fs_seek_ori
         whence = SEEK_CUR;
     }
 
-#if defined(_WIN32)
-    #if defined(_MSC_VER) && _MSC_VER > 1200
-        result = _fseeki64(pFileStdio->pFile, offset, whence);
+    #if defined(_FILE_OFFSET_BITS) && _FILE_OFFSET_BITS == 64
+    {
+        result = lseek(pFilePosix->fd, (off_t)offset, whence);
+    }
     #else
-        /* No _fseeki64() so restrict to 31 bits. */
-        if (origin > 0x7FFFFFFF) {
-            return FS_OUT_OF_RANGE;
+    {
+        if (offset < -2147483648 || offset > 2147483647) {
+            return FS_BAD_SEEK;    /* Offset is too large. */
         }
 
-        result = fseek(pFileStdio->pFile, (int)offset, whence);
+        result = lseek(pFilePosix->fd, (off_t)(int)offset, whence);
+    }
     #endif
-#else
-    result = fseek(pFileStdio->pFile, (long int)offset, whence);
-#endif
-    if (result != 0) {
+
+    if (result < 0) {
         return fs_result_from_errno(errno);
     }
 
     return FS_SUCCESS;
 }
 
-static fs_result fs_file_tell_stdio(fs_file* pFile, fs_int64* pCursor)
+static fs_result fs_file_tell_posix(fs_file* pFile, fs_int64* pCursor)
 {
-    fs_file_stdio* pFileStdio;
-    fs_int64 result;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
+    fs_int64 cursor;
 
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile   != NULL);
-    FS_ASSERT(pCursor != NULL);
+    cursor = (fs_int64)lseek(pFilePosix->fd, 0, SEEK_CUR);
+    if (cursor < 0) {
+        return fs_result_from_errno(errno);
+    }
 
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
-
-#if defined(_WIN32)
-    #if defined(_MSC_VER) && _MSC_VER > 1200
-        result = _ftelli64(pFileStdio->pFile);
-    #else
-        result = ftell(pFileStdio->pFile);
-    #endif
-#else
-    result = ftell(pFileStdio->pFile);
-#endif
-
-    *pCursor = result;
-
+    *pCursor = cursor;
     return FS_SUCCESS;
 }
 
-static fs_result fs_file_flush_stdio(fs_file* pFile)
+static fs_result fs_file_flush_posix(fs_file* pFile)
 {
-    fs_file_stdio* pFileStdio;
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
     int result;
 
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile != NULL);
-
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
-
-    result = fflush(pFileStdio->pFile);
-    if (result != 0) {
-        return fs_result_from_errno(ferror(pFileStdio->pFile));
+    result = fsync(pFilePosix->fd);
+    if (result < 0) {
+        return fs_result_from_errno(errno);
     }
 
     return FS_SUCCESS;
 }
 
 
-/* Please submit a bug report if you get an error about fileno(). */
-#if !defined(_MSC_VER) && !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE)) && !(defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__))
-int fileno(FILE *stream);
+/*
+The availability of ftruncate() is annoyingly tricky because it is not available with `-std=c89` unless the
+application opts into it by defining _POSIX_C_SOURCE or _XOPEN_SOURCE
+*/
+#if !defined(FS_HAS_FTRUNCATE) && (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L) || (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 500)  /* Opted in by the application via a feature macro. */
+    #define FS_HAS_FTRUNCATE
+#endif
+#if !defined(FS_HAS_FTRUNCATE) && !defined(__STRICT_ANSI__) /* Not using strict ANSI. Assume available. Might need to massage this later. */
+    #define FS_HAS_FTRUNCATE
 #endif
 
-static fs_result fs_file_info_stdio(fs_file* pFile, fs_file_info* pInfo)
+static fs_result fs_file_truncate_posix(fs_file* pFile)
 {
-    fs_file_stdio* pFileStdio;
-    int fd;
+    #if defined(FS_HAS_FTRUNCATE)
+    {
+        fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
+        off_t currentPos;
+        
+        /* Our truncation is based on the current write position. */
+        currentPos = lseek(pFilePosix->fd, 0, SEEK_CUR);
+        if (currentPos < 0) {
+            return fs_result_from_errno(errno);
+        }
+
+        if (ftruncate(pFilePosix->fd, currentPos) < 0) {
+            return fs_result_from_errno(errno);
+        }
+
+        return FS_SUCCESS;
+    }
+    #else
+    {
+        (void)pFile;
+        return FS_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+static fs_result fs_file_info_posix(fs_file* pFile, fs_file_info* pInfo)
+{
+    fs_file_posix* pFilePosix = (fs_file_posix*)fs_file_get_backend_data(pFile);
     struct stat info;
 
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile != NULL);
-    FS_ASSERT(pInfo != NULL);
-
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
-
-#if defined(_MSC_VER)
-    fd = _fileno(pFileStdio->pFile);
-#else
-    fd =  fileno(pFileStdio->pFile);
-#endif
-
-    if (fstat(fd, &info) != 0) {
-        return fs_result_from_errno(ferror(pFileStdio->pFile));
+    if (fstat(pFilePosix->fd, &info) < 0) {
+        return fs_result_from_errno(errno);
     }
 
-    *pInfo = fs_file_info_from_stat(&info);
+    *pInfo = fs_file_info_from_stat_posix(&info);
 
     return FS_SUCCESS;
 }
 
-/* Iteration is platform-specific. */
-#define FS_STDIO_MIN_ITERATOR_ALLOCATION_SIZE 1024
-
-#if defined(_WIN32)
-#include <fcntl.h>
-#include <io.h>
-
-FS_API fs_result fs_file_duplicate_stdio(fs_file* pFile, fs_file* pDuplicatedFile)
+static fs_result fs_file_duplicate_posix(fs_file* pFile, fs_file* pDuplicate)
 {
-    fs_file_stdio* pFileStdio;
-    fs_file_stdio* pDuplicatedFileStdio;
-    int fd;
-    int fdDuplicate;
-    HANDLE hFile;
-    HANDLE hFileDuplicate;
+    fs_file_posix* pFilePosix      = (fs_file_posix*)fs_file_get_backend_data(pFile);
+    fs_file_posix* pDuplicatePosix = (fs_file_posix*)fs_file_get_backend_data(pDuplicate);
+    fs_result result;
+    struct stat st1, st2;
 
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
+    /* Simple case for standard handles. */
+    if (pFilePosix->isStandardHandle) {
+        pDuplicatePosix->fd = pFilePosix->fd;
+        pDuplicatePosix->isStandardHandle = FS_TRUE;
 
-    pDuplicatedFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pDuplicatedFile);
-    FS_ASSERT(pDuplicatedFileStdio != NULL);
-
-    fd = _fileno(pFileStdio->pFile);
-    if (fd == -1) {
-        return fs_result_from_errno(errno);
+        return FS_SUCCESS;
     }
-
-    hFile = (HANDLE)_get_osfhandle(fd);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return fs_result_from_errno(errno);
-    }
-
-    if (!DuplicateHandle(GetCurrentProcess(), hFile, GetCurrentProcess(), &hFileDuplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-        return fs_result_from_GetLastError(GetLastError());
-    }
-
-    fdDuplicate = _open_osfhandle((fs_intptr)hFileDuplicate, _O_RDONLY);
-    if (fdDuplicate == -1) {
-        CloseHandle(hFileDuplicate);
-        return fs_result_from_errno(errno);
-    }
-
-    pDuplicatedFileStdio->pFile = _fdopen(fdDuplicate, pFileStdio->openMode);
-    if (pDuplicatedFileStdio->pFile == NULL) {
-        _close(fdDuplicate);
-        return fs_result_from_errno(errno);
-    }
-
-    return FS_SUCCESS;
-}
-
-
-typedef struct fs_iterator_stdio
-{
-    fs_iterator iterator;
-    HANDLE hFind;
-} fs_iterator_stdio;
-
-FS_API void fs_free_iterator_stdio(fs_iterator* pIterator)
-{
-    fs_iterator_stdio* pIteratorStdio = (fs_iterator_stdio*)pIterator;
-
-    FindClose(pIteratorStdio->hFind);
-    fs_free(pIteratorStdio, fs_get_allocation_callbacks(pIterator->pFS));
-}
-
-static fs_iterator* fs_iterator_stdio_resolve(fs_iterator_stdio* pIteratorStdio, fs* pFS, HANDLE hFind, const WIN32_FIND_DATAW* pFD)
-{
-    fs_iterator_stdio* pNewIteratorStdio;
-    size_t allocSize;
-    int nameLen;
 
     /*
-    The name is stored at the end of the struct. In order to know how much memory to allocate we'll
-    need to calculate the length of the name.
+    We cannot duplicate the handle with dup() because that will result in a shared read/write pointer. We
+    need to open the file again with the same path and flags. We're not going to allow duplication of files
+    that were opened in write mode.
     */
-    nameLen = WideCharToMultiByte(CP_UTF8, 0, pFD->cFileName, -1, NULL, 0, NULL, NULL);
-    if (nameLen == 0) {
-        fs_free_iterator_stdio((fs_iterator*)pIteratorStdio);
-        return NULL;
+    if ((pFilePosix->openMode & FS_WRITE) != 0) {
+        return FS_INVALID_OPERATION;
     }
 
-    allocSize = FS_MAX(sizeof(fs_iterator_stdio) + nameLen, FS_STDIO_MIN_ITERATOR_ALLOCATION_SIZE);    /* "nameLen" includes the null terminator. 1KB just to try to avoid excessive internal reallocations inside realloc(). */
-
-    pNewIteratorStdio = (fs_iterator_stdio*)fs_realloc(pIteratorStdio, allocSize, fs_get_allocation_callbacks(pFS));
-    if (pNewIteratorStdio == NULL) {
-        fs_free_iterator_stdio((fs_iterator*)pIteratorStdio);
-        return NULL;
+    result = fs_file_open_posix(fs_file_get_fs(pFile), NULL, pFilePosix->pFilePath, pFilePosix->openMode, pDuplicate);
+    if (result != FS_SUCCESS) {
+        return result;
     }
 
-    pNewIteratorStdio->iterator.pFS = pFS;
-    pNewIteratorStdio->hFind        = hFind;
-
-    /* Name. */
-    pNewIteratorStdio->iterator.pName   = (char*)pNewIteratorStdio + sizeof(fs_iterator_stdio);
-    pNewIteratorStdio->iterator.nameLen = (size_t)nameLen - 1;  /* nameLen includes the null terminator. */
-    WideCharToMultiByte(CP_UTF8, 0, pFD->cFileName, -1, (char*)pNewIteratorStdio->iterator.pName, nameLen, NULL, NULL);  /* const-cast is safe here. */
-
-    /* Info. */
-    pNewIteratorStdio->iterator.info = fs_file_info_from_WIN32_FIND_DATAW(pFD);
-
-    return (fs_iterator*)pNewIteratorStdio;
-}
-
-FS_API fs_iterator* fs_first_stdio(fs* pFS, const char* pDirectoryPath, size_t directoryPathLen)
-{
-    size_t i;
-    int queryLen;
-    int cbMultiByte;
-    wchar_t  pQueryStack[1024];
-    wchar_t* pQueryHeap = NULL;
-    wchar_t* pQuery;
-    HANDLE hFind;
-    WIN32_FIND_DATAW fd;
-
-    /* An empty path means the current directory. Win32 will want us to specify "." in this case. */
-    if (pDirectoryPath == NULL || pDirectoryPath[0] == '\0') {
-        pDirectoryPath = ".";
-        directoryPathLen = 1;
-    }
-
-    if (directoryPathLen == FS_NULL_TERMINATED) {
-        cbMultiByte = -1;
-    } else {
-        if (directoryPathLen > 0xFFFFFFFF) {
-            return NULL;
-        }
-
-        cbMultiByte = (int)directoryPathLen;
-    }
-
-    /* When iterating over files using Win32 you specify a wildcard pattern. The "+ 3" you see in the code below is for the wildcard pattern. We also need to make everything a backslash. */
-    queryLen = MultiByteToWideChar(CP_UTF8, 0, pDirectoryPath, cbMultiByte, NULL, 0);
-    if (queryLen == 0) {
-        return NULL;
-    }
-
-    if ((queryLen + 3) > (int)FS_COUNTOF(pQueryStack)) {
-        pQueryHeap = (wchar_t*)fs_malloc((queryLen + 3) * sizeof(wchar_t), fs_get_allocation_callbacks(pFS));
-        if (pQueryHeap == NULL) {
-            return NULL;
-        }
-
-        pQuery = pQueryHeap;
-    }
-    else {
-        pQuery = pQueryStack;
-    }
-
-    MultiByteToWideChar(CP_UTF8, 0, pDirectoryPath, cbMultiByte, pQuery, queryLen);
-
-    if (directoryPathLen == FS_NULL_TERMINATED) {
-        queryLen -= 1;  /* Remove the null terminator. Will not include the null terminator if the input string is not null terminated, hence why this is inside the conditional. */
-    }
-
-    /* Remove the trailing slash, if any. */
-    if (pQuery[queryLen - 1] == L'\\' || pQuery[queryLen - 1] == L'/') {
-        queryLen -= 1;
-    }
-
-    pQuery[queryLen + 0] = L'\\';
-    pQuery[queryLen + 1] = L'*';
-    pQuery[queryLen + 2] = L'\0';
-
-    /* Convert to backslashes. */
-    for (i = 0; i < (size_t)queryLen; i += 1) {
-        if (pQuery[i] == L'/') {
-            pQuery[i] = L'\\';
-        }
-    }
-
-    hFind = FindFirstFileW(pQuery, &fd);
-    fs_free(pQueryHeap, fs_get_allocation_callbacks(pFS));
-
-    if (hFind == INVALID_HANDLE_VALUE) {
-        return NULL;
-    }
-
-    return fs_iterator_stdio_resolve(NULL, pFS, hFind, &fd);
-}
-
-FS_API fs_iterator* fs_next_stdio(fs_iterator* pIterator)
-{
-    fs_iterator_stdio* pIteratorStdio = (fs_iterator_stdio*)pIterator;
-    WIN32_FIND_DATAW fd;
-
-    if (!FindNextFileW(pIteratorStdio->hFind, &fd)) {
-        fs_free_iterator_stdio(pIterator);
-        return NULL;
-    }
-
-    return fs_iterator_stdio_resolve(pIteratorStdio, pIterator->pFS, pIteratorStdio->hFind, &fd);
-}
-#else
-#include <unistd.h>
-#include <dirent.h>
-
-FS_API fs_result fs_file_duplicate_stdio(fs_file* pFile, fs_file* pDuplicatedFile)
-{
-    fs_file_stdio* pFileStdio;
-    fs_file_stdio* pDuplicatedFileStdio;
-    FILE* pDuplicatedFileHandle;
-
-    /* These were all validated at a higher level. */
-    FS_ASSERT(pFile           != NULL);
-    FS_ASSERT(pDuplicatedFile != NULL);
-
-    pFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pFile);
-    FS_ASSERT(pFileStdio != NULL);
-
-    pDuplicatedFileStdio = (fs_file_stdio*)fs_file_get_backend_data(pDuplicatedFile);
-    FS_ASSERT(pDuplicatedFileStdio != NULL);
-
-    pDuplicatedFileHandle = fdopen(dup(fileno(pFileStdio->pFile)), pFileStdio->openMode);
-    if (pDuplicatedFileHandle == NULL) {
+    /* Do a quick check that it's still pointing to the same file. */
+    if (fstat(pFilePosix->fd, &st1) < 0) {
+        fs_file_close_posix(pDuplicate);
         return fs_result_from_errno(errno);
     }
 
-    pDuplicatedFileStdio->pFile = pDuplicatedFileHandle;
-    FS_COPY_MEMORY(pDuplicatedFileStdio->openMode, pFileStdio->openMode, sizeof(pFileStdio->openMode));
+    if (fstat(pDuplicatePosix->fd, &st2) < 0) {
+        fs_file_close_posix(pDuplicate);
+        return fs_result_from_errno(errno);
+    }
+
+    if (st1.st_ino != st2.st_ino || st1.st_dev != st2.st_dev) {
+        fs_file_close_posix(pDuplicate);
+        return FS_INVALID_OPERATION;    /* It looks like the files have changed. */
+    }
 
     return FS_SUCCESS;
 }
 
 
-typedef struct fs_iterator_stdio
+#define FS_POSIX_MIN_ITERATOR_ALLOCATION_SIZE 1024
+
+typedef struct fs_iterator_posix
 {
     fs_iterator iterator;
     DIR* pDir;
     char* pFullFilePath;        /* Points to the end of the structure. */
     size_t directoryPathLen;    /* The length of the directory section. */
-} fs_iterator_stdio;
+} fs_iterator_posix;
 
-FS_API void fs_free_iterator_stdio(fs_iterator* pIterator)
+static void fs_free_iterator_posix(fs_iterator* pIterator);
+
+static fs_iterator* fs_first_posix(fs* pFS, const char* pDirectoryPath, size_t directoryPathLen)
 {
-    fs_iterator_stdio* pIteratorStdio = (fs_iterator_stdio*)pIterator;
-
-    FS_ASSERT(pIteratorStdio != NULL);
-
-    closedir(pIteratorStdio->pDir);
-    fs_free(pIteratorStdio, fs_get_allocation_callbacks(pIterator->pFS));
-}
-
-FS_API fs_iterator* fs_first_stdio(fs* pFS, const char* pDirectoryPath, size_t directoryPathLen)
-{
-    fs_iterator_stdio* pIteratorStdio;
+    fs_iterator_posix* pIteratorPosix;
     struct dirent* info;
     struct stat statInfo;
     size_t fileNameLen;
-
-    FS_ASSERT(pDirectoryPath != NULL);
 
     /*
     Our input string isn't necessarily null terminated so we'll need to make a copy. This isn't
@@ -5612,30 +5808,30 @@ FS_API fs_iterator* fs_first_stdio(fs* pFS, const char* pDirectoryPath, size_t d
     Now that we know the length of the directory we can allocate space for the iterator. The
     directory path will be placed at the end of the structure.
     */
-    pIteratorStdio = (fs_iterator_stdio*)fs_malloc(FS_MAX(sizeof(*pIteratorStdio) + directoryPathLen + 1, FS_STDIO_MIN_ITERATOR_ALLOCATION_SIZE), fs_get_allocation_callbacks(pFS));    /* +1 for null terminator. */
-    if (pIteratorStdio == NULL) {
+    pIteratorPosix = (fs_iterator_posix*)fs_malloc(FS_MAX(sizeof(*pIteratorPosix) + directoryPathLen + 1, FS_POSIX_MIN_ITERATOR_ALLOCATION_SIZE), fs_get_allocation_callbacks(pFS));    /* +1 for null terminator. */
+    if (pIteratorPosix == NULL) {
         return NULL;
     }
 
     /* Point pFullFilePath to the end of structure to where the path is located. */
-    pIteratorStdio->pFullFilePath = (char*)pIteratorStdio + sizeof(*pIteratorStdio);
-    pIteratorStdio->directoryPathLen = directoryPathLen;
+    pIteratorPosix->pFullFilePath = (char*)pIteratorPosix + sizeof(*pIteratorPosix);
+    pIteratorPosix->directoryPathLen = directoryPathLen;
 
     /* We can now copy over the directory path. This will null terminate the path which will allow us to call opendir(). */
-    fs_strncpy_s(pIteratorStdio->pFullFilePath, directoryPathLen + 1, pDirectoryPath, directoryPathLen);
+    fs_strncpy_s(pIteratorPosix->pFullFilePath, directoryPathLen + 1, pDirectoryPath, directoryPathLen);
 
     /* We can now open the directory. */
-    pIteratorStdio->pDir = opendir(pIteratorStdio->pFullFilePath);
-    if (pIteratorStdio->pDir == NULL) {
-        fs_free(pIteratorStdio, fs_get_allocation_callbacks(pFS));
+    pIteratorPosix->pDir = opendir(pIteratorPosix->pFullFilePath);
+    if (pIteratorPosix->pDir == NULL) {
+        fs_free(pIteratorPosix, fs_get_allocation_callbacks(pFS));
         return NULL;
     }
 
     /* We now need to get information about the first file. */
-    info = readdir(pIteratorStdio->pDir);
+    info = readdir(pIteratorPosix->pDir);
     if (info == NULL) {
-        closedir(pIteratorStdio->pDir);
-        fs_free(pIteratorStdio, fs_get_allocation_callbacks(pFS));
+        closedir(pIteratorPosix->pDir);
+        fs_free(pIteratorPosix, fs_get_allocation_callbacks(pFS));
         return NULL;
     }
 
@@ -5647,50 +5843,48 @@ FS_API fs_iterator* fs_first_stdio(fs* pFS, const char* pDirectoryPath, size_t d
     separating slash.
     */
     {
-        fs_iterator_stdio* pNewIteratorStdio= (fs_iterator_stdio*)fs_realloc(pIteratorStdio, FS_MAX(sizeof(*pIteratorStdio) + directoryPathLen + 1 + fileNameLen + 1, FS_STDIO_MIN_ITERATOR_ALLOCATION_SIZE), fs_get_allocation_callbacks(pFS));    /* +1 for null terminator. */
-        if (pNewIteratorStdio == NULL) {
-            closedir(pIteratorStdio->pDir);
-            fs_free(pIteratorStdio, fs_get_allocation_callbacks(pFS));
+        fs_iterator_posix* pNewIteratorPosix= (fs_iterator_posix*)fs_realloc(pIteratorPosix, FS_MAX(sizeof(*pIteratorPosix) + directoryPathLen + 1 + fileNameLen + 1, FS_POSIX_MIN_ITERATOR_ALLOCATION_SIZE), fs_get_allocation_callbacks(pFS));    /* +1 for null terminator. */
+        if (pNewIteratorPosix == NULL) {
+            closedir(pIteratorPosix->pDir);
+            fs_free(pIteratorPosix, fs_get_allocation_callbacks(pFS));
             return NULL;
         }
 
-        pIteratorStdio = pNewIteratorStdio;
+        pIteratorPosix = pNewIteratorPosix;
     }
 
     /* Memory has been allocated. Copy over the separating slash and file name. */
-    pIteratorStdio->pFullFilePath = (char*)pIteratorStdio + sizeof(*pIteratorStdio);
-    pIteratorStdio->pFullFilePath[directoryPathLen] = '/';
-    fs_strcpy(pIteratorStdio->pFullFilePath + directoryPathLen + 1, info->d_name);
+    pIteratorPosix->pFullFilePath = (char*)pIteratorPosix + sizeof(*pIteratorPosix);
+    pIteratorPosix->pFullFilePath[directoryPathLen] = '/';
+    fs_strcpy(pIteratorPosix->pFullFilePath + directoryPathLen + 1, info->d_name);
 
     /* The pFileName member of the base iterator needs to be set to the file name. */
-    pIteratorStdio->iterator.pName   = pIteratorStdio->pFullFilePath + directoryPathLen + 1;
-    pIteratorStdio->iterator.nameLen = fileNameLen;
+    pIteratorPosix->iterator.pName   = pIteratorPosix->pFullFilePath + directoryPathLen + 1;
+    pIteratorPosix->iterator.nameLen = fileNameLen;
 
     /* We can now get the file information. */
-    if (stat(pIteratorStdio->pFullFilePath, &statInfo) != 0) {
-        closedir(pIteratorStdio->pDir);
-        fs_free(pIteratorStdio, fs_get_allocation_callbacks(pFS));
+    if (stat(pIteratorPosix->pFullFilePath, &statInfo) != 0) {
+        closedir(pIteratorPosix->pDir);
+        fs_free(pIteratorPosix, fs_get_allocation_callbacks(pFS));
         return NULL;
     }
 
-    pIteratorStdio->iterator.info = fs_file_info_from_stat(&statInfo);
+    pIteratorPosix->iterator.info = fs_file_info_from_stat_posix(&statInfo);
 
-    return (fs_iterator*)pIteratorStdio;
+    return (fs_iterator*)pIteratorPosix;
 }
 
-FS_API fs_iterator* fs_next_stdio(fs_iterator* pIterator)
+static fs_iterator* fs_next_posix(fs_iterator* pIterator)
 {
-    fs_iterator_stdio* pIteratorStdio = (fs_iterator_stdio*)pIterator;
+    fs_iterator_posix* pIteratorPosix = (fs_iterator_posix*)pIterator;
     struct dirent* info;
     struct stat statInfo;
     size_t fileNameLen;
 
-    FS_ASSERT(pIteratorStdio != NULL);
-
     /* We need to get information about the next file. */
-    info = readdir(pIteratorStdio->pDir);
+    info = readdir(pIteratorPosix->pDir);
     if (info == NULL) {
-        fs_free_iterator_stdio((fs_iterator*)pIteratorStdio);
+        fs_free_iterator_posix((fs_iterator*)pIteratorPosix);
         return NULL;    /* The end of the directory. */
     }
 
@@ -5698,64 +5892,981 @@ FS_API fs_iterator* fs_next_stdio(fs_iterator* pIterator)
 
     /* We need to reallocate the iterator to account for the new file name. */
     {
-        fs_iterator_stdio* pNewIteratorStdio = (fs_iterator_stdio*)fs_realloc(pIteratorStdio, FS_MAX(sizeof(*pIteratorStdio) + pIteratorStdio->directoryPathLen + 1 + fileNameLen + 1, FS_STDIO_MIN_ITERATOR_ALLOCATION_SIZE), fs_get_allocation_callbacks(pIterator->pFS));    /* +1 for null terminator. */
-        if (pNewIteratorStdio == NULL) {
-            fs_free_iterator_stdio((fs_iterator*)pIteratorStdio);
+        fs_iterator_posix* pNewIteratorPosix = (fs_iterator_posix*)fs_realloc(pIteratorPosix, FS_MAX(sizeof(*pIteratorPosix) + pIteratorPosix->directoryPathLen + 1 + fileNameLen + 1, FS_POSIX_MIN_ITERATOR_ALLOCATION_SIZE), fs_get_allocation_callbacks(pIterator->pFS));    /* +1 for null terminator. */
+        if (pNewIteratorPosix == NULL) {
+            fs_free_iterator_posix((fs_iterator*)pIteratorPosix);
             return NULL;
         }
 
-        pIteratorStdio = pNewIteratorStdio;
+        pIteratorPosix = pNewIteratorPosix;
     }
 
     /* Memory has been allocated. Copy over the file name. */
-    pIteratorStdio->pFullFilePath = (char*)pIteratorStdio + sizeof(*pIteratorStdio);
-    fs_strcpy(pIteratorStdio->pFullFilePath + pIteratorStdio->directoryPathLen + 1, info->d_name);
+    pIteratorPosix->pFullFilePath = (char*)pIteratorPosix + sizeof(*pIteratorPosix);
+    fs_strcpy(pIteratorPosix->pFullFilePath + pIteratorPosix->directoryPathLen + 1, info->d_name);
 
     /* The pFileName member of the base iterator needs to be set to the file name. */
-    pIteratorStdio->iterator.pName   = pIteratorStdio->pFullFilePath + pIteratorStdio->directoryPathLen + 1;
-    pIteratorStdio->iterator.nameLen = fileNameLen;
+    pIteratorPosix->iterator.pName   = pIteratorPosix->pFullFilePath + pIteratorPosix->directoryPathLen + 1;
+    pIteratorPosix->iterator.nameLen = fileNameLen;
 
     /* We can now get the file information. */
-    if (stat(pIteratorStdio->pFullFilePath, &statInfo) != 0) {
-        fs_free_iterator_stdio((fs_iterator*)pIteratorStdio);
+    if (stat(pIteratorPosix->pFullFilePath, &statInfo) != 0) {
+        fs_free_iterator_posix((fs_iterator*)pIteratorPosix);
         return NULL;
     }
 
-    pIteratorStdio->iterator.info = fs_file_info_from_stat(&statInfo);
+    pIteratorPosix->iterator.info = fs_file_info_from_stat_posix(&statInfo);
 
-    return (fs_iterator*)pIteratorStdio;
+    return (fs_iterator*)pIteratorPosix;
 }
+
+static void fs_free_iterator_posix(fs_iterator* pIterator)
+{
+    fs_iterator_posix* pIteratorPosix = (fs_iterator_posix*)pIterator;
+
+    closedir(pIteratorPosix->pDir);
+    fs_free(pIteratorPosix, fs_get_allocation_callbacks(pIterator->pFS));
+}
+
+static fs_backend fs_posix_backend =
+{
+    fs_alloc_size_posix,
+    fs_init_posix,
+    fs_uninit_posix,
+    fs_ioctl_posix,
+    fs_remove_posix,
+    fs_rename_posix,
+    fs_mkdir_posix,
+    fs_info_posix,
+    fs_file_alloc_size_posix,
+    fs_file_open_posix,
+    fs_file_close_posix,
+    fs_file_read_posix,
+    fs_file_write_posix,
+    fs_file_seek_posix,
+    fs_file_tell_posix,
+    fs_file_flush_posix,
+    fs_file_truncate_posix,
+    fs_file_info_posix,
+    fs_file_duplicate_posix,
+    fs_first_posix,
+    fs_next_posix,
+    fs_free_iterator_posix
+};
+
+const fs_backend* FS_BACKEND_POSIX = &fs_posix_backend;
+#else
+const fs_backend* FS_BACKEND_POSIX = NULL;
+#endif
+/* END fs_backend_posix.c */
+
+
+/* BEG fs_backend_win32.c */
+#if defined(_WIN32)
+    #define FS_SUPPORTS_WIN32
 #endif
 
-fs_backend fs_stdio_backend =
-{
-    fs_alloc_size_stdio,
-    fs_init_stdio,
-    fs_uninit_stdio,
-    fs_ioctl_stdio,
-    fs_remove_stdio,
-    fs_rename_stdio,
-    fs_mkdir_stdio,
-    fs_info_stdio,
-    fs_file_alloc_size_stdio,
-    fs_file_open_stdio,
-    fs_file_open_handle_stdio,
-    fs_file_close_stdio,
-    fs_file_read_stdio,
-    fs_file_write_stdio,
-    fs_file_seek_stdio,
-    fs_file_tell_stdio,
-    fs_file_flush_stdio,
-    fs_file_info_stdio,
-    fs_file_duplicate_stdio,
-    fs_first_stdio,
-    fs_next_stdio,
-    fs_free_iterator_stdio
-};
-const fs_backend* FS_STDIO = &fs_stdio_backend;
-#else
-const fs_backend* FS_STDIO = NULL;
+#if !defined(FS_NO_WIN32) && defined(FS_SUPPORTS_WIN32)
+    #define FS_HAS_WIN32
 #endif
+
+#if defined(_WIN32)
+#include <windows.h>
+
+#if defined(UNICODE) || defined(_UNICODE)
+#define fs_win32_char wchar_t
+#else
+#define fs_win32_char char
+#endif
+
+typedef struct
+{
+    size_t len;
+    fs_win32_char* path;
+    fs_win32_char  pathStack[256];
+    fs_win32_char* pathHeap;
+} fs_win32_path;
+
+static void fs_win32_path_init_internal(fs_win32_path* pPath)
+{
+    pPath->len = 0;
+    pPath->path = pPath->pathStack;
+    pPath->pathStack[0] = '\0';
+    pPath->pathHeap = NULL;
+}
+
+static fs_result fs_win32_path_init(fs_win32_path* pPath, const char* pPathUTF8, size_t pathUTF8Len, const fs_allocation_callbacks* pAllocationCallbacks)
+{
+    size_t i;
+
+    fs_win32_path_init_internal(pPath);
+
+    #if defined(UNICODE) || defined(_UNICODE)
+    {
+        int wideCharLen;
+        int cbMultiByte;
+
+        if (pathUTF8Len == (size_t)-1) {
+            cbMultiByte = (int)-1;
+        } else {
+            cbMultiByte = (int)pathUTF8Len + 1;
+        }
+
+        wideCharLen = MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, NULL, 0);
+        if (wideCharLen == 0) {
+            return FS_ERROR;
+        }
+
+        /* Use the stack if possible. If not, allocate on the heap. */
+        if (wideCharLen <= (int)FS_COUNTOF(pPath->pathStack)) {
+            pPath->path = pPath->pathStack;
+        } else {
+            pPath->pathHeap = (fs_win32_char*)fs_malloc(sizeof(fs_win32_char) * wideCharLen, pAllocationCallbacks);
+            if (pPath->pathHeap == NULL) {
+                return FS_OUT_OF_MEMORY;
+            }
+
+            pPath->path = pPath->pathHeap;
+        }
+
+        MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, pPath->path, wideCharLen);
+        pPath->len = wideCharLen - 1;  /* The count returned by MultiByteToWideChar() includes the null terminator, so subtract 1 to compensate. */
+
+        /* Convert forward slashes to back slashes for compatibility. */
+        for (i = 0; i < pPath->len; i += 1) {
+            if (pPath->path[i] == '/') {
+                pPath->path[i] = '\\';
+            }
+        }
+
+        return FS_SUCCESS;
+    }
+    #else
+    {
+        /*
+        Not doing any conversion here. Just assuming the path is an ANSI path. We need to copy over the string
+        and convert slashes to backslashes.
+        */
+        if (pathUTF8Len == (size_t)-1) {
+            pPath->len = strlen(pPathUTF8);
+        } else {
+            pPath->len = pathUTF8Len;
+        }
+
+        if (pPath->len >= sizeof(pPath->pathStack)) {
+            pPath->pathHeap = (fs_win32_char*)fs_malloc(sizeof(fs_win32_char) * (pPath->len + 1), pAllocationCallbacks);
+            if (pPath->pathHeap == NULL) {
+                return FS_OUT_OF_MEMORY;
+            }
+
+            pPath->path = pPath->pathHeap;
+        }
+
+        fs_strcpy(pPath->path, pPathUTF8);
+        for (i = 0; i < pPath->len; i += 1) {
+            if (pPath->path[i] == '/') {
+                pPath->path[i] = '\\';
+            }
+        }
+
+        return FS_SUCCESS;
+    }
+    #endif
+}
+
+
+
+static fs_result fs_win32_path_append(fs_win32_path* pPath, const char* pAppendUTF8, const fs_allocation_callbacks* pAllocationCallbacks)
+{
+    fs_result result;
+    fs_win32_path append;
+    size_t newLen;
+
+    result = fs_win32_path_init(&append, pAppendUTF8, (size_t)-1, pAllocationCallbacks);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    newLen = pPath->len + append.len;
+
+    if (pPath->path == pPath->pathHeap) {
+        /* It's on the heap. Just realloc. */
+        fs_win32_char* pNewHeap = (fs_win32_char*)fs_realloc(pPath->pathHeap, sizeof(fs_win32_char) * (newLen + 1), pAllocationCallbacks);
+        if (pNewHeap == NULL) {
+            return FS_OUT_OF_MEMORY;
+        }
+
+        pPath->pathHeap = pNewHeap;
+        pPath->path     = pNewHeap;
+    } else {
+        /* Getting here means it's on the stack. We may need to transfer to the heap. */
+        if (newLen >= FS_COUNTOF(pPath->pathStack)) {
+            /* There's not enough room on the stack. We need to move the string from the stack to the heap. */
+            pPath->pathHeap = (fs_win32_char*)fs_malloc(sizeof(fs_win32_char) * (newLen + 1), pAllocationCallbacks);
+            if (pPath->pathHeap == NULL) {
+                return FS_OUT_OF_MEMORY;
+            }
+
+            memcpy(pPath->pathHeap, pPath->pathStack, sizeof(fs_win32_char) * (pPath->len + 1));
+            pPath->path = pPath->pathHeap;
+        } else {
+            /* There's enough room on the stack. No modifications needed. */
+        }
+    }
+
+    /* Now we can append. */
+    memcpy(pPath->path + pPath->len, append.path, sizeof(fs_win32_char) * (append.len + 1));  /* Null terminator copied in-place. */
+    pPath->len = newLen;
+
+    return FS_SUCCESS;
+}
+
+
+
+static void fs_win32_path_uninit(fs_win32_path* pPath, const fs_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pPath->pathHeap) {
+        fs_free(pPath->pathHeap, pAllocationCallbacks);
+        pPath->pathHeap = NULL;
+    }
+}
+
+
+FS_API fs_uint64 fs_FILETIME_to_unix(const FILETIME* pFT)
+{
+    ULARGE_INTEGER li;
+
+    li.HighPart = pFT->dwHighDateTime;
+    li.LowPart  = pFT->dwLowDateTime;
+
+    return (fs_uint64)(li.QuadPart / 10000000UL - ((fs_uint64)116444736UL * 100UL));   /* Convert from Windows epoch to Unix epoch. */
+}
+
+static fs_file_info fs_file_info_from_WIN32_FIND_DATA(const WIN32_FIND_DATA* pFD)
+{
+    fs_file_info info;
+
+    FS_ZERO_OBJECT(&info);
+    info.size             = ((fs_uint64)pFD->nFileSizeHigh << 32) | (fs_uint64)pFD->nFileSizeLow;
+    info.lastModifiedTime = fs_FILETIME_to_unix(&pFD->ftLastWriteTime);
+    info.lastAccessTime   = fs_FILETIME_to_unix(&pFD->ftLastAccessTime);
+    info.directory        = (pFD->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    info.symlink          = ((pFD->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) && (pFD->dwReserved0 == 0xA000000C); /* <-- The use of dwReserved0 is documented for WIN32_FIND_DATA. */
+
+    return info;
+}
+
+static fs_file_info fs_file_info_from_HANDLE_FILE_INFORMATION(const BY_HANDLE_FILE_INFORMATION* pFileInfo)
+{
+    fs_file_info info;
+
+    FS_ZERO_OBJECT(&info);
+    info.size             = ((fs_uint64)pFileInfo->nFileSizeHigh << 32) | (fs_uint64)pFileInfo->nFileSizeLow;
+    info.lastModifiedTime = fs_FILETIME_to_unix(&pFileInfo->ftLastWriteTime);
+    info.lastAccessTime   = fs_FILETIME_to_unix(&pFileInfo->ftLastAccessTime);
+    info.directory        = (pFileInfo->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+    return info;
+}
+
+
+static size_t fs_alloc_size_win32(const void* pBackendConfig)
+{
+    (void)pBackendConfig;
+    return 0;
+}
+
+static fs_result fs_init_win32(fs* pFS, const void* pBackendConfig, fs_stream* pStream)
+{
+    (void)pFS;
+    (void)pBackendConfig;
+    (void)pStream;
+
+    return FS_SUCCESS;
+}
+
+static void fs_uninit_win32(fs* pFS)
+{
+    (void)pFS;
+}
+
+static fs_result fs_ioctl_win32(fs* pFS, int op, void* pArg)
+{
+    (void)pFS;
+    (void)op;
+    (void)pArg;
+
+    return FS_NOT_IMPLEMENTED;
+}
+
+static fs_result fs_remove_win32(fs* pFS, const char* pFilePath)
+{
+    BOOL resultWin32;
+    fs_result result;
+    fs_win32_path path;
+
+    result = fs_win32_path_init(&path, pFilePath, (size_t)-1, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    resultWin32 = DeleteFile(path.path);
+    if (resultWin32 == FS_FALSE) {
+        /* It may have been a directory. */
+        DWORD error = GetLastError();
+        if (error == ERROR_ACCESS_DENIED || error == ERROR_FILE_NOT_FOUND) {
+            DWORD attributes = GetFileAttributes(path.path);
+            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                resultWin32 = RemoveDirectory(path.path);
+                if (resultWin32 == FS_FALSE) {
+                    result = fs_result_from_GetLastError();
+                    goto done;
+                } else {
+                    return FS_SUCCESS;
+                }
+            } else {
+                result = fs_result_from_GetLastError();
+                goto done;
+            }
+        } else {
+            result = fs_result_from_GetLastError();
+            goto done;
+        }
+
+        result = fs_result_from_GetLastError();
+        goto done;
+    } else {
+        result = FS_SUCCESS;
+    }
+
+done:
+    fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
+
+    (void)pFS;
+    return result;
+}
+
+static fs_result fs_rename_win32(fs* pFS, const char* pOldPath, const char* pNewPath)
+{
+    BOOL resultWin32;
+    fs_result result;
+    fs_win32_path pathOld;
+    fs_win32_path pathNew;
+
+    result = fs_win32_path_init(&pathOld, pOldPath, (size_t)-1, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    result = fs_win32_path_init(&pathNew, pNewPath, (size_t)-1, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        fs_win32_path_uninit(&pathOld, fs_get_allocation_callbacks(pFS));
+        return result;
+    }
+
+    resultWin32 = MoveFile(pathOld.path, pathNew.path);
+    if (resultWin32 == FS_FALSE) {
+        result = fs_result_from_GetLastError();
+    }
+
+    fs_win32_path_uninit(&pathOld, fs_get_allocation_callbacks(pFS));
+    fs_win32_path_uninit(&pathNew, fs_get_allocation_callbacks(pFS));
+
+    (void)pFS;
+    return result;
+}
+
+static fs_result fs_mkdir_win32(fs* pFS, const char* pPath)
+{
+    BOOL resultWin32;
+    fs_result result;
+    fs_win32_path path;
+
+    /* If it's a drive letter segment just pretend it's successful. */
+    if ((pPath[0] >= 'a' && pPath[0] <= 'z') || (pPath[0] >= 'A' && pPath[0] <= 'Z')) {
+        if (pPath[1] == ':' && pPath[2] == '\0') {
+            return FS_SUCCESS;
+        }
+    }
+
+    result = fs_win32_path_init(&path, pPath, (size_t)-1, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    resultWin32 = CreateDirectory(path.path, NULL);
+    if (resultWin32 == FS_FALSE) {
+        result = fs_result_from_GetLastError();
+        goto done;
+    }
+
+done:
+    fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
+
+    (void)pFS;
+    return result;
+}
+
+static fs_result fs_info_from_stdio_win32(HANDLE hFile, fs_file_info* pInfo)
+{
+    BY_HANDLE_FILE_INFORMATION fileInfo;
+
+    if (GetFileInformationByHandle(hFile, &fileInfo) == FS_FALSE) {
+        return fs_result_from_GetLastError();
+    }
+
+    *pInfo = fs_file_info_from_HANDLE_FILE_INFORMATION(&fileInfo);
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_info_win32(fs* pFS, const char* pPath, int openMode, fs_file_info* pInfo)
+{
+    HANDLE hFind;
+    WIN32_FIND_DATA fd;
+    fs_result result;
+    fs_win32_path path;
+
+    /* Special case for standard IO files. */
+    /*  */ if (pPath == FS_STDIN ) {
+        return fs_info_from_stdio_win32(GetStdHandle(STD_INPUT_HANDLE ), pInfo);
+    } else if (pPath == FS_STDOUT) {
+        return fs_info_from_stdio_win32(GetStdHandle(STD_OUTPUT_HANDLE), pInfo);
+    } else if (pPath == FS_STDERR) {
+        return fs_info_from_stdio_win32(GetStdHandle(STD_ERROR_HANDLE ), pInfo);
+    }
+
+    result = fs_win32_path_init(&path, pPath, (size_t)-1, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    hFind = FindFirstFile(path.path, &fd);
+
+    fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        result = fs_result_from_GetLastError();
+        goto done;
+    } else {
+        result = FS_SUCCESS;
+    }
+
+    FindClose(hFind);
+    hFind = NULL;
+
+    *pInfo = fs_file_info_from_WIN32_FIND_DATA(&fd);
+
+done:
+    (void)openMode;
+    (void)pFS;
+    return result;
+}
+
+
+typedef struct fs_file_win32
+{
+    HANDLE hFile;
+    fs_bool32 isStandardHandle;
+    int openMode;       /* The original open mode for duplication purposes. */
+    char* pFilePath;
+    char  pFilePathStack[256];
+    char* pFilePathHeap;
+} fs_file_win32;
+
+static size_t fs_file_alloc_size_win32(fs* pFS)
+{
+    (void)pFS;
+    return sizeof(fs_file_win32);
+}
+
+static fs_result fs_file_open_win32(fs* pFS, fs_stream* pStream, const char* pFilePath, int openMode, fs_file* pFile)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    fs_result result;
+    fs_win32_path path;
+    HANDLE hFile;
+    DWORD dwDesiredAccess = 0;
+    DWORD dwShareMode = 0;
+    DWORD dwCreationDisposition = OPEN_EXISTING;
+
+    /*  */ if (pFilePath == FS_STDIN ) {
+        hFile = GetStdHandle(STD_INPUT_HANDLE);
+        pFileWin32->isStandardHandle = FS_TRUE;
+    } else if (pFilePath == FS_STDOUT) {
+        hFile = GetStdHandle(STD_OUTPUT_HANDLE);
+        pFileWin32->isStandardHandle = FS_TRUE;
+    } else if (pFilePath == FS_STDERR) {
+        hFile = GetStdHandle(STD_ERROR_HANDLE);
+        pFileWin32->isStandardHandle = FS_TRUE;
+    } else {
+        pFileWin32->isStandardHandle = FS_FALSE;
+    }
+
+    if (pFileWin32->isStandardHandle) {
+        pFileWin32->hFile = hFile;
+        return FS_SUCCESS;
+    }
+
+
+    if ((openMode & FS_READ) != 0) {
+        dwDesiredAccess      |= GENERIC_READ;
+        dwShareMode          |= FILE_SHARE_READ;
+        dwCreationDisposition = OPEN_EXISTING;  /* In read mode, our default is to open an existing file, and fail if it doesn't exist. This can be overwritten in the write case below. */
+    }
+
+    if ((openMode & FS_WRITE) != 0) {
+        dwShareMode |= FILE_SHARE_WRITE;
+
+        if ((openMode & FS_EXCLUSIVE) != 0) {
+            dwDesiredAccess      |= GENERIC_WRITE;
+            dwCreationDisposition = CREATE_NEW;
+        } else if ((openMode & FS_APPEND) != 0) {
+            dwDesiredAccess      |= FILE_APPEND_DATA;
+            dwCreationDisposition = OPEN_ALWAYS;
+        } else if ((openMode & FS_TRUNCATE) != 0) {
+            dwDesiredAccess      |= GENERIC_WRITE;
+            dwCreationDisposition = CREATE_ALWAYS;
+        } else {
+            dwDesiredAccess      |= GENERIC_WRITE;
+            dwCreationDisposition = OPEN_ALWAYS;
+        }
+    }
+
+    /* As an added safety check, make sure one or both of read and write was specified. */
+    if (dwDesiredAccess == 0) {
+        return FS_INVALID_ARGS;
+    }
+
+    result = fs_win32_path_init(&path, pFilePath, (size_t)-1, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    hFile = CreateFile(path.path, dwDesiredAccess, dwShareMode, NULL, dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        result = fs_result_from_GetLastError();
+    } else {
+        result = FS_SUCCESS;
+        pFileWin32->hFile = hFile;
+    }
+
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* We need to keep track of the open mode for duplication purposes. */
+    pFileWin32->openMode = openMode;
+
+    /* We need to make a copy of the path for duplication purposes. */
+    if (path.len < FS_COUNTOF(pFileWin32->pFilePathStack)) {
+        pFileWin32->pFilePath = pFileWin32->pFilePathStack;
+    } else {
+        pFileWin32->pFilePathHeap = (char*)fs_malloc(path.len + 1, fs_get_allocation_callbacks(pFS));
+        if (pFileWin32->pFilePathHeap == NULL) {
+            result = FS_OUT_OF_MEMORY;
+            if (pFileWin32->isStandardHandle == FS_FALSE) {
+                CloseHandle(pFileWin32->hFile);
+            }
+
+            fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        pFileWin32->pFilePath = pFileWin32->pFilePathHeap;
+    }
+
+    fs_strcpy(pFileWin32->pFilePath, pFilePath);
+
+
+    /* All done. */
+    fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
+
+    (void)pFS;
+    (void)pStream;
+    return FS_SUCCESS;
+}
+
+static void fs_file_close_win32(fs_file* pFile)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+
+    if (pFileWin32->isStandardHandle == FS_FALSE) {
+        CloseHandle(pFileWin32->hFile);
+        fs_free(pFileWin32->pFilePathHeap, fs_get_allocation_callbacks(fs_file_get_fs(pFile)));
+    }
+}
+
+static fs_result fs_file_read_win32(fs_file* pFile, void* pDst, size_t bytesToRead, size_t* pBytesRead)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    BOOL resultWin32;
+    size_t bytesRemaining = bytesToRead;
+    char* pRunningDst = (char*)pDst;
+
+    /*
+    ReadFile() expects a DWORD for the number of bytes to read which means we'll need to run it in a loop in case
+    our bytesToRead argument is larger than 4GB.
+    */
+    while (bytesRemaining > 0) {
+        DWORD bytesToReadNow = (DWORD)FS_MIN(bytesRemaining, (size_t)0xFFFFFFFF);
+        DWORD bytesReadNow;
+
+        resultWin32 = ReadFile(pFileWin32->hFile, pRunningDst, bytesToReadNow, &bytesReadNow, NULL);
+        if (resultWin32 == FS_FALSE) {
+            return fs_result_from_GetLastError();
+        }
+
+        if (bytesReadNow == 0) {
+            break;
+        }
+
+        bytesRemaining -= bytesReadNow;
+        pRunningDst    += bytesReadNow;
+    }
+
+    *pBytesRead = bytesToRead - bytesRemaining;
+    
+    if (*pBytesRead == 0) {
+        return FS_AT_END;
+    }
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_write_win32(fs_file* pFile, const void* pSrc, size_t bytesToWrite, size_t* pBytesWritten)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    BOOL resultWin32;
+    size_t bytesRemaining = bytesToWrite;
+    const char* pRunningSrc = (const char*)pSrc;
+
+    /*
+    WriteFile() expects a DWORD for the number of bytes to write which means we'll need to run it in a loop in case
+    our bytesToWrite argument is larger than 4GB.
+    */
+    while (bytesRemaining > 0) {
+        DWORD bytesToWriteNow = (DWORD)FS_MIN(bytesRemaining, (size_t)0xFFFFFFFF);
+        DWORD bytesWrittenNow;
+
+        resultWin32 = WriteFile(pFileWin32->hFile, pRunningSrc, bytesToWriteNow, &bytesWrittenNow, NULL);
+        if (resultWin32 == FS_FALSE) {
+            return fs_result_from_GetLastError();
+        }
+
+        if (bytesWrittenNow == 0) {
+            break;
+        }
+
+        bytesRemaining -= bytesWrittenNow;
+        pRunningSrc    += bytesWrittenNow;
+    }
+
+    *pBytesWritten = bytesToWrite - bytesRemaining;
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_seek_win32(fs_file* pFile, fs_int64 offset, fs_seek_origin origin)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    LARGE_INTEGER liDistanceToMove;
+    DWORD dwMoveMethod;
+
+    switch (origin) {
+    case FS_SEEK_SET:
+        dwMoveMethod = FILE_BEGIN;
+        liDistanceToMove.QuadPart = offset;
+        break;
+    case FS_SEEK_CUR:
+        dwMoveMethod = FILE_CURRENT;
+        liDistanceToMove.QuadPart = offset;
+        break;
+    case FS_SEEK_END:
+        dwMoveMethod = FILE_END;
+        liDistanceToMove.QuadPart = offset;
+        break;
+    default:
+        return FS_INVALID_ARGS;
+    }
+
+    /*
+    Use SetFilePointer() instead of SetFilePointerEx() for compatibility with old Windows.
+
+    Note from MSDN:
+
+        If you do not need the high order 32-bits, this pointer must be set to NULL.
+    */
+    if (SetFilePointer(pFileWin32->hFile, liDistanceToMove.LowPart, (liDistanceToMove.HighPart == 0 ? NULL : &liDistanceToMove.HighPart), dwMoveMethod) == INVALID_SET_FILE_POINTER) {
+        return fs_result_from_GetLastError();
+    }
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_tell_win32(fs_file* pFile, fs_int64* pCursor)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    LARGE_INTEGER liCursor;
+
+    liCursor.HighPart = 0;
+    liCursor.LowPart  = SetFilePointer(pFileWin32->hFile, 0, &liCursor.HighPart, FILE_CURRENT);
+
+    if (liCursor.LowPart == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+        return fs_result_from_GetLastError();
+    }
+
+    *pCursor = liCursor.QuadPart;
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_flush_win32(fs_file* pFile)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+
+    if (FlushFileBuffers(pFileWin32->hFile) == FS_FALSE) {
+        return fs_result_from_GetLastError();
+    }
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_truncate_win32(fs_file* pFile)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+
+    if (SetEndOfFile(pFileWin32->hFile) == FS_FALSE) {
+        return fs_result_from_GetLastError();
+    }
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_info_win32(fs_file* pFile, fs_file_info* pInfo)
+{
+    fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    BY_HANDLE_FILE_INFORMATION fileInfo;
+
+    if (GetFileInformationByHandle(pFileWin32->hFile, &fileInfo) == FS_FALSE) {
+        return fs_result_from_GetLastError();
+    }
+
+    *pInfo = fs_file_info_from_HANDLE_FILE_INFORMATION(&fileInfo);
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_file_duplicate_win32(fs_file* pFile, fs_file* pDuplicate)
+{
+    fs_file_win32* pFileWin32      = (fs_file_win32*)fs_file_get_backend_data(pFile);
+    fs_file_win32* pDuplicateWin32 = (fs_file_win32*)fs_file_get_backend_data(pDuplicate);
+    fs_result result;
+    BY_HANDLE_FILE_INFORMATION info1, info2;
+
+    if (pFileWin32->isStandardHandle) {
+        pDuplicateWin32->hFile = pFileWin32->hFile;
+        pDuplicateWin32->isStandardHandle = FS_TRUE;
+        
+        return FS_SUCCESS;
+    }
+
+    /*
+    We cannot duplicate the handle because that will result in a shared read/write pointer. We need to
+    open the file again with the same path and flags. We're not going to allow duplication of files
+    that were opened in write mode.
+    */
+    if ((pFileWin32->openMode & FS_WRITE) != 0) {
+        return FS_INVALID_OPERATION;
+    }
+
+    result = fs_file_open_win32(fs_file_get_fs(pFile), NULL, pFileWin32->pFilePath, pFileWin32->openMode, pDuplicate);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* Now check the file information in case it got replaced with a different file from under us. */
+    if (GetFileInformationByHandle(pFileWin32->hFile, &info1) == FS_FALSE) {
+        fs_file_close_win32(pDuplicate);
+        return fs_result_from_GetLastError();
+    }
+    if (GetFileInformationByHandle(pDuplicateWin32->hFile, &info2) == FS_FALSE) {
+        fs_file_close_win32(pDuplicate);
+        return fs_result_from_GetLastError();
+    }
+
+    if ((info1.dwVolumeSerialNumber != info2.dwVolumeSerialNumber) || (info1.nFileIndexLow != info2.nFileIndexLow) || (info1.nFileIndexHigh != info2.nFileIndexHigh)) {
+        fs_file_close_win32(pDuplicate);
+        return FS_INVALID_OPERATION;
+    }
+
+    return FS_SUCCESS;
+}
+
+
+#define FS_WIN32_MIN_ITERATOR_ALLOCATION_SIZE 1024
+
+typedef struct fs_iterator_win32
+{
+    fs_iterator iterator;
+    HANDLE hFind;
+    WIN32_FIND_DATAA findData;
+    char* pFullFilePath;        /* Points to the end of the structure. */
+    size_t directoryPathLen;    /* The length of the directory section. */
+} fs_iterator_win32;
+
+static void fs_free_iterator_win32(fs_iterator* pIterator);
+
+static fs_iterator* fs_iterator_win32_resolve(fs_iterator_win32* pIteratorWin32, fs* pFS, HANDLE hFind, const WIN32_FIND_DATA* pFD)
+{
+    fs_iterator_win32* pNewIteratorWin32;
+    size_t allocSize;
+    int nameLenIncludingNullTerminator;
+
+    /*
+    The name is stored at the end of the struct. In order to know how much memory to allocate we'll
+    need to calculate the length of the name.
+    */
+    #if defined(UNICODE) || defined(_UNICODE)
+    {
+        nameLenIncludingNullTerminator = WideCharToMultiByte(CP_UTF8, 0, pFD->cFileName, -1, NULL, 0, NULL, NULL);
+        if (nameLenIncludingNullTerminator == 0) {
+            fs_free_iterator_win32((fs_iterator*)pIteratorWin32);
+            return NULL;
+        }
+    }
+    #else
+    {
+        nameLenIncludingNullTerminator = (int)strlen(pFD->cFileName) + 1;  /* +1 for the null terminator. */
+    }
+    #endif
+
+    allocSize = FS_MAX(sizeof(fs_iterator_win32) + nameLenIncludingNullTerminator, FS_WIN32_MIN_ITERATOR_ALLOCATION_SIZE);    /* 1KB just to try to avoid excessive internal reallocations inside realloc(). */
+
+    pNewIteratorWin32 = (fs_iterator_win32*)fs_realloc(pIteratorWin32, allocSize, fs_get_allocation_callbacks(pFS));
+    if (pNewIteratorWin32 == NULL) {
+        fs_free_iterator_win32((fs_iterator*)pIteratorWin32);
+        return NULL;
+    }
+
+    pNewIteratorWin32->iterator.pFS = pFS;
+    pNewIteratorWin32->hFind        = hFind;
+
+    /* Name. */
+    pNewIteratorWin32->iterator.pName   = (char*)pNewIteratorWin32 + sizeof(fs_iterator_win32);
+    pNewIteratorWin32->iterator.nameLen = (size_t)nameLenIncludingNullTerminator - 1;
+
+    #if defined(UNICODE) || defined(_UNICODE)
+    {
+        WideCharToMultiByte(CP_UTF8, 0, pFD->cFileName, -1, (char*)pNewIteratorWin32->iterator.pName, nameLenIncludingNullTerminator, NULL, NULL);  /* const-cast is safe here. */
+    }
+    #else
+    {
+        fs_strcpy((char*)pNewIteratorWin32->iterator.pName, pFD->cFileName);  /* const-cast is safe here. */
+    }
+    #endif
+
+    /* Info. */
+    pNewIteratorWin32->iterator.info = fs_file_info_from_WIN32_FIND_DATA(pFD);
+
+    return (fs_iterator*)pNewIteratorWin32;
+}
+
+static fs_iterator* fs_first_win32(fs* pFS, const char* pDirectoryPath, size_t directoryPathLen)
+{
+    HANDLE hFind;
+    WIN32_FIND_DATA fd;
+    fs_result result;
+    fs_win32_path query;
+
+    /* An empty path means the current directory. Win32 will want us to specify "." in this case. */
+    if (pDirectoryPath == NULL || pDirectoryPath[0] == '\0') {
+        pDirectoryPath = ".";
+        directoryPathLen = 1;
+    }
+
+    result = fs_win32_path_init(&query, pDirectoryPath, directoryPathLen, fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        return NULL;
+    }
+
+    /*
+    At this point we have converted the first part of the query. Now we need to append "\*" to it. To do this
+    properly, we'll first need to remove any trailing slash, if any.
+    */
+    if (query.len > 0 && query.path[query.len - 1] == '\\') {
+        query.len -= 1;
+        query.path[query.len] = '\0';
+    }
+
+    result = fs_win32_path_append(&query, "\\*", fs_get_allocation_callbacks(pFS));
+    if (result != FS_SUCCESS) {
+        fs_win32_path_uninit(&query, fs_get_allocation_callbacks(pFS));
+        return NULL;
+    }
+
+    hFind = FindFirstFile(query.path, &fd);
+    fs_win32_path_uninit(&query, fs_get_allocation_callbacks(pFS));
+
+    if (hFind == INVALID_HANDLE_VALUE) {
+        return NULL;
+    }
+
+    return fs_iterator_win32_resolve(NULL, pFS, hFind, &fd);
+}
+
+static fs_iterator* fs_next_win32(fs_iterator* pIterator)
+{
+    fs_iterator_win32* pIteratorWin32 = (fs_iterator_win32*)pIterator;
+    WIN32_FIND_DATA fd;
+
+    if (!FindNextFile(pIteratorWin32->hFind, &fd)) {
+        fs_free_iterator_win32(pIterator);
+        return NULL;
+    }
+
+    return fs_iterator_win32_resolve(pIteratorWin32, pIterator->pFS, pIteratorWin32->hFind, &fd);
+}
+
+static void fs_free_iterator_win32(fs_iterator* pIterator)
+{
+    fs_iterator_win32* pIteratorWin32 = (fs_iterator_win32*)pIterator;
+
+    FindClose(pIteratorWin32->hFind);
+    fs_free(pIteratorWin32, fs_get_allocation_callbacks(pIterator->pFS));
+}
+
+static fs_backend fs_win32_backend =
+{
+    fs_alloc_size_win32,
+    fs_init_win32,
+    fs_uninit_win32,
+    fs_ioctl_win32,
+    fs_remove_win32,
+    fs_rename_win32,
+    fs_mkdir_win32,
+    fs_info_win32,
+    fs_file_alloc_size_win32,
+    fs_file_open_win32,
+    fs_file_close_win32,
+    fs_file_read_win32,
+    fs_file_write_win32,
+    fs_file_seek_win32,
+    fs_file_tell_win32,
+    fs_file_flush_win32,
+    fs_file_truncate_win32,
+    fs_file_info_win32,
+    fs_file_duplicate_win32,
+    fs_first_win32,
+    fs_next_win32,
+    fs_free_iterator_win32
+};
+
+const fs_backend* FS_BACKEND_WIN32 = &fs_win32_backend;
+#else
+const fs_backend* FS_BACKEND_WIN32 = NULL;
+#endif
+/* END fs_backend_win32.c */
 /* END fs.c */
 
 
@@ -6065,12 +7176,252 @@ FS_API size_t fs_sysdir(fs_sysdir_type type, char* pDst, size_t dstCap)
     }
     #endif
 
+    /* Check if there's a trailing slash, and if so, delete it. */
+    if (pDst != NULL && fullLength < dstCap && fullLength > 0) {
+        if (pDst[fullLength - 1] == '/' || pDst[fullLength - 1] == '\\') {
+            pDst[fullLength - 1] = '\0';
+        }
+    }
+
     return fullLength;
 }
 /* END fs_sysdir.c */
 
 
 /* BEG fs_mktmp.c */
+#ifndef _WIN32
+
+/*
+We need to detect whether or not mkdtemp() and mkstemp() are available. If it's not we'll fall back to a
+non-optimal implementation. These are the rules:
+
+  - POSIX.1-2008 and later
+  - glibc 2.1.91+ (when _GNU_SOURCE is defined)
+  - Not available in strict C89 mode
+  - Not available on some older systems
+*/
+#if !defined(FS_USE_MKDTEMP_FALLBACK)
+    #if !defined(FS_HAS_MKDTEMP) && (defined(_GNU_SOURCE) || defined(_BSD_SOURCE))
+        #define FS_HAS_MKDTEMP
+    #endif
+    #if !defined(FS_HAS_MKDTEMP) && defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L
+        #define FS_HAS_MKDTEMP
+    #endif
+    #if !defined(FS_HAS_MKDTEMP) && defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 700
+        #define FS_HAS_MKDTEMP
+    #endif
+    #if !defined(FS_HAS_MKDTEMP) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L && !defined(__STRICT_ANSI__)
+        #define FS_HAS_MKDTEMP
+    #endif
+#endif
+
+#if !defined(FS_HAS_MKDTEMP)
+#include <time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+static int fs_get_random_bytes(unsigned char* pBytes, size_t count)
+{
+    int fd;
+    ssize_t bytesRead;
+
+    /* Try /dev/urandom first. */
+    fd = open("/dev/urandom", O_RDONLY);
+    if (fd >= 0) {
+        bytesRead = read(fd, pBytes, count);
+        close(fd);
+
+        if ((size_t)bytesRead == count) {
+            return 0;  /* Success. */
+        }
+
+        /* Getting here means reading failed. Fall through to the fallback case. */
+    }
+
+    /* Getting here means /dev/urandom failed. We can fall back to a simple time/pid/stack based entropy. */
+    {
+        unsigned long stackAddress = 0;
+        unsigned long seed;
+        size_t i;
+        
+        /* Create a seed using multiple entropy sources. */
+        seed  = (unsigned long)time(NULL);
+        seed ^= (unsigned long)getpid();
+        seed ^= (unsigned long)(size_t)&stackAddress;  /* <-- Stack address entropy. */
+        seed ^= (unsigned long)clock();
+
+        /* LCG */
+        for (i = 0; i < count; i += 1) {
+            seed = seed * 1103515245U + 12345U;
+            pBytes[i] = (unsigned char)(seed >> 16);
+        }
+        
+        return 0;
+    }
+}
+
+static char* fs_mkdtemp_fallback(char* pTemplate)
+{
+    size_t templateLen;
+    char* pXXXXXX;
+    int attempts;
+    int i;
+    
+    if (pTemplate == NULL) {
+        return NULL;
+    }
+    
+    /* The template must end with XXXXXX. */
+    templateLen = strlen(pTemplate);
+    if (templateLen < 6) {
+        return NULL;
+    }
+    
+    pXXXXXX = pTemplate + templateLen - 6;
+    for (i = 0; i < 6; i += 1) {
+        if (pXXXXXX[i] != 'X') {
+            return NULL; /* Last 6 characters are not "XXXXXX". */
+        }
+    }
+
+    /* We can now fill out the random part and try creating the directory. */
+    for (attempts = 0; attempts < 100; attempts += 1) {
+        unsigned char randomBytes[6];
+        
+        if (fs_get_random_bytes(randomBytes, 6) != 0) {
+            return NULL;
+        }
+        
+        /* Fill out the random part using the random bytes */
+        for (i = 0; i < 6; i += 1) {
+            int r = randomBytes[i] % 62;
+            if (r < 10) {
+                pXXXXXX[i] = '0' + r;
+            } else if (r < 36) {
+                pXXXXXX[i] = 'A' + (r - 10);
+            } else {
+                pXXXXXX[i] = 'a' + (r - 36);
+            }
+        }
+
+        /* With the random part filled out we're now ready to try creating the directory */
+        if (mkdir(pTemplate, S_IRWXU) == 0) {
+            return pTemplate; /* Success */
+        }
+
+        /*
+        Getting here means we failed to create the directory. If it's because the directory already exists (EEXIST)
+        we can just continue iterating. Otherwise it was an unexpected error and we need to bomb out.
+        */
+        if (errno != EEXIST) {
+            return NULL;
+        }
+    }
+    
+    /* Getting here means we failed after several attempts. */
+    return NULL;
+}
+
+static int fs_mkstemp_fallback(char* pTemplate)
+{
+    size_t templateLen;
+    char* pXXXXXX;
+    int attempts;
+    int i;
+    int fd;
+    
+    if (pTemplate == NULL) {
+        return -1;
+    }
+    
+    /* The template must end with XXXXXX. */
+    templateLen = strlen(pTemplate);
+    if (templateLen < 6) {
+        return -1;
+    }
+    
+    pXXXXXX = pTemplate + templateLen - 6;
+    for (i = 0; i < 6; i += 1) {
+        if (pXXXXXX[i] != 'X') {
+            return -1; /* Last 6 characters are not "XXXXXX". */
+        }
+    }
+
+    /* We can now fill out the random part and try creating the file. */
+    for (attempts = 0; attempts < 100; attempts += 1) {
+        unsigned char randomBytes[6];
+        
+        if (fs_get_random_bytes(randomBytes, 6) != 0) {
+            return -1;
+        }
+        
+        /* Fill out the random part using the random bytes */
+        for (i = 0; i < 6; i += 1) {
+            int r = randomBytes[i] % 62;
+            if (r < 10) {
+                pXXXXXX[i] = '0' + r;
+            } else if (r < 36) {
+                pXXXXXX[i] = 'A' + (r - 10);
+            } else {
+                pXXXXXX[i] = 'a' + (r - 36);
+            }
+        }
+
+        /* With the random part filled out we're now ready to try creating the file */
+        fd = open(pTemplate, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+        if (fd >= 0) {
+            return fd; /* Success */
+        }
+
+        /*
+        Getting here means we failed to create the file. If it's because the file already exists (EEXIST)
+        we can just continue iterating. Otherwise it was an unexpected error and we need to bomb out.
+        */
+        if (errno != EEXIST) {
+            return -1;
+        }
+    }
+    
+    /* Getting here means we failed after several attempts. */
+    return -1;
+}
+#endif
+
+static char* fs_mkdtemp(char* pTemplate)
+{
+    if (pTemplate == NULL) {
+        return NULL;
+    }
+    
+    #if defined(FS_HAS_MKDTEMP)
+    {
+        return mkdtemp(pTemplate);
+    }
+    #else
+    {
+        return fs_mkdtemp_fallback(pTemplate);
+    }
+    #endif
+}
+
+static int fs_mkstemp(char* pTemplate)
+{
+    if (pTemplate == NULL) {
+        return -1;
+    }
+    
+    #if defined(FS_HAS_MKDTEMP)
+    {
+        return mkstemp(pTemplate);
+    }
+    #else
+    {
+        return fs_mkstemp_fallback(pTemplate);
+    }
+    #endif
+}
+#endif
+
 FS_API fs_result fs_mktmp(const char* pPrefix, char* pTmpPath, size_t tmpPathCap, int options)
 {
     size_t baseDirLen;
@@ -6170,7 +7521,7 @@ FS_API fs_result fs_mktmp(const char* pPrefix, char* pTmpPath, size_t tmpPathCap
         }
 
         if (GetTempFileNameA(pTmpPath, pPrefixName, 0, pTmpPathWin) == 0) {
-            return fs_result_from_GetLastError(GetLastError());
+            return fs_result_from_GetLastError();
         }
 
         /*
@@ -6192,7 +7543,7 @@ FS_API fs_result fs_mktmp(const char* pPrefix, char* pTmpPath, size_t tmpPathCap
             DeleteFileA(pTmpPathWin);
 
             if (CreateDirectoryA(pTmpPathWin, NULL) == 0) {
-                return fs_result_from_GetLastError(GetLastError());
+                return fs_result_from_GetLastError();
             }
         } else {
             /* We're creating a temp file. The OS will have already created the file in GetTempFileNameA() so no need to create it explicitly. */
@@ -6220,12 +7571,12 @@ FS_API fs_result fs_mktmp(const char* pPrefix, char* pTmpPath, size_t tmpPathCap
         /* At this point the full path has been constructed. We can now create the file or directory. */
         if ((options & FS_MKTMP_DIR) != 0) {
             /* We're creating a temp directory. */
-            if (mkdtemp(pTmpPath) == NULL) {
+            if (fs_mkdtemp(pTmpPath) == NULL) {
                 return fs_result_from_errno(errno);
             }
         } else {
             /* We're creating a temp file. */
-            int fd = mkstemp(pTmpPath);
+            int fd = fs_mkstemp(pTmpPath);
             if (fd == -1) {
                 return fs_result_from_errno(errno);
             }
@@ -6238,26 +7589,6 @@ FS_API fs_result fs_mktmp(const char* pPrefix, char* pTmpPath, size_t tmpPathCap
     return FS_SUCCESS;
 }
 /* END fs_mktmp.c */
-
-
-/* BEG fs_errno.c */
-FS_API fs_result fs_result_from_errno(int error)
-{
-    switch (error)
-    {
-        case 0:       return FS_SUCCESS;
-        case ENOENT:  return FS_DOES_NOT_EXIST;
-        case EEXIST:  return FS_ALREADY_EXISTS;
-        case ENOTDIR: return FS_NOT_DIRECTORY;
-        case ENOMEM:  return FS_OUT_OF_MEMORY;
-        case EINVAL:  return FS_INVALID_ARGS;
-        default: break;
-    }
-
-    /* Fall back to a generic error. */
-    return FS_ERROR;
-}
-/* END fs_errno.c */
 
 
 
@@ -6617,16 +7948,12 @@ FS_API const char* fs_path_trim_base(const char* pPath, size_t pathLen, const ch
 
     /* We just keep iterating until we find a mismatch or reach the end of the base path. */
     for (;;) {
-        if (iPath.segmentLength != iBase.segmentLength) {
-            return NULL;
-        }
-
-        if (fs_strncmp(iPath.pFullPath + iPath.segmentOffset, iBase.pFullPath + iBase.segmentOffset, iPath.segmentLength) != 0) {
+        if (iPath.segmentLength != iBase.segmentLength || fs_strncmp(iPath.pFullPath + iPath.segmentOffset, iBase.pFullPath + iBase.segmentOffset, iPath.segmentLength) != 0) {
             return NULL;
         }
 
         result = fs_path_next(&iBase);
-        if (result != FS_SUCCESS) {
+        if (result != FS_SUCCESS || (iBase.segmentLength == 0 && fs_path_is_last(&iBase))) {
             fs_path_next(&iPath);   /* Move to the next segment in the path to ensure our iterators are in sync. */
             break;
         }
@@ -6691,7 +8018,7 @@ FS_API int fs_path_append(char* pDst, size_t dstCap, const char* pBasePath, size
 
                 /* Don't move the base path if we're appending in-place. */
                 if (pDst != pBasePath) {
-                    FS_COPY_MEMORY(pDst, pBasePath, FS_MIN(basePathLen, dstCap));
+                    FS_COPY_MEMORY(pDst, pBasePath, bytesToCopy);
                 }
             }
 
@@ -6722,10 +8049,20 @@ FS_API int fs_path_append(char* pDst, size_t dstCap, const char* pBasePath, size
             }
 
             FS_COPY_MEMORY(pDst, pPathToAppend, bytesToCopy);
-            pDst[bytesToCopy] = '\0';
         }
+
+        pDst   += bytesToCopy;
+        dstCap -= bytesToCopy;
     }
     dstLen += pathToAppendLen;
+
+
+    /* Null terminator. */
+    if (pDst != NULL) {
+        if (dstCap > 0) {
+            pDst[0] = '\0';
+        }
+    }
 
 
     if (dstLen > 0x7FFFFFFF) {
@@ -6889,14 +8226,18 @@ static fs_result fs_memory_stream_tell_internal(fs_stream* pStream, fs_int64* pC
         return result;
     }
 
-#if defined(__clang__)
+#if defined(__clang__) || defined(__GNUC__)
     #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wtautological-constant-out-of-range-compare"
+    #if defined(__clang__)
+        #pragma GCC diagnostic ignored "-Wtautological-constant-out-of-range-compare"
+    #elif defined(__GNUC__)
+        #pragma GCC diagnostic ignored "-Wtype-limits"
+    #endif
 #endif
     if (cursor > FS_INT64_MAX) {
         return FS_ERROR;
     }
-#if defined(__clang__)
+#if defined(__clang__) || defined(__GNUC__)
     #pragma GCC diagnostic pop
 #endif
 
