@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.22 - 2025-02-24
+miniaudio - v0.11.23 - 2025-09-11
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 22
+#define MA_VERSION_REVISION 23
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -127,6 +127,8 @@ typedef ma_uint16 wchar_t;
     #define MA_SIZE_MAX    0xFFFFFFFF  /* When SIZE_MAX is not defined by the standard library just default to the maximum 32-bit unsigned integer. */
 #endif
 
+#define MA_UINT64_MAX      (((ma_uint64)0xFFFFFFFF << 32) | (ma_uint64)0xFFFFFFFF)   /* Weird shifting syntax is for VC6 compatibility. */
+
 
 /* Platform/backend detection. */
 #if defined(_WIN32) || defined(__COSMOPOLITAN__)
@@ -135,29 +137,55 @@ typedef ma_uint16 wchar_t;
         #define MA_WIN32_UWP
     #elif defined(WINAPI_FAMILY) && (defined(WINAPI_FAMILY_GAMES) && WINAPI_FAMILY == WINAPI_FAMILY_GAMES)
         #define MA_WIN32_GDK
+    #elif defined(NXDK)
+        #define MA_WIN32_NXDK
     #else
         #define MA_WIN32_DESKTOP
     #endif
+
+    /* The original Xbox. */
+    #if defined(NXDK)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
+        #define MA_XBOX
+
+        #if defined(NXDK)
+            #define MA_XBOX_NXDK
+        #endif
+    #endif
 #endif
-#if !defined(_WIN32)    /* If it's not Win32, assume POSIX. */
+#if defined(__MSDOS__) || defined(MSDOS) || defined(_MSDOS) || defined(__DOS__)
+    #define MA_DOS
+
+    /* No threading allowed on DOS. */
+    #ifndef MA_NO_THREADING
+    #define MA_NO_THREADING
+    #endif
+
+    /* No runtime linking allowed on DOS. */
+    #ifndef MA_NO_RUNTIME_LINKING
+    #define MA_NO_RUNTIME_LINKING
+    #endif
+#endif
+#if !defined(MA_WIN32) && !defined(MA_DOS)    /* If it's not Win32, assume POSIX. */
     #define MA_POSIX
 
-    /*
-    Use the MA_NO_PTHREAD_IN_HEADER option at your own risk. This is intentionally undocumented.
-    You can use this to avoid including pthread.h in the header section. The downside is that it
-    results in some fixed sized structures being declared for the various types that are used in
-    miniaudio. The risk here is that these types might be too small for a given platform. This
-    risk is yours to take and no support will be offered if you enable this option.
-    */
-    #ifndef MA_NO_PTHREAD_IN_HEADER
-        #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
-        typedef pthread_t       ma_pthread_t;
-        typedef pthread_mutex_t ma_pthread_mutex_t;
-        typedef pthread_cond_t  ma_pthread_cond_t;
-    #else
-        typedef ma_uintptr      ma_pthread_t;
-        typedef union           ma_pthread_mutex_t { char __data[40]; ma_uint64 __alignment; } ma_pthread_mutex_t;
-        typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
+    #if !defined(MA_NO_THREADING)
+        /*
+        Use the MA_NO_PTHREAD_IN_HEADER option at your own risk. This is intentionally undocumented.
+        You can use this to avoid including pthread.h in the header section. The downside is that it
+        results in some fixed sized structures being declared for the various types that are used in
+        miniaudio. The risk here is that these types might be too small for a given platform. This
+        risk is yours to take and no support will be offered if you enable this option.
+        */
+        #ifndef MA_NO_PTHREAD_IN_HEADER
+            #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
+            typedef pthread_t       ma_pthread_t;
+            typedef pthread_mutex_t ma_pthread_mutex_t;
+            typedef pthread_cond_t  ma_pthread_cond_t;
+        #else
+            typedef ma_uintptr      ma_pthread_t;
+            typedef union           ma_pthread_mutex_t { char __data[40]; ma_uint64 __alignment; } ma_pthread_mutex_t;
+            typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
+        #endif
     #endif
 
     #if defined(__unix__)
@@ -184,8 +212,11 @@ typedef ma_uint16 wchar_t;
     #if defined(__PROSPERO__)
         #define MA_PROSPERO
     #endif
-    #if defined(__NX__)
-        #define MA_NX
+    #if defined(__3DS__)
+        #define MA_3DS
+    #endif
+    #if defined(__SWITCH__) || defined(__NX__)
+        #define MA_SWITCH
     #endif
     #if defined(__BEOS__) || defined(__HAIKU__)
         #define MA_BEOS
@@ -195,12 +226,13 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
-#if defined(__has_c_attribute)
-    #if __has_c_attribute(fallthrough)
-        #define MA_FALLTHROUGH [[fallthrough]]
-    #endif
+#if !defined(MA_FALLTHROUGH) && defined(__cplusplus) && __cplusplus >= 201703L
+    #define MA_FALLTHROUGH [[fallthrough]]
 #endif
-#if !defined(MA_FALLTHROUGH) && defined(__has_attribute) && (defined(__clang__) || defined(__GNUC__))
+#if !defined(MA_FALLTHROUGH) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
+    #define MA_FALLTHROUGH [[fallthrough]]
+#endif
+#if !defined(MA_FALLTHROUGH) && defined(__has_attribute)
     #if __has_attribute(fallthrough)
         #define MA_FALLTHROUGH __attribute__((fallthrough))
     #endif
@@ -237,7 +269,7 @@ typedef ma_uint16 wchar_t;
         #define MA_NO_INLINE __attribute__((noinline))
     #else
         #define MA_INLINE MA_GNUC_INLINE_HINT
-        #define MA_NO_INLINE __attribute__((noinline))
+        #define MA_NO_INLINE
     #endif
 #elif defined(__WATCOMC__)
     #define MA_INLINE __inline
@@ -620,7 +652,7 @@ typedef struct
 
 typedef struct
 {
-    ma_int32 state;
+    ma_uint32 state;
 } ma_lcg;
 
 
@@ -2839,7 +2871,7 @@ This section contains the APIs for device playback and capture. Here is where yo
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DEVICE_IO
 /* Some backends are only supported on certain platforms. */
-#if defined(MA_WIN32)
+#if defined(MA_WIN32) && !defined(MA_XBOX)
     #define MA_SUPPORT_WASAPI
 
     #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
@@ -3696,6 +3728,7 @@ struct ma_context
             ma_proc snd_pcm_hw_params_set_rate_resample;
             ma_proc snd_pcm_hw_params_set_rate;
             ma_proc snd_pcm_hw_params_set_rate_near;
+            ma_proc snd_pcm_hw_params_set_rate_minmax;
             ma_proc snd_pcm_hw_params_set_buffer_size_near;
             ma_proc snd_pcm_hw_params_set_periods_near;
             ma_proc snd_pcm_hw_params_set_access;
@@ -4256,6 +4289,7 @@ struct ma_device
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
             ma_mutex rerouteLock;
+            ma_atomic_bool32 isTearingDown;
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
@@ -7525,7 +7559,7 @@ typedef struct
     ma_log* pLog;                                   /* When set to NULL, will use the context's log. */
     ma_uint32 listenerCount;                        /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
     ma_uint32 channels;                             /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
-    ma_uint32 sampleRate;                           /* The sample rate. When set to 0 will use the native channel count of the device. */
+    ma_uint32 sampleRate;                           /* The sample rate. When set to 0 will use the native sample rate of the device. */
     ma_uint32 periodSizeInFrames;                   /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
     ma_uint32 periodSizeInMilliseconds;             /* Used if periodSizeInFrames is unset. */
     ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
@@ -7689,11 +7723,11 @@ MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float seekPointInSeconds); /* Abstraction to ma_sound_seek_to_pcm_frame() */
-MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
-MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
-MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
-MA_API ma_result ma_sound_get_cursor_in_seconds(ma_sound* pSound, float* pCursor);
-MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength);
+MA_API ma_result ma_sound_get_data_format(const ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_sound_get_cursor_in_pcm_frames(const ma_sound* pSound, ma_uint64* pCursor);
+MA_API ma_result ma_sound_get_length_in_pcm_frames(const ma_sound* pSound, ma_uint64* pLength);
+MA_API ma_result ma_sound_get_cursor_in_seconds(const ma_sound* pSound, float* pCursor);
+MA_API ma_result ma_sound_get_length_in_seconds(const ma_sound* pSound, float* pLength);
 MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc callback, void* pUserData);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);

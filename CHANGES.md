@@ -1,4 +1,4 @@
-v0.11.23 - TBD
+v0.11.23 - 2025-09-11
 =====================
 * Fixed an error in `ma_channel_map_to_string()` where the output string is not null terminated correctly.
 * Fixed an error with logging due to mishandling of va_list.
