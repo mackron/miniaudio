@@ -14,7 +14,7 @@ GitHub:        https://github.com/mackron/miniaudio
 ===============
 To use miniaudio, just include "miniaudio.h" like any other header and add "miniaudio.c" to your
 source tree. If you don't want to add it to your source tree you can compile and link to it like
-any other library. Note that ABI compatiblity is not guaranteed between versions, even with bug
+any other library. Note that ABI compatibility is not guaranteed between versions, even with bug
 fix releases, so take care if compiling as a shared object.
 
 miniaudio includes both low level and high level APIs. The low level API is good for those who want
@@ -295,7 +295,7 @@ The engine encapsulates both the resource manager and the node graph to create a
 use high level API. The resource manager and node graph APIs are covered in more later sections of
 this manual.
 
-The code below shows how you can initialize an engine using it's default configuration.
+The code below shows how you can initialize an engine using its default configuration.
 
     ```c
     ma_result result;
@@ -383,7 +383,7 @@ Sounds are not started by default. Start a sound with `ma_sound_start()` and sto
 `ma_sound_stop()`. When a sound is stopped, it is not rewound to the start. Use
 `ma_sound_seek_to_pcm_frame(&sound, 0)` to seek back to the start of a sound. By default, starting
 and stopping sounds happens immediately, but sometimes it might be convenient to schedule the sound
-the be started and/or stopped at a specific time. This can be done with the following functions:
+to be started and/or stopped at a specific time. This can be done with the following functions:
 
     ```c
     ma_sound_set_start_time_in_pcm_frames()
@@ -529,7 +529,7 @@ you'll need to disable run-time linking with `MA_NO_RUNTIME_LINKING` and link wi
 The Emscripten build emits Web Audio JavaScript directly and should compile cleanly out of the box.
 You cannot use `-std=c*` compiler flags, nor `-ansi`.
 
-You can enable the use of AudioWorkets by defining `MA_ENABLE_AUDIO_WORKLETS` and then compiling
+You can enable the use of AudioWorklets by defining `MA_ENABLE_AUDIO_WORKLETS` and then compiling
 with the following options:
 
     -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
@@ -878,7 +878,7 @@ read data within a certain range of the underlying data. To do this you can use 
 
 This is useful if you have a sound bank where many sounds are stored in the same file and you want
 the data source to only play one of those sub-sounds. Note that once the range is set, everything
-that takes a position, such as cursors and loop points, should always be relatvie to the start of
+that takes a position, such as cursors and loop points, should always be relative to the start of
 the range. When the range is set, any previously defined loop point will be reset.
 
 Custom loop points can also be used with data sources. By default, data sources will loop after
@@ -886,7 +886,7 @@ they reach the end of the data source, but if you need to loop at a specific loc
 the following:
 
     ```c
-    result = ma_data_set_loop_point_in_pcm_frames(pDataSource, loopBegInFrames, loopEndInFrames);
+    result = ma_data_source_set_loop_point_in_pcm_frames(pDataSource, loopBegInFrames, loopEndInFrames);
     if (result != MA_SUCCESS) {
         return result;  // Failed to set the loop point.
     }
