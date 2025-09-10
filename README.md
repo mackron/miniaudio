@@ -33,7 +33,7 @@ Features
 - High-level API for sound management, mixing, effects and optional 3D spatialization.
 - Flexible node graph system for advanced mixing and effect processing.
 - Resource management for loading sound files.
-- Decoding, with built-in support for WAV, FLAC and MP3, in addition to being able to plug in custom decoders.
+- Decoding, with built-in support for WAV, FLAC, and MP3, in addition to being able to plug in custom decoders.
 - Encoding (WAV only).
 - Data conversion.
 - Resampling, including custom resamplers.
@@ -207,7 +207,7 @@ Security
 ========
 I deal with all security related issues publicly and transparently, and it can sometimes take a while before I
 get a chance to address it. If this is an issue for you, you need to use another library. The fastest way to get
-a bug fixed is to submit a pull request, but if this is unpractical for you please post a ticket to the public
+a bug fixed is to submit a pull request, but if this is impractical for you please post a ticket to the public
 GitHub issue tracker.
 
 
