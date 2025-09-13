@@ -1,3 +1,8 @@
+v0.11.24 - TBD
+=====================
+* Web: Fixed an error when uninitializing a context.
+
+
 v0.11.23 - 2025-09-11
 =====================
 * Fixed an error in `ma_channel_map_to_string()` where the output string is not null terminated correctly.

@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.23 - 2025-09-11
+miniaudio - v0.11.24 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3760,7 +3760,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 23
+#define MA_VERSION_REVISION 24
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -42501,8 +42501,8 @@ static void ma_context_uninit__webaudio(ma_context* pContext)
     /* Remove the global miniaudio object from window if there are no more references to it. */
     EM_ASM({
         if (typeof(window.miniaudio) !== 'undefined') {
-            miniaudio.unlock_event_types.map(function(event_type) {
-                document.removeEventListener(event_type, miniaudio.unlock, true);
+            window.miniaudio.unlock_event_types.map(function(event_type) {
+                document.removeEventListener(event_type, window.miniaudio.unlock, true);
             });
 
             window.miniaudio.referenceCount -= 1;
