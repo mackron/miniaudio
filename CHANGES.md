@@ -1,5 +1,6 @@
 v0.11.24 - TBD
 =====================
+* Fix a compilation error with the MSVC Aarch64 build.
 * Web: Fixed an error when uninitializing a context.
 
 
