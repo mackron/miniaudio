@@ -62304,7 +62304,7 @@ extern "C" {
 #define MA_DR_FLAC_XSTRINGIFY(x)     MA_DR_FLAC_STRINGIFY(x)
 #define MA_DR_FLAC_VERSION_MAJOR     0
 #define MA_DR_FLAC_VERSION_MINOR     13
-#define MA_DR_FLAC_VERSION_REVISION  1
+#define MA_DR_FLAC_VERSION_REVISION  2
 #define MA_DR_FLAC_VERSION_STRING    MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MAJOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MINOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_REVISION)
 #include <stddef.h>
 #if defined(_MSC_VER) && _MSC_VER >= 1700
@@ -62392,8 +62392,9 @@ typedef struct
 typedef struct
 {
     ma_uint32 type;
-    const void* pRawData;
     ma_uint32 rawDataSize;
+    ma_uint64 rawDataOffset;
+    const void* pRawData;
     union
     {
         ma_dr_flac_streaminfo streaminfo;
@@ -62439,6 +62440,7 @@ typedef struct
             ma_uint32 colorDepth;
             ma_uint32 indexColorCount;
             ma_uint32 pictureDataSize;
+            ma_uint64 pictureDataOffset;
             const ma_uint8* pPictureData;
         } picture;
     } data;
@@ -62600,22 +62602,47 @@ extern "C" {
 #define MA_DR_MP3_XSTRINGIFY(x)     MA_DR_MP3_STRINGIFY(x)
 #define MA_DR_MP3_VERSION_MAJOR     0
 #define MA_DR_MP3_VERSION_MINOR     7
-#define MA_DR_MP3_VERSION_REVISION  1
+#define MA_DR_MP3_VERSION_REVISION  2
 #define MA_DR_MP3_VERSION_STRING    MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MAJOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MINOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME  1152
 #define MA_DR_MP3_MAX_SAMPLES_PER_FRAME         (MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME*2)
 MA_API void ma_dr_mp3_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevision);
 MA_API const char* ma_dr_mp3_version_string(void);
+#define MA_DR_MP3_MAX_BITRESERVOIR_BYTES      511
+#define MA_DR_MP3_MAX_FREE_FORMAT_FRAME_SIZE  2304
+#define MA_DR_MP3_MAX_L3_FRAME_PAYLOAD_BYTES  MA_DR_MP3_MAX_FREE_FORMAT_FRAME_SIZE
 typedef struct
 {
     int frame_bytes, channels, sample_rate, layer, bitrate_kbps;
 } ma_dr_mp3dec_frame_info;
 typedef struct
 {
+    const ma_uint8 *buf;
+    int pos, limit;
+} ma_dr_mp3_bs;
+typedef struct
+{
+    const ma_uint8 *sfbtab;
+    ma_uint16 part_23_length, big_values, scalefac_compress;
+    ma_uint8 global_gain, block_type, mixed_block_flag, n_long_sfb, n_short_sfb;
+    ma_uint8 table_select[3], region_count[3], subblock_gain[3];
+    ma_uint8 preflag, scalefac_scale, count1_table, scfsi;
+} ma_dr_mp3_L3_gr_info;
+typedef struct
+{
+    ma_dr_mp3_bs bs;
+    ma_uint8 maindata[MA_DR_MP3_MAX_BITRESERVOIR_BYTES + MA_DR_MP3_MAX_L3_FRAME_PAYLOAD_BYTES];
+    ma_dr_mp3_L3_gr_info gr_info[4];
+    float grbuf[2][576], scf[40], syn[18 + 15][2*32];
+    ma_uint8 ist_pos[2][39];
+} ma_dr_mp3dec_scratch;
+typedef struct
+{
     float mdct_overlap[2][9*32], qmf_state[15*2*32];
     int reserv, free_format_bytes;
     ma_uint8 header[4], reserv_buf[511];
+    ma_dr_mp3dec_scratch scratch;
 } ma_dr_mp3dec;
 MA_API void ma_dr_mp3dec_init(ma_dr_mp3dec *dec);
 MA_API int ma_dr_mp3dec_decode_frame(ma_dr_mp3dec *dec, const ma_uint8 *mp3, int mp3_bytes, void *pcm, ma_dr_mp3dec_frame_info *info);
@@ -88502,8 +88529,9 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
         }
         runningFilePos += 4;
         metadata.type = blockType;
-        metadata.pRawData = NULL;
         metadata.rawDataSize = 0;
+        metadata.rawDataOffset = runningFilePos;
+        metadata.pRawData = NULL;
         switch (blockType)
         {
             case MA_DR_FLAC_METADATA_BLOCK_TYPE_APPLICATION:
@@ -88703,46 +88731,116 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
                     return MA_FALSE;
                 }
                 if (onMeta) {
-                    void* pRawData;
-                    const char* pRunningData;
-                    const char* pRunningDataEnd;
-                    pRawData = ma_dr_flac__malloc_from_callbacks(blockSize, pAllocationCallbacks);
-                    if (pRawData == NULL) {
+                    ma_bool32 result = MA_TRUE;
+                    ma_uint32 blockSizeRemaining = blockSize;
+                    char* pMime = NULL;
+                    char* pDescription = NULL;
+                    void* pPictureData = NULL;
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.type, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.type = ma_dr_flac__be2host_32(metadata.data.picture.type);
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.mimeLength, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.mimeLength = ma_dr_flac__be2host_32(metadata.data.picture.mimeLength);
+                    pMime = (char*)ma_dr_flac__malloc_from_callbacks(metadata.data.picture.mimeLength + 1, pAllocationCallbacks);
+                    if (pMime == NULL) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    if (blockSizeRemaining < metadata.data.picture.mimeLength || onRead(pUserData, pMime, metadata.data.picture.mimeLength) != metadata.data.picture.mimeLength) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= metadata.data.picture.mimeLength;
+                    pMime[metadata.data.picture.mimeLength] = '\0';
+                    metadata.data.picture.mime = (const char*)pMime;
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.descriptionLength, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.descriptionLength = ma_dr_flac__be2host_32(metadata.data.picture.descriptionLength);
+                    pDescription = (char*)ma_dr_flac__malloc_from_callbacks(metadata.data.picture.descriptionLength + 1, pAllocationCallbacks);
+                    if (pDescription == NULL) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    if (blockSizeRemaining < metadata.data.picture.descriptionLength || onRead(pUserData, pDescription, metadata.data.picture.descriptionLength) != metadata.data.picture.descriptionLength) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= metadata.data.picture.descriptionLength;
+                    pDescription[metadata.data.picture.descriptionLength] = '\0';
+                    metadata.data.picture.description = (const char*)pDescription;
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.width, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.width = ma_dr_flac__be2host_32(metadata.data.picture.width);
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.height, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.height = ma_dr_flac__be2host_32(metadata.data.picture.height);
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.colorDepth, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.colorDepth = ma_dr_flac__be2host_32(metadata.data.picture.colorDepth);
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.indexColorCount, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.indexColorCount = ma_dr_flac__be2host_32(metadata.data.picture.indexColorCount);
+                    if (blockSizeRemaining < 4 || onRead(pUserData, &metadata.data.picture.pictureDataSize, 4) != 4) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    blockSizeRemaining -= 4;
+                    metadata.data.picture.pictureDataSize = ma_dr_flac__be2host_32(metadata.data.picture.pictureDataSize);
+                    if (blockSizeRemaining < metadata.data.picture.pictureDataSize) {
+                        result = MA_FALSE;
+                        goto done_flac;
+                    }
+                    metadata.data.picture.pictureDataOffset = runningFilePos + (blockSize - blockSizeRemaining);
+                #ifndef MA_DR_FLAC_NO_PICTURE_METADATA_MALLOC
+                    pPictureData = ma_dr_flac__malloc_from_callbacks(metadata.data.picture.pictureDataSize, pAllocationCallbacks);
+                    if (pPictureData != NULL) {
+                        if (onRead(pUserData, pPictureData, metadata.data.picture.pictureDataSize) != metadata.data.picture.pictureDataSize) {
+                            result = MA_FALSE;
+                            goto done_flac;
+                        }
+                    } else
+                #endif
+                    {
+                        if (!onSeek(pUserData, metadata.data.picture.pictureDataSize, MA_DR_FLAC_SEEK_CUR)) {
+                            result = MA_FALSE;
+                            goto done_flac;
+                        }
+                    }
+                    blockSizeRemaining -= metadata.data.picture.pictureDataSize;
+                    metadata.data.picture.pPictureData = (const ma_uint8*)pPictureData;
+                    if (metadata.data.picture.pictureDataOffset != 0 || metadata.data.picture.pPictureData != NULL) {
+                        onMeta(pUserDataMD, &metadata);
+                    } else {
+                    }
+                done_flac:
+                    ma_dr_flac__free_from_callbacks(pMime,        pAllocationCallbacks);
+                    ma_dr_flac__free_from_callbacks(pDescription, pAllocationCallbacks);
+                    ma_dr_flac__free_from_callbacks(pPictureData, pAllocationCallbacks);
+                    if (result != MA_TRUE) {
                         return MA_FALSE;
                     }
-                    if (onRead(pUserData, pRawData, blockSize) != blockSize) {
-                        ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
-                        return MA_FALSE;
-                    }
-                    metadata.pRawData = pRawData;
-                    metadata.rawDataSize = blockSize;
-                    pRunningData    = (const char*)pRawData;
-                    pRunningDataEnd = (const char*)pRawData + blockSize;
-                    metadata.data.picture.type       = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    metadata.data.picture.mimeLength = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    if ((pRunningDataEnd - pRunningData) - 24 < (ma_int64)metadata.data.picture.mimeLength) {
-                        ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
-                        return MA_FALSE;
-                    }
-                    metadata.data.picture.mime              = pRunningData;                                   pRunningData += metadata.data.picture.mimeLength;
-                    metadata.data.picture.descriptionLength = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    if ((pRunningDataEnd - pRunningData) - 20 < (ma_int64)metadata.data.picture.descriptionLength) {
-                        ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
-                        return MA_FALSE;
-                    }
-                    metadata.data.picture.description     = pRunningData;                                   pRunningData += metadata.data.picture.descriptionLength;
-                    metadata.data.picture.width           = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    metadata.data.picture.height          = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    metadata.data.picture.colorDepth      = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    metadata.data.picture.indexColorCount = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    metadata.data.picture.pictureDataSize = ma_dr_flac__be2host_32_ptr_unaligned(pRunningData); pRunningData += 4;
-                    metadata.data.picture.pPictureData    = (const ma_uint8*)pRunningData;
-                    if (pRunningDataEnd - pRunningData < (ma_int64)metadata.data.picture.pictureDataSize) {
-                        ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
-                        return MA_FALSE;
-                    }
-                    onMeta(pUserDataMD, &metadata);
-                    ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
                 }
             } break;
             case MA_DR_FLAC_METADATA_BLOCK_TYPE_PADDING:
@@ -88768,12 +88866,15 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
             {
                 if (onMeta) {
                     void* pRawData = ma_dr_flac__malloc_from_callbacks(blockSize, pAllocationCallbacks);
-                    if (pRawData == NULL) {
-                        return MA_FALSE;
-                    }
-                    if (onRead(pUserData, pRawData, blockSize) != blockSize) {
-                        ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
-                        return MA_FALSE;
+                    if (pRawData != NULL) {
+                        if (onRead(pUserData, pRawData, blockSize) != blockSize) {
+                            ma_dr_flac__free_from_callbacks(pRawData, pAllocationCallbacks);
+                            return MA_FALSE;
+                        }
+                    } else {
+                        if (!onSeek(pUserData, blockSize, MA_DR_FLAC_SEEK_CUR)) {
+                            return MA_FALSE;
+                        }
                     }
                     metadata.pRawData = pRawData;
                     metadata.rawDataSize = blockSize;
@@ -89832,7 +89933,6 @@ static ma_bool32 ma_dr_flac__on_seek_memory(void* pUserData, int offset, ma_dr_f
     ma_dr_flac__memory_stream* memoryStream = (ma_dr_flac__memory_stream*)pUserData;
     ma_int64 newCursor;
     MA_DR_FLAC_ASSERT(memoryStream != NULL);
-    newCursor = memoryStream->currentReadPos;
     if (origin == MA_DR_FLAC_SEEK_SET) {
         newCursor = 0;
     } else if (origin == MA_DR_FLAC_SEEK_CUR) {
@@ -92488,12 +92588,9 @@ MA_API const char* ma_dr_mp3_version_string(void)
 #define MA_DR_MP3_NO_SIMD
 #endif
 #define MA_DR_MP3_OFFSET_PTR(p, offset) ((void*)((ma_uint8*)(p) + (offset)))
-#define MA_DR_MP3_MAX_FREE_FORMAT_FRAME_SIZE  2304
 #ifndef MA_DR_MP3_MAX_FRAME_SYNC_MATCHES
 #define MA_DR_MP3_MAX_FRAME_SYNC_MATCHES      10
 #endif
-#define MA_DR_MP3_MAX_L3_FRAME_PAYLOAD_BYTES  MA_DR_MP3_MAX_FREE_FORMAT_FRAME_SIZE
-#define MA_DR_MP3_MAX_BITRESERVOIR_BYTES      511
 #define MA_DR_MP3_SHORT_BLOCK_TYPE            2
 #define MA_DR_MP3_STOP_BLOCK_TYPE             3
 #define MA_DR_MP3_MODE_MONO                   3
@@ -92543,7 +92640,7 @@ MA_API const char* ma_dr_mp3_version_string(void)
 #define MA_DR_MP3_VMUL_S(x, s)  _mm_mul_ps(x, _mm_set1_ps(s))
 #define MA_DR_MP3_VREV(x) _mm_shuffle_ps(x, x, _MM_SHUFFLE(0, 1, 2, 3))
 typedef __m128 ma_dr_mp3_f4;
-#if defined(_MSC_VER) || defined(MA_DR_MP3_ONLY_SIMD)
+#if (defined(_MSC_VER) || defined(MA_DR_MP3_ONLY_SIMD)) && !defined(__clang__)
 #define ma_dr_mp3_cpuid __cpuid
 #else
 static __inline__ __attribute__((always_inline)) void ma_dr_mp3_cpuid(int CPUInfo[], const int InfoType)
@@ -92660,11 +92757,6 @@ static __inline__ __attribute__((always_inline)) ma_int32 ma_dr_mp3_clip_int16_a
 #endif
 typedef struct
 {
-    const ma_uint8 *buf;
-    int pos, limit;
-} ma_dr_mp3_bs;
-typedef struct
-{
     float scf[3*64];
     ma_uint8 total_bands, stereo_bands, bitalloc[64], scfcod[64];
 } ma_dr_mp3_L12_scale_info;
@@ -92672,22 +92764,6 @@ typedef struct
 {
     ma_uint8 tab_offset, code_tab_width, band_count;
 } ma_dr_mp3_L12_subband_alloc;
-typedef struct
-{
-    const ma_uint8 *sfbtab;
-    ma_uint16 part_23_length, big_values, scalefac_compress;
-    ma_uint8 global_gain, block_type, mixed_block_flag, n_long_sfb, n_short_sfb;
-    ma_uint8 table_select[3], region_count[3], subblock_gain[3];
-    ma_uint8 preflag, scalefac_scale, count1_table, scfsi;
-} ma_dr_mp3_L3_gr_info;
-typedef struct
-{
-    ma_dr_mp3_bs bs;
-    ma_uint8 maindata[MA_DR_MP3_MAX_BITRESERVOIR_BYTES + MA_DR_MP3_MAX_L3_FRAME_PAYLOAD_BYTES];
-    ma_dr_mp3_L3_gr_info gr_info[4];
-    float grbuf[2][576], scf[40], syn[18 + 15][2*32];
-    ma_uint8 ist_pos[2][39];
-} ma_dr_mp3dec_scratch;
 static void ma_dr_mp3_bs_init(ma_dr_mp3_bs *bs, const ma_uint8 *data, int bytes)
 {
     bs->buf   = data;
@@ -94060,7 +94136,6 @@ MA_API int ma_dr_mp3dec_decode_frame(ma_dr_mp3dec *dec, const ma_uint8 *mp3, int
     int i = 0, igr, frame_size = 0, success = 1;
     const ma_uint8 *hdr;
     ma_dr_mp3_bs bs_frame[1];
-    ma_dr_mp3dec_scratch scratch;
     if (mp3_bytes > 4 && dec->header[0] == 0xff && ma_dr_mp3_hdr_compare(dec->header, mp3))
     {
         frame_size = ma_dr_mp3_hdr_frame_bytes(mp3, dec->free_format_bytes) + ma_dr_mp3_hdr_padding(mp3);
@@ -94093,23 +94168,23 @@ MA_API int ma_dr_mp3dec_decode_frame(ma_dr_mp3dec *dec, const ma_uint8 *mp3, int
     }
     if (info->layer == 3)
     {
-        int main_data_begin = ma_dr_mp3_L3_read_side_info(bs_frame, scratch.gr_info, hdr);
+        int main_data_begin = ma_dr_mp3_L3_read_side_info(bs_frame, dec->scratch.gr_info, hdr);
         if (main_data_begin < 0 || bs_frame->pos > bs_frame->limit)
         {
             ma_dr_mp3dec_init(dec);
             return 0;
         }
-        success = ma_dr_mp3_L3_restore_reservoir(dec, bs_frame, &scratch, main_data_begin);
+        success = ma_dr_mp3_L3_restore_reservoir(dec, bs_frame, &dec->scratch, main_data_begin);
         if (success && pcm != NULL)
         {
             for (igr = 0; igr < (MA_DR_MP3_HDR_TEST_MPEG1(hdr) ? 2 : 1); igr++, pcm = MA_DR_MP3_OFFSET_PTR(pcm, sizeof(ma_dr_mp3d_sample_t)*576*info->channels))
             {
-                MA_DR_MP3_ZERO_MEMORY(scratch.grbuf[0], 576*2*sizeof(float));
-                ma_dr_mp3_L3_decode(dec, &scratch, scratch.gr_info + igr*info->channels, info->channels);
-                ma_dr_mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 18, info->channels, (ma_dr_mp3d_sample_t*)pcm, scratch.syn[0]);
+                MA_DR_MP3_ZERO_MEMORY(dec->scratch.grbuf[0], 576*2*sizeof(float));
+                ma_dr_mp3_L3_decode(dec, &dec->scratch, dec->scratch.gr_info + igr*info->channels, info->channels);
+                ma_dr_mp3d_synth_granule(dec->qmf_state, dec->scratch.grbuf[0], 18, info->channels, (ma_dr_mp3d_sample_t*)pcm, dec->scratch.syn[0]);
             }
         }
-        ma_dr_mp3_L3_save_reservoir(dec, &scratch);
+        ma_dr_mp3_L3_save_reservoir(dec, &dec->scratch);
     } else
     {
 #ifdef MA_DR_MP3_ONLY_MP3
@@ -94120,15 +94195,15 @@ MA_API int ma_dr_mp3dec_decode_frame(ma_dr_mp3dec *dec, const ma_uint8 *mp3, int
             return ma_dr_mp3_hdr_frame_samples(hdr);
         }
         ma_dr_mp3_L12_read_scale_info(hdr, bs_frame, sci);
-        MA_DR_MP3_ZERO_MEMORY(scratch.grbuf[0], 576*2*sizeof(float));
+        MA_DR_MP3_ZERO_MEMORY(dec->scratch.grbuf[0], 576*2*sizeof(float));
         for (i = 0, igr = 0; igr < 3; igr++)
         {
-            if (12 == (i += ma_dr_mp3_L12_dequantize_granule(scratch.grbuf[0] + i, bs_frame, sci, info->layer | 1)))
+            if (12 == (i += ma_dr_mp3_L12_dequantize_granule(dec->scratch.grbuf[0] + i, bs_frame, sci, info->layer | 1)))
             {
                 i = 0;
-                ma_dr_mp3_L12_apply_scf_384(sci, sci->scf + igr, scratch.grbuf[0]);
-                ma_dr_mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 12, info->channels, (ma_dr_mp3d_sample_t*)pcm, scratch.syn[0]);
-                MA_DR_MP3_ZERO_MEMORY(scratch.grbuf[0], 576*2*sizeof(float));
+                ma_dr_mp3_L12_apply_scf_384(sci, sci->scf + igr, dec->scratch.grbuf[0]);
+                ma_dr_mp3d_synth_granule(dec->qmf_state, dec->scratch.grbuf[0], 12, info->channels, (ma_dr_mp3d_sample_t*)pcm, dec->scratch.syn[0]);
+                MA_DR_MP3_ZERO_MEMORY(dec->scratch.grbuf[0], 576*2*sizeof(float));
                 pcm = MA_DR_MP3_OFFSET_PTR(pcm, sizeof(ma_dr_mp3d_sample_t)*384*info->channels);
             }
             if (bs_frame->pos > bs_frame->limit)
