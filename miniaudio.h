@@ -14263,7 +14263,7 @@ typedef int ma_atomic_memory_order;
             { \
                 intrin((volatile msvcType*)dst, (msvcType)src); \
             } break; \
-        } \
+        }
     #define MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, intrin, ma_atomicType, msvcType)   \
         ma_atomicType result; \
         switch (order) \
