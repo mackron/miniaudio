@@ -33,7 +33,7 @@ c89str load_file(const char* pFilePath)
     
     resultFS = fs_file_open_and_read(NULL, pFilePath, FS_FORMAT_TEXT, (void**)&pFileData, &fileSize);
     if (resultFS != FS_SUCCESS) {
-        printf("Failed to open %s: %s.\n", pFilePath, fs_result_to_string(resultFS));
+        printf("Failed to open %s: %s.\n", pFilePath, fs_result_description(resultFS));
         return NULL;
     }
 
@@ -50,7 +50,7 @@ int save_file(const char* pFilePath, c89str src)
 
     resultFS = fs_file_open_and_write(NULL, pFilePath, src, c89str_len(src));
     if (resultFS != FS_SUCCESS) {
-        printf("Failed to save %s: %s.\n", pFilePath, fs_result_to_string(resultFS));
+        printf("Failed to save %s: %s.\n", pFilePath, fs_result_description(resultFS));
         return (int)resultFS;
     }
 
