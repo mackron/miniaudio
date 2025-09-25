@@ -40936,6 +40936,7 @@ static ma_result ma_device_init_by_type__aaudio(ma_device* pDevice, const ma_dev
 
     return MA_SUCCESS;
 }
+#endif  /* MA_ANDROID_USE_JNI */
 
 static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_state_aaudio* pDeviceStateAAudio, const ma_device_config_aaudio* pDeviceConfigAAudio, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
