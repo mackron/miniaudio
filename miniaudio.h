@@ -72934,8 +72934,6 @@ static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job*
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
-    ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
-
     /* The event needs to be signalled last. */
     if (pJob->data.resourceManager.freeDataBufferNode.pDoneNotification != NULL) {
         ma_async_notification_signal(pJob->data.resourceManager.freeDataBufferNode.pDoneNotification);
@@ -72946,6 +72944,9 @@ static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job*
     }
 
     ma_atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
+
+    ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
+
     return MA_SUCCESS;
 }
 
