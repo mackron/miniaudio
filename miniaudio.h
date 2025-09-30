@@ -3942,7 +3942,6 @@ typedef ma_uint16 wchar_t;
     #endif
     #if defined(__ANDROID__)
         #define MA_ANDROID
-        #include <jni.h>
     #endif
     #if defined(__EMSCRIPTEN__)
         #define MA_EMSCRIPTEN
@@ -7027,7 +7026,7 @@ typedef enum
 
 typedef struct ma_context_config_aaudio
 {
-    JavaVM* pVM;
+    void* pVM;
 } ma_context_config_aaudio;
 
 MA_API ma_context_config_aaudio ma_context_config_aaudio_init(void);
@@ -7078,7 +7077,7 @@ typedef enum
 
 typedef struct ma_context_config_opensl
 {
-    JavaVM* pVM;
+    int _unused;
 } ma_context_config_opensl;
 
 MA_API ma_context_config_opensl ma_context_config_opensl_init(void);
@@ -39813,6 +39812,7 @@ AAudio Backend
 
 #ifdef MA_NO_RUNTIME_LINKING
     #include <AAudio/AAudio.h>
+    #include <jni.h>
 #endif
 
 typedef int32_t                                         ma_aaudio_result_t;
@@ -40205,7 +40205,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
     }
     #endif
 
-    pContextStateAAudio->pVM = pContextConfigAAudio->pVM;
+    pContextStateAAudio->pVM = (JavaVM *)pContextConfigAAudio->pVM;
 
     /* We need a job thread so we can deal with rerouting. */
     {
