@@ -40041,7 +40041,9 @@ static ma_aaudio_performance_mode_t ma_to_performance_mode__aaudio(ma_aaudio_per
 
 typedef struct ma_context_state_aaudio
 {
+#ifndef MA_ANDROID_NO_JNI
     JavaVM* pVM;
+#endif
     ma_handle hAAudio; /* libaaudio.so */
     MA_PFN_AAudio_createStreamBuilder                    AAudio_createStreamBuilder;
     MA_PFN_AAudioStreamBuilder_delete                    AAudioStreamBuilder_delete;
@@ -40213,7 +40215,9 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
     }
     #endif
 
+#ifndef MA_ANDROID_NO_JNI
     pContextStateAAudio->pVM = (JavaVM *)pContextConfigAAudio->pVM;
+#endif
 
     /* We need a job thread so we can deal with rerouting. */
     {
