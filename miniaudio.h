@@ -39812,7 +39812,15 @@ AAudio Backend
 
 #ifdef MA_NO_RUNTIME_LINKING
     #include <AAudio/AAudio.h>
-    #include <jni.h>
+    #if defined(__has_include)
+        #if __has_include(<jni.h>)
+            #include <jni.h>
+        #else
+            #define MA_ANDROID_NO_JNI
+        #endif
+    #else
+        #include <jni.h>
+    #endif
 #endif
 
 typedef int32_t                                         ma_aaudio_result_t;
@@ -40509,6 +40517,7 @@ static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_conte
     ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_s16, flags, pDeviceInfo);
 }
 
+#ifndef MA_ANDROID_NO_JNI
 #ifdef __cplusplus
 jclass ma_android_jni_find_class(JNIEnv *env, const char *className)
 {
@@ -40854,6 +40863,71 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context *pContext, ma_e
 
     return result;
 }
+#else
+
+static ma_device_enumeration_result ma_context_enumerate_device_from_type__aaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_result result;
+    ma_AAudioStream* pStream;
+    ma_device_info deviceInfo;
+
+    result = ma_open_stream_basic__aaudio(pContext, NULL, deviceType, ma_share_mode_shared, &pStream);
+    if (result != MA_SUCCESS) {
+        return MA_DEVICE_ENUMERATION_CONTINUE;
+    }
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
+
+    /* ID. */
+    deviceInfo.id.aaudio = MA_AAUDIO_UNSPECIFIED;
+
+    /* Name. */
+    if (deviceType == ma_device_type_playback) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+    } else {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+    }
+
+    /* Data Format. */
+    ma_context_add_native_data_format_from_AAudioStream__aaudio(pContext, pStream, 0, &deviceInfo);
+
+    /* Done with the stream. */
+    ma_close_stream__aaudio(pContext, pStream);
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
+static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    /*
+    Unfortunately AAudio does not have an enumeration API. Therefore I'm only going to report default
+    devices. We need to open the stream in order to determine if we have a usable device, and for
+    extracting format info.
+    */
+
+    /* Playback. */
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
+        cbResult = ma_context_enumerate_device_from_type__aaudio(pContext, ma_device_type_playback, callback, pUserData);
+    }
+
+    /* Capture. */
+    if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
+        cbResult = ma_context_enumerate_device_from_type__aaudio(pContext, ma_device_type_capture, callback, pUserData);
+    }
+
+    (void)cbResult;
+
+    return MA_SUCCESS;
+}
+#endif /* MA_ANDROID_NO_JNI */
 
 static ma_result ma_close_streams__aaudio(ma_device* pDevice)
 {
