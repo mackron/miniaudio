@@ -3942,6 +3942,7 @@ typedef ma_uint16 wchar_t;
     #endif
     #if defined(__ANDROID__)
         #define MA_ANDROID
+        #include <jni.h>
     #endif
     #if defined(__EMSCRIPTEN__)
         #define MA_EMSCRIPTEN
@@ -7026,7 +7027,7 @@ typedef enum
 
 typedef struct ma_context_config_aaudio
 {
-    int _unused;
+    JavaVM* pVM;
 } ma_context_config_aaudio;
 
 MA_API ma_context_config_aaudio ma_context_config_aaudio_init(void);
@@ -7077,7 +7078,7 @@ typedef enum
 
 typedef struct ma_context_config_opensl
 {
-    int _unused;
+    JavaVM* pVM;
 } ma_context_config_opensl;
 
 MA_API ma_context_config_opensl ma_context_config_opensl_init(void);
@@ -40032,6 +40033,7 @@ static ma_aaudio_performance_mode_t ma_to_performance_mode__aaudio(ma_aaudio_per
 
 typedef struct ma_context_state_aaudio
 {
+    JavaVM* pVM;
     ma_handle hAAudio; /* libaaudio.so */
     MA_PFN_AAudio_createStreamBuilder                    AAudio_createStreamBuilder;
     MA_PFN_AAudioStreamBuilder_delete                    AAudioStreamBuilder_delete;
@@ -40202,6 +40204,8 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
         pContextStateAAudio->AAudioStream_requestStop                      = AAudioStream_requestStop;
     }
     #endif
+
+    pContextStateAAudio->pVM = pContextConfigAAudio->pVM;
 
     /* We need a job thread so we can deal with rerouting. */
     {
@@ -40505,11 +40509,6 @@ static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_conte
     ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_s16, flags, pDeviceInfo);
 }
 
-#ifdef MA_ANDROID_USE_JNI
-#include <jni.h>
-
-JavaVM *g_pJavaVM;
-
 #ifdef __cplusplus
 jclass ma_android_jni_find_class(JNIEnv *env, const char *className)
 {
@@ -40683,22 +40682,22 @@ jobject ma_android_jni_get_object_array_element(JNIEnv *env, jobjectArray array,
 }
 #endif
 
-static int ma_android_jni_get_current_env(JNIEnv **pEnv)
+static int ma_android_jni_get_current_env(JavaVM *pVM, JNIEnv **pEnv)
 {
-    if (g_pJavaVM == NULL)
+    if (pVM == NULL)
     {
         /* We don't have a JavaVM. This should never happen if JNI_OnLoad is implemented correctly in an Android context. */
         return -1;
     }
 
-    jint jniResult = ma_android_jni_get_env(g_pJavaVM, (void **)pEnv, JNI_VERSION_1_6);
+    jint jniResult = ma_android_jni_get_env(pVM, (void **)pEnv, JNI_VERSION_1_6);
     if (jniResult == JNI_OK)
     {
         return 0;
     }
     else if (jniResult == JNI_EDETACHED)
     {
-        jniResult = ma_android_jni_attach_current_thread(g_pJavaVM, pEnv, NULL);
+        jniResult = ma_android_jni_attach_current_thread(pVM, pEnv, NULL);
         if (jniResult != JNI_OK)
         {
             return -1;
@@ -40706,20 +40705,6 @@ static int ma_android_jni_get_current_env(JNIEnv **pEnv)
         return 0;
     }
     return -1;
-}
-
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
-{
-    if (vm == NULL)
-    {
-        return JNI_ERR;
-    }
-
-    g_pJavaVM = vm;
-    
-    return JNI_VERSION_1_6;
-
-    (void)reserved;
 }
 
 static ma_device_enumeration_result ma_context_enumerate_devices_callback_data__aaudio(ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData, JNIEnv *env, jmethodID getIdMethodID, jmethodID getProductNameMethodID, jobjectArray deviceArray, jsize iDevice)
@@ -40776,8 +40761,10 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context *pContext, ma_e
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
 
+    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(pContext);
+
     JNIEnv *env;
-    if (ma_android_jni_get_current_env(&env) != 0 || env == NULL)
+    if (ma_android_jni_get_current_env(pContextStateAAudio->pVM, &env) != 0 || env == NULL)
     {
         return MA_ERROR;
     }
@@ -40867,7 +40854,6 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context *pContext, ma_e
 
     return result;
 }
-#else
 
 static ma_result ma_close_streams__aaudio(ma_device* pDevice)
 {
@@ -40936,7 +40922,6 @@ static ma_result ma_device_init_by_type__aaudio(ma_device* pDevice, const ma_dev
 
     return MA_SUCCESS;
 }
-#endif  /* MA_ANDROID_USE_JNI */
 
 static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_state_aaudio* pDeviceStateAAudio, const ma_device_config_aaudio* pDeviceConfigAAudio, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
