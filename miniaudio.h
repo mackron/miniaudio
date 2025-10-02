@@ -33889,12 +33889,14 @@ typedef struct ma_context_state_coreaudio
     ma_CFStringGetCString_proc                CFStringGetCString;
     ma_CFRelease_proc                         CFRelease;
 
+#if defined(MA_APPLE_DESKTOP)
     ma_handle hCoreAudio;
     ma_AudioObjectGetPropertyData_proc        AudioObjectGetPropertyData;
     ma_AudioObjectGetPropertyDataSize_proc    AudioObjectGetPropertyDataSize;
     ma_AudioObjectSetPropertyData_proc        AudioObjectSetPropertyData;
     ma_AudioObjectAddPropertyListener_proc    AudioObjectAddPropertyListener;
     ma_AudioObjectRemovePropertyListener_proc AudioObjectRemovePropertyListener;
+#endif
 
     ma_handle hAudioUnit;  /* Could possibly be set to AudioToolbox on later versions of macOS. */
     ma_AudioComponentFindNext_proc            AudioComponentFindNext;
