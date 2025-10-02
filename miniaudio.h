@@ -35670,6 +35670,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
 #else
 static ma_device_enumeration_result ma_context_enumerate_device_by_AVAudioSessionPortDescription__coreaudio(ma_context* pContext, AVAudioSessionPortDescription* pPortDesc, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
+    ma_result result;
     ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(pContext);
     ma_device_info deviceInfo;
     AudioComponentDescription desc;
