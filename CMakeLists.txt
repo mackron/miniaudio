@@ -70,7 +70,7 @@ option(MINIAUDIO_NO_NEON                       "Disable NEON optimizations"     
 option(MINIAUDIO_NO_RUNTIME_LINKING            "Disable runtime linking"             OFF)
 option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types"      OFF)
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
-
+option(MINIAUDIO_INSTALL                       "Enable installation targets"         ON) 
 
 include(GNUInstallDirs)
 
@@ -508,7 +508,9 @@ add_library(miniaudio
 )
 
 list(APPEND LIBS_TO_INSTALL miniaudio)
-install(FILES miniaudio.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio)
+if(MINIAUDIO_INSTALL)
+    install(FILES miniaudio.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio)
+endif()
 
 target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
@@ -534,7 +536,9 @@ if(HAS_LIBVORBIS)
     )
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
-    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
+    if(MINIAUDIO_INSTALL)
+        install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
+    endif()
 
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
@@ -562,7 +566,9 @@ if(HAS_LIBOPUS)
 
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libopus)
-    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libopus)
+    if(MINIAUDIO_INSTALL)
+        install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libopus)
+    endif()
 
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
@@ -581,7 +587,9 @@ if (NOT MINIAUDIO_NO_EXTRA_NODES)
 
         list(APPEND libs miniaudio_${name}_node)
         set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
-        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
+        if(MINIAUDIO_INSTALL)
+            install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
+        endif()
 
         target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
         target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
@@ -856,11 +864,13 @@ string(JOIN " " MINIAUDIO_PC_CFLAGS ${COMPILE_DEFINES})
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" @ONLY)
 
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+if(MINIAUDIO_INSTALL)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
-message(STATUS "Library list: ${LIBS_TO_INSTALL}")
-install(TARGETS ${LIBS_TO_INSTALL}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+    message(STATUS "Library list: ${LIBS_TO_INSTALL}")
+    install(TARGETS ${LIBS_TO_INSTALL}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
