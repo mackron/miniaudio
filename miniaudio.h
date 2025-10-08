@@ -44049,11 +44049,10 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
             }
         } else if (pOp->type == MA_DEVICE_OP_STOP) {
             /*
-            The comments above said that we should never get a stop event here, but *technically* we can if `ma_device_stop()`
-            is called at the same time as the backend itself terminated from its own loop. Exceptionally unlikely, but possible.
-            In this case we're just going to signal the op. We do not want to call into the backend's stop callback.
+            This can happen for asynchronous backends that manage their own loop. When the device is running and
+            ma_device_stop() is called, the STOP operation will be received here. We need to properly stop the device.
             */
-            ma_device_op_completion_event_signal(pOp->pCompletionEvent, MA_SUCCESS);
+            ma_device_op_do_stop(pDevice, pOp->pCompletionEvent);
         } else {
             MA_ASSERT(!"Unexpected device op.");
         }
