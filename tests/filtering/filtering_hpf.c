@@ -49,6 +49,7 @@ ma_result test_hpf1__by_format(const char* pInputFilePath, const char* pOutputFi
         }
     }
 
+    ma_hpf1_uninit(&hpf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
@@ -110,6 +111,7 @@ ma_result test_hpf2__by_format(const char* pInputFilePath, const char* pOutputFi
         }
     }
 
+    ma_hpf2_uninit(&hpf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;
@@ -171,6 +173,7 @@ ma_result test_hpf3__by_format(const char* pInputFilePath, const char* pOutputFi
         }
     }
 
+    ma_hpf_uninit(&hpf, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;

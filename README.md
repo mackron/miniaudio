@@ -7,6 +7,7 @@
 
 <p align="center">
     <a href="https://discord.gg/9vpqbjU"><img src="https://img.shields.io/discord/712952679415939085?label=discord&logo=discord&style=flat-square" alt="discord"></a>
+    <a href="https://x.com/mackron"><img alt="x" src="https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2Fmackron&style=flat-square&logo=x&label=%40mackron"></a>
 </p>
 
 <p align="center">
@@ -32,7 +33,7 @@ Features
 - High-level API for sound management, mixing, effects and optional 3D spatialization.
 - Flexible node graph system for advanced mixing and effect processing.
 - Resource management for loading sound files.
-- Decoding, with built-in support for WAV, FLAC and MP3, in addition to being able to plug in custom decoders.
+- Decoding, with built-in support for WAV, FLAC, and MP3, in addition to being able to plug in custom decoders.
 - Encoding (WAV only).
 - Data conversion.
 - Resampling, including custom resamplers.
@@ -50,7 +51,7 @@ Examples
 This example shows one way to play a sound using the high level API.
 
 ```c
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 
 #include <stdio.h>
 
@@ -78,7 +79,7 @@ int main()
 This example shows how to decode and play a sound using the low level API.
 
 ```c
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 
 #include <stdio.h>
 
@@ -206,7 +207,7 @@ Security
 ========
 I deal with all security related issues publicly and transparently, and it can sometimes take a while before I
 get a chance to address it. If this is an issue for you, you need to use another library. The fastest way to get
-a bug fixed is to submit a pull request, but if this is unpractical for you please post a ticket to the public
+a bug fixed is to submit a pull request, but if this is impractical for you please post a ticket to the public
 GitHub issue tracker.
 
 

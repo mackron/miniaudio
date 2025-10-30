@@ -1,12 +1,22 @@
 cmake_minimum_required(VERSION 3.10)
-project(miniaudio
-    VERSION 0.11
-)
+
+# Extract version from miniaudio.h
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.h" MINIAUDIO_HEADER_CONTENTS)
+string(REGEX MATCH "#define MA_VERSION_MAJOR[ \t]+([0-9]+)" _major_match "${MINIAUDIO_HEADER_CONTENTS}")
+set(MA_VERSION_MAJOR "${CMAKE_MATCH_1}")
+string(REGEX MATCH "#define MA_VERSION_MINOR[ \t]+([0-9]+)" _minor_match "${MINIAUDIO_HEADER_CONTENTS}")
+set(MA_VERSION_MINOR "${CMAKE_MATCH_1}")
+string(REGEX MATCH "#define MA_VERSION_REVISION[ \t]+([0-9]+)" _revision_match "${MINIAUDIO_HEADER_CONTENTS}")
+set(MA_VERSION_REVISION "${CMAKE_MATCH_1}")
+set(MINIAUDIO_VERSION "${MA_VERSION_MAJOR}.${MA_VERSION_MINOR}.${MA_VERSION_REVISION}")
+
+project(miniaudio VERSION ${MINIAUDIO_VERSION})
 
 
 # Options
 option(MINIAUDIO_BUILD_EXAMPLES                "Build miniaudio examples"            OFF)
 option(MINIAUDIO_BUILD_TESTS                   "Build miniaudio tests"               OFF)
+option(MINIAUDIO_BUILD_TOOLS                   "Build miniaudio development tools. Leave this disabled unless you know what you're doing. If you enable this and you get build errors, you clearly do not know what you're doing and yet you still enabled this option. Why would you do that?" OFF)
 option(MINIAUDIO_FORCE_CXX                     "Force compilation as C++"            OFF)
 option(MINIAUDIO_FORCE_C89                     "Force compilation as C89"            OFF)
 option(MINIAUDIO_NO_EXTRA_NODES                "Do not build extra node graph nodes" OFF)
@@ -62,8 +72,30 @@ option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types" 
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
 
 
+include(GNUInstallDirs)
+
 # Construct compiler options.
 set(COMPILE_OPTIONS)
+
+# Store libraries to install
+# When installing any header that imports miniaudio.h from a relative path, we
+# need to maintain its place in the directory tree so it can find Miniaudio
+set(LIBS_TO_INSTALL)
+
+
+# Special rules for Emscripten.
+#
+# - MINIAUDIO_FORCE_C89 is not supported.
+# - MINIAUDIO_NO_RUNTIME_LINKING must be enabled.
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(MINIAUDIO_FORCE_C89 OFF)
+    set(MINIAUDIO_NO_RUNTIME_LINKING ON)
+
+    # This is a hack to work around some errors relating to generation of the pkg-config file.
+    set(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS ON)
+    set(MINIAUDIO_ENABLE_WEBAUDIO ON)
+endif()
+
 
 if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
     message(FATAL_ERROR "MINIAUDIO_FORCE_CXX and MINIAUDIO_FORCE_C89 cannot be enabled at the same time.")
@@ -149,6 +181,8 @@ if(MINIAUDIO_NO_NULL)
     list(APPEND COMPILE_DEFINES MA_NO_NULL)
 endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
+    list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
+
     if(MINIAUDIO_ENABLE_WASAPI)
         list(APPEND COMPILE_DEFINES MA_ENABLE_WASAPI)
     endif()
@@ -312,15 +346,21 @@ endfunction()
 # vorbisfile
 #
 # The vorbisfile target is required for miniaudio_libvorbis. If the vorbisfile target has already been
-# defined we'll just use that. Otherwise we'll try to find_library(). If that fails, as a last resort
+# defined we'll just use that. Otherwise we'll try to use pkg-config. If that fails, as a last resort
 # we'll allow building it from source from the external/vorbis directory.
 if(NOT MINIAUDIO_NO_LIBVORBIS)
     if(NOT TARGET vorbisfile)
-        find_library(LIBVORBISFILE NAMES vorbisfile)
-        if(LIBVORBISFILE)
-            message(STATUS "Found libvorbisfile: ${LIBVORBISFILE}")
+        # Try pkg-config first
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_VORBISFILE vorbisfile)
+        endif()
+
+        if(PC_VORBISFILE_FOUND)
+            message(STATUS "Found vorbisfile via pkg-config: ${PC_VORBISFILE_LIBRARIES}")
             set(HAS_LIBVORBIS TRUE)
         else()
+            # Fallback to building from source.
             add_libvorbis_subdirectory()
             if(NOT TARGET vorbisfile)
                 message(STATUS "libvorbisfile not found. miniaudio_libvorbis will be excluded.")
@@ -336,27 +376,20 @@ endif()
 
 # opusfile
 #
-# This is the same as vorbisfile above.
+# This is the same as vorbisfile above, but for opusfile.
 if(NOT MINIAUDIO_NO_LIBOPUS)
     if(NOT TARGET opusfile)
-        find_library(LIBOPUSFILE NAMES opusfile)
-        if(LIBOPUSFILE)
-            message(STATUS "Found libopusfile: ${LIBOPUSFILE}")
+        # Try pkg-config first
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_OPUSFILE opusfile)
+        endif()
 
-            # opusfile is very annoying because they do "#include <opus_multistream.h>" in opusfile.h which results
-            # in an error unless we explicitly add the include path to the opus include directory.
-            find_path(OPUSFILE_INCLUDE_DIR
-                NAMES opus/opusfile.h
-                DOC "Directory containing opusfile.h"
-            )
-
-            if(OPUSFILE_INCLUDE_DIR)
-                message(STATUS "Found opusfile.h in ${OPUSFILE_INCLUDE_DIR}")
-                set(HAS_LIBOPUS TRUE)
-            else()
-                message(STATUS "Could not find opusfile.h. miniaudio_libopus will be excluded.")
-            endif()
+        if(PC_OPUSFILE_FOUND)
+            message(STATUS "Found opusfile via pkg-config: ${PC_OPUSFILE_LIBRARIES}")
+            set(HAS_LIBOPUS TRUE)
         else()
+            # Fallback to building from source.
             add_libopusfile_subdirectory()
             if(NOT TARGET opusfile)
                 message(STATUS "libopusfile not found. miniaudio_libopus will be excluded.")
@@ -440,22 +473,42 @@ endif()
 set(COMMON_LINK_LIBRARIES)
 
 if (UNIX)
-    list(APPEND COMMON_LINK_LIBRARIES dl)      # For dlopen(), etc. Most compilers will link to this by default, but some may not.
-    list(APPEND COMMON_LINK_LIBRARIES pthread) # Some compilers will not link to pthread by default so list it here just in case.
-    list(APPEND COMMON_LINK_LIBRARIES m)
+    if(NOT MINIAUDIO_NO_RUNTIME_LINKING)
+        # Not all platforms actually use a separate "dl" library, notably NetBSD and OpenBSD.
+        find_library(LIB_DL NAMES dl)
+        if(LIB_DL)
+            list(APPEND COMMON_LINK_LIBRARIES ${LIB_DL})  # For dlopen(), etc. Most compilers will link to this by default, but some may not.
+        endif()
+    endif()
+    
+    find_library(LIB_PTHREAD NAMES pthread)
+    if(LIB_PTHREAD)
+        list(APPEND COMMON_LINK_LIBRARIES ${LIB_PTHREAD}) # Some compilers will not link to pthread by default so list it here just in case.
+    endif()
+
+    find_library(LIB_M NAMES m)
+    if(LIB_M)
+        list(APPEND COMMON_LINK_LIBRARIES ${LIB_M})
+    endif()
 
     # If we're compiling for 32-bit ARM we need to link to -latomic.
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-        list(APPEND COMMON_LINK_LIBRARIES atomic)
+        find_library(LIB_ATOMIC NAMES atomic)
+        if(LIB_ATOMIC)
+            list(APPEND COMMON_LINK_LIBRARIES ${LIB_ATOMIC})
+        endif()
     endif()
 endif()
 
 
 # Static Libraries
-add_library(miniaudio STATIC
+add_library(miniaudio
     miniaudio.c
     miniaudio.h
 )
+
+list(APPEND LIBS_TO_INSTALL miniaudio)
+install(FILES miniaudio.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio)
 
 target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
@@ -466,16 +519,22 @@ add_library(libvorbis_interface INTERFACE)
 if(HAS_LIBVORBIS)
     if(TARGET vorbisfile)
         target_link_libraries(libvorbis_interface INTERFACE vorbisfile)
-    else()
-        target_link_libraries(libvorbis_interface INTERFACE ${LIBVORBISFILE})
+    elseif(PC_VORBISFILE_FOUND)
+        target_link_libraries     (libvorbis_interface INTERFACE ${PC_VORBISFILE_LIBRARIES})
+        target_include_directories(libvorbis_interface INTERFACE ${PC_VORBISFILE_INCLUDE_DIRS})
+        target_link_directories   (libvorbis_interface INTERFACE ${PC_VORBISFILE_LIBRARY_DIRS})
+        target_compile_options    (libvorbis_interface INTERFACE ${PC_VORBISFILE_CFLAGS_OTHER})
     endif()
 endif()
 
 if(HAS_LIBVORBIS)
-    add_library(miniaudio_libvorbis STATIC
+    add_library(miniaudio_libvorbis
         extras/decoders/libvorbis/miniaudio_libvorbis.c
         extras/decoders/libvorbis/miniaudio_libvorbis.h
     )
+
+    list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
+    install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
 
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
@@ -487,17 +546,23 @@ add_library(libopus_interface INTERFACE)
 if(HAS_LIBOPUS)
     if(TARGET opusfile)
         target_link_libraries     (libopus_interface INTERFACE opusfile)
-    else()
-        target_link_libraries     (libopus_interface INTERFACE ${LIBOPUSFILE})
-        target_include_directories(libopus_interface INTERFACE ${OPUSFILE_INCLUDE_DIR}/opus)
+    elseif(PC_OPUSFILE_FOUND)
+        target_link_libraries     (libopus_interface INTERFACE ${PC_OPUSFILE_LIBRARIES})
+        target_include_directories(libopus_interface INTERFACE ${PC_OPUSFILE_INCLUDE_DIRS})
+        target_link_directories   (libopus_interface INTERFACE ${PC_OPUSFILE_LIBRARY_DIRS})
+        target_compile_options    (libopus_interface INTERFACE ${PC_OPUSFILE_CFLAGS_OTHER})
     endif()
 endif()
 
 if(HAS_LIBOPUS)
-    add_library(miniaudio_libopus STATIC
+    add_library(miniaudio_libopus
         extras/decoders/libopus/miniaudio_libopus.c
         extras/decoders/libopus/miniaudio_libopus.h
     )
+
+
+    list(APPEND LIBS_TO_INSTALL miniaudio_libopus)
+    install(FILES extras/decoders/libopus/miniaudio_libopus.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libopus)
 
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
@@ -507,10 +572,16 @@ endif()
 
 if (NOT MINIAUDIO_NO_EXTRA_NODES)
     function(add_extra_node name)
-        add_library(miniaudio_${name}_node STATIC
+        add_library(miniaudio_${name}_node
             extras/nodes/ma_${name}_node/ma_${name}_node.c
             extras/nodes/ma_${name}_node/ma_${name}_node.h
         )
+        
+        set(libs "${LIBS_TO_INSTALL}")
+
+        list(APPEND libs miniaudio_${name}_node)
+        set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
+        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
 
         target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
         target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
@@ -537,6 +608,98 @@ add_library(miniaudio_common_options INTERFACE)
 target_compile_options(miniaudio_common_options INTERFACE ${COMPILE_OPTIONS})
 target_link_libraries (miniaudio_common_options INTERFACE ${COMMON_LINK_LIBRARIES})
 
+function(is_backend_enabled NAME)
+    if (NOT MINIAUDIO_NO_${NAME} AND (NOT MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS OR MINIAUDIO_ENABLE_${NAME}))
+        set(${NAME}_ENABLED TRUE PARENT_SCOPE)
+    else()
+        set(${NAME}_ENABLED FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
+set(LINKED_LIBS)
+
+if(MINIAUDIO_NO_RUNTIME_LINKING)
+    is_backend_enabled(PULSEAUDIO)
+    if (PULSEAUDIO_ENABLED)
+        find_package(PulseAudio)
+
+        if (PulseAudio_FOUND)
+            target_link_libraries(miniaudio PRIVATE ${PULSEAUDIO_LIBRARY})
+            target_include_directories(miniaudio SYSTEM PRIVATE ${PULSEAUDIO_INCLUDE_DIR})
+            list(APPEND LINKED_LIBS libpulse)
+        endif()
+    endif()
+
+    is_backend_enabled(ALSA)
+    if (ALSA_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_ALSA alsa)
+        endif()
+
+        find_library(ALSA_LIBRARY
+            NAMES asound
+            HINTS ${PC_ALSA_LIBRARY_DIRS}
+        )
+
+        if (ALSA_LIBRARY)
+            find_path(ALSA_INCLUDE_DIR
+                NAMES alsa/asoundlib.h
+                HINTS ${PC_ALSA_INCLUDE_DIRS}
+            )
+
+            target_link_libraries(miniaudio PRIVATE ${ALSA_LIBRARY})
+            target_include_directories(miniaudio PRIVATE ${ALSA_INCLUDE_DIR})
+            list(APPEND LINKED_LIBS alsa)
+        endif()
+    endif()
+
+    is_backend_enabled(SNDIO)
+    if (SNDIO_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_SNDIO sndio)
+        endif()
+
+        find_library(SNDIO_LIBRARY
+            NAMES sndio
+            HINTS ${PC_SNDIO_LIBRARY_DIRS}
+        )
+
+        if (SNDIO_LIBRARY)
+            target_link_libraries(miniaudio PRIVATE ${SNDIO_LIBRARY})
+            list(APPEND LINKED_LIBS sndio)
+        endif()
+    endif()
+
+    is_backend_enabled(JACK)
+    if (JACK_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PC_JACK jack)
+        endif()
+
+        find_library(JACK_LIBRARY
+            NAMES jack
+            HINTS ${PC_JACK_LIBRARY_DIRS}
+        )
+
+        if (JACK_LIBRARY)
+            find_path(JACK_INCLUDE_DIR
+                NAMES jack/jack.h
+                HINTS ${PC_JACK_INCLUDE_DIRS}
+            )
+
+            target_link_libraries(miniaudio PRIVATE ${JACK_LIBRARY})
+            target_include_directories(miniaudio PRIVATE ${JACK_INCLUDE_DIR})
+            list(APPEND LINKED_LIBS jack)
+        endif()
+    endif()
+endif()
+
 # Tests
 #
 # All tests are compiled as a single translation unit. There is no need to add miniaudio as a link library.
@@ -550,14 +713,17 @@ if(MINIAUDIO_BUILD_TESTS)
         target_link_libraries(${name} PRIVATE miniaudio_common_options)
     endfunction()
 
-    # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
-    add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
+    # Disable C++ tests when forcing C89. This is needed because we'll be passing -std=c89 which will cause errors when trying to compile a C++ file.
+    if(NOT MINIAUDIO_FORCE_C89)
+        # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
+        add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
+
+        add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
+        add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
+    endif()
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
-
-    add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
-    add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
 
     add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
     add_test(NAME miniaudio_conversion COMMAND miniaudio_conversion)
@@ -645,3 +811,56 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
 endif()
+
+
+# Tools
+if (MINIAUDIO_BUILD_TOOLS)
+    set(TOOLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+
+    add_executable(madoc ${TOOLS_DIR}/madoc/madoc.c)
+endif()
+
+
+if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+    set(MINIAUDIO_PC_INCLUDEDIR "${CMAKE_INSTALL_INCLUDEDIR}")
+else()
+    set(MINIAUDIO_PC_INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
+if(IS_ABSOLUTE "${CMAKE_INSTALL_LIBDIR}")
+    set(MINIAUDIO_PC_LIBDIR "${CMAKE_INSTALL_LIBDIR}")
+else()
+    set(MINIAUDIO_PC_LIBDIR "\${exec_prefix}/${CMAKE_INSTALL_LIBDIR}")
+endif()
+
+string(JOIN ", " MINIAUDIO_PC_REQUIRES_PRIVATE ${LINKED_LIBS})
+
+# Add vorbisfile and opusfile to pkg-config dependencies if found via pkg-config
+set(PC_REQUIRES_PRIVATE_LIST)
+if(PC_VORBISFILE_FOUND AND HAS_LIBVORBIS)
+    list(APPEND PC_REQUIRES_PRIVATE_LIST "vorbisfile")
+endif()
+if(PC_OPUSFILE_FOUND AND HAS_LIBOPUS)
+    list(APPEND PC_REQUIRES_PRIVATE_LIST "opusfile")
+endif()
+if(PC_REQUIRES_PRIVATE_LIST)
+    if(MINIAUDIO_PC_REQUIRES_PRIVATE)
+        string(APPEND MINIAUDIO_PC_REQUIRES_PRIVATE ", ")
+    endif()
+    string(JOIN ", " PC_REQUIRES_STR ${PC_REQUIRES_PRIVATE_LIST})
+    string(APPEND MINIAUDIO_PC_REQUIRES_PRIVATE "${PC_REQUIRES_STR}")
+endif()
+list(TRANSFORM COMMON_LINK_LIBRARIES PREPEND "-l")
+string(JOIN " " MINIAUDIO_PC_LIBS_PRIVATE ${COMMON_LINK_LIBRARIES})
+list(TRANSFORM COMPILE_DEFINES PREPEND "-D")
+string(JOIN " " MINIAUDIO_PC_CFLAGS ${COMPILE_DEFINES})
+
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" @ONLY)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+
+message(STATUS "Library list: ${LIBS_TO_INSTALL}")
+install(TARGETS ${LIBS_TO_INSTALL}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)

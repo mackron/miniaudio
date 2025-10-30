@@ -49,6 +49,7 @@ ma_result test_peak2__by_format(const char* pInputFilePath, const char* pOutputF
         }
     }
 
+    ma_peak2_uninit(&peak, NULL);
     ma_decoder_uninit(&decoder);
     ma_encoder_uninit(&encoder);
     return MA_SUCCESS;

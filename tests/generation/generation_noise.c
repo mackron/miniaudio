@@ -31,6 +31,7 @@ ma_result test_noise__by_format_and_type(ma_format format, ma_noise_type type, c
     }
 
     ma_encoder_uninit(&encoder);
+    ma_noise_uninit(&noise, NULL);
     return MA_SUCCESS;
 }
 

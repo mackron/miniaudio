@@ -22,10 +22,12 @@ static ma_sound g_sound;            /* This example will play only a single soun
 
 void data_callback(void* pUserData, ma_uint8* pBuffer, int bufferSizeInBytes)
 {
+    ma_uint32 bufferSizeInFrames;
+
     (void)pUserData;
 
     /* Reading is just a matter of reading straight from the engine. */
-    ma_uint32 bufferSizeInFrames = (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(ma_format_f32, ma_engine_get_channels(&g_engine));
+    bufferSizeInFrames = (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(ma_format_f32, ma_engine_get_channels(&g_engine));
     ma_engine_read_pcm_frames(&g_engine, pBuffer, bufferSizeInFrames, NULL);
 }
 

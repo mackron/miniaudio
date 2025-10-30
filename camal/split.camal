@@ -1,0 +1,26 @@
+miniaudio_h       :: <../miniaudio.h>;
+miniaudio_split_h := <../extras/miniaudio_split/miniaudio.h>;
+miniaudio_split_c := <../extras/miniaudio_split/miniaudio.c>;
+
+header := @(miniaudio_h["/\*" : "\*/"]);
+footer := @(miniaudio_h["/\*\RThis software" : "\*/"]);
+
+content_h : string;
+content_h["$"] = header;
+content_h["$"] = "\n";
+content_h["$"] = @(miniaudio_h["#ifndef miniaudio_h" : "#endif  /\* miniaudio_h \*/"]);
+content_h["$"] = "\n\n";
+content_h["$"] = footer;
+content_h["$"] = "\n";
+
+content_c : string;
+content_c["$"] = header;
+content_c["$"] = "\n";
+content_c["$"] = '#include "miniaudio.h"\n\n';
+content_c["$"] = @(miniaudio_h["#ifndef miniaudio_c" : "#endif  /\* miniaudio_c \*/"]);
+content_c["$"] = "\n\n";
+content_c["$"] = footer;
+content_c["$"] = "\n";
+
+miniaudio_split_h = content_h;
+miniaudio_split_c = content_c;
