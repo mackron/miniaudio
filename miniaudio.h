@@ -6613,7 +6613,7 @@ This section contains the APIs for device playback and capture. Here is where yo
 #endif
 #if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
     #if defined(MA_LINUX)
-        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__)   /* ALSA is not supported on Android. */
+        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__) && !defined(MA_EMSCRIPTEN)   /* ALSA is not supported on Android. */
             #define MA_SUPPORT_ALSA
         #endif
     #endif
