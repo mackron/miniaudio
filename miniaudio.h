@@ -61676,7 +61676,6 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
 
     if (result == MA_NOT_IMPLEMENTED) {
         /* Not implemented. Fall back to seek/tell/seek. */
-        ma_result result;
         ma_int64 cursor;
         ma_int64 sizeInBytes;
         
