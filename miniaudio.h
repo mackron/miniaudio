@@ -3871,7 +3871,7 @@ typedef ma_uint16 wchar_t;
 
 
 /* Platform/backend detection. */
-#if defined(_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(_WIN32)
     #define MA_WIN32
     #if defined(MA_FORCE_UWP) || (defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PC_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PC_APP) || (defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
         #define MA_WIN32_UWP
@@ -11380,7 +11380,7 @@ IMPLEMENTATION
 #endif
 
 /* Intrinsics Support */
-#if (defined(MA_X64) || defined(MA_X86)) && !defined(__COSMOPOLITAN__)
+#if defined(MA_X64) || defined(MA_X86)
     #if defined(_MSC_VER) && !defined(__clang__)
         /* MSVC. */
         #if _MSC_VER >= 1400 && !defined(MA_NO_SSE2)   /* 2005 */
@@ -11817,7 +11817,7 @@ static MA_INLINE unsigned int ma_disable_denormals(void)
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        #if defined(MA_SUPPORT_SSE2) && defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__)) /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        #if defined(MA_SUPPORT_SSE2) && defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__)) /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
         {
             prevState = _mm_getcsr();
             _mm_setcsr(prevState | MA_MM_DENORMALS_ZERO_MASK | MA_MM_FLUSH_ZERO_MASK);
@@ -11857,7 +11857,7 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        #if defined(MA_SUPPORT_SSE2) && defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        #if defined(MA_SUPPORT_SSE2) && defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
         {
             _mm_setcsr(prevState);
         }
@@ -17318,7 +17318,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
             int priorityStep = (priorityMax - priorityMin) / 7;  /* 7 = number of priorities supported by miniaudio. */
 
             struct sched_param sched;
-            if (pthread_attr_getschedparam(&attr, &sched) == 0) {
+            if (priorityMin != -1 && priorityMax != -1 && pthread_attr_getschedparam(&attr, &sched) == 0) {
                 if (priority == ma_thread_priority_idle) {
                     sched.sched_priority = priorityMin;
                 } else if (priority == ma_thread_priority_realtime) {
@@ -19342,16 +19342,12 @@ BACKENDS
     #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
         #define MA_SUPPORT_DSOUND
         #define MA_SUPPORT_WINMM
-
-        /* Don't enable JACK here if compiling with Cosmopolitan. It'll be enabled in the Linux section below. */
-        #if !defined(__COSMOPOLITAN__)
-            #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
-        #endif
+        #define MA_SUPPORT_JACK     /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
     #endif
 #endif
 #if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
     #if defined(MA_LINUX)
-        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__)   /* ALSA is not supported on Android. */
+        #if !defined(MA_ANDROID) && !defined(MA_EMSCRIPTEN)   /* ALSA is not supported on Android. */
             #define MA_SUPPORT_ALSA
         #endif
     #endif
@@ -63029,7 +63025,6 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
 
     if (result == MA_NOT_IMPLEMENTED) {
         /* Not implemented. Fall back to seek/tell/seek. */
-        ma_result result;
         ma_int64 cursor;
         ma_int64 sizeInBytes;
         
@@ -73780,8 +73775,6 @@ static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job*
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
-    ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
-
     /* The event needs to be signalled last. */
     if (pJob->data.resourceManager.freeDataBufferNode.pDoneNotification != NULL) {
         ma_async_notification_signal(pJob->data.resourceManager.freeDataBufferNode.pDoneNotification);
@@ -73792,6 +73785,9 @@ static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job*
     }
 
     ma_atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
+
+    ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
+
     return MA_SUCCESS;
 }
 
@@ -83344,7 +83340,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav__on_seek_memory_write(void* pUserData, int offset
         newCursor = (ma_int64)pWav->memoryStreamWrite.dataSize;
     } else {
         MA_DR_WAV_ASSERT(!"Invalid seek origin");
-        return MA_INVALID_ARGS;
+        return MA_FALSE;
     }
     newCursor += offset;
     if (newCursor < 0) {
@@ -86643,7 +86639,7 @@ static MA_INLINE ma_uint32 ma_dr_flac__clz_lzcnt(ma_dr_flac_cache_t x)
                 );
                 return r;
             }
-        #elif defined(MA_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 5) && !defined(__ARM_ARCH_6M__) && !defined(MA_64BIT)
+        #elif defined(MA_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 5) && !defined(__ARM_ARCH_6M__) && !(defined(__thumb__) && !defined(__thumb2__)) && !defined(MA_64BIT)
             {
                 unsigned int r;
                 __asm__ __volatile__ (
@@ -95530,19 +95526,22 @@ static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc on
                                 ((ma_uint32)ape[25] << 8)  |
                                 ((ma_uint32)ape[26] << 16) |
                                 ((ma_uint32)ape[27] << 24);
-                            streamEndOffset -= 32 + tagSize;
-                            streamLen       -= 32 + tagSize;
-                            if (onMeta != NULL) {
-                                if (onSeek(pUserData, streamEndOffset, MA_DR_MP3_SEEK_END)) {
-                                    size_t apeTagSize = (size_t)tagSize + 32;
-                                    ma_uint8* pTagData = (ma_uint8*)ma_dr_mp3_malloc(apeTagSize, pAllocationCallbacks);
-                                    if (pTagData != NULL) {
-                                        if (onRead(pUserData, pTagData, apeTagSize) == apeTagSize) {
-                                            ma_dr_mp3__on_meta(pMP3, MA_DR_MP3_METADATA_TYPE_APE, pTagData, apeTagSize);
+                            if (32 + tagSize < streamLen) {
+                                streamEndOffset -= 32 + tagSize;
+                                streamLen       -= 32 + tagSize;
+                                if (onMeta != NULL) {
+                                    if (onSeek(pUserData, streamEndOffset, MA_DR_MP3_SEEK_END)) {
+                                        size_t apeTagSize = (size_t)tagSize + 32;
+                                        ma_uint8* pTagData = (ma_uint8*)ma_dr_mp3_malloc(apeTagSize, pAllocationCallbacks);
+                                        if (pTagData != NULL) {
+                                            if (onRead(pUserData, pTagData, apeTagSize) == apeTagSize) {
+                                                ma_dr_mp3__on_meta(pMP3, MA_DR_MP3_METADATA_TYPE_APE, pTagData, apeTagSize);
+                                            }
+                                            ma_dr_mp3_free(pTagData, pAllocationCallbacks);
                                         }
-                                        ma_dr_mp3_free(pTagData, pAllocationCallbacks);
                                     }
                                 }
+                            } else {
                             }
                         }
                     }
