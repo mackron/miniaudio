@@ -76,7 +76,7 @@ which can then be stored in the backend state?
 
 
 #if defined(MA_LINUX)
-    #if defined(__STDC_VERSION__)   /* <-- PipeWire cannot be used with C89 mode (__STDC_VERSION__ is only defined starting with C90). */
+    #if defined(__STDC_VERSION__) || defined(__cplusplus)   /* <-- PipeWire cannot be used with C89 mode (__STDC_VERSION__ is only defined starting with C90). */
         #define MA_SUPPORT_PIPEWIRE
     #endif
 #endif
