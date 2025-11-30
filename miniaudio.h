@@ -45277,7 +45277,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "  %s (%s)", name, "Playback");
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Format:      %s -> %s", ma_get_format_name(pDevice->playback.format), ma_get_format_name(pDevice->playback.internalFormat));
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d", pDevice->playback.channels, pDevice->playback.internalChannels);
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %dn", pDevice->sampleRate, pDevice->playback.internalSampleRate);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d", pDevice->sampleRate, pDevice->playback.internalSampleRate);
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Buffer Size: %d*%d (%d)", pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalPeriods, (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods));
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Conversion:");
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Pre Format Conversion:  %s", pDevice->playback.converter.hasPreFormatConversion  ? "YES" : "NO");
