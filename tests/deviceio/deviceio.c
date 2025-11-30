@@ -275,6 +275,19 @@ void print_enabled_backends(void)
         }
     }
 
+    if (ma_device_backend_sdl != NULL) {
+        printf("    SDL2\n");
+    }
+
+    #if defined(MA_TESTS_INCLUDE_PIPEWIRE)
+    {
+        if (ma_device_backend_pipewire != NULL) {
+            printf("    PipeWire\n");
+        }
+    }
+    #endif
+
+
     printf("\n");
 }
 
