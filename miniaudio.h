@@ -21207,7 +21207,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
     ma_device_stop__null,
     NULL,
     NULL,
-    ma_device_loop__null,   /* onDeviceLoop */
+    ma_device_loop__null,
     NULL    /* onDeviceWakeup */
 };
 
