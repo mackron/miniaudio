@@ -119,17 +119,14 @@ typedef struct
 
 typedef struct
 {
+    ma_device_state_async async;
     struct
     {
         int deviceID;
-        ma_format format;
-        ma_uint32 channels;
     } capture;
     struct
     {
         int deviceID;
-        ma_format format;
-        ma_uint32 channels;
     } playback;
 } ma_device_state_sdl;
 
@@ -170,6 +167,9 @@ static ma_device_state_sdl* ma_device_get_backend_state__sdl(ma_device* pDevice)
 {
     return (ma_device_state_sdl*)ma_device_get_backend_state(pDevice);
 }
+
+
+static void ma_device_step__sdl(ma_device* pDevice);
 
 
 static void ma_backend_info__sdl(ma_device_backend_info* pBackendInfo)
@@ -384,14 +384,14 @@ void ma_audio_callback_capture__sdl(void* pUserData, ma_uint8* pBuffer, int buff
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
-    ma_device_handle_backend_data_callback(pDevice, NULL, pBuffer, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->capture.format, pDeviceStateSDL->capture.channels));
+    ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, NULL, pBuffer, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.capture.format, pDeviceStateSDL->async.capture.channels));
 }
 
 void ma_audio_callback_playback__sdl(void* pUserData, ma_uint8* pBuffer, int bufferSizeInBytes)
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
-    ma_device_handle_backend_data_callback(pDevice, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->playback.format, pDeviceStateSDL->playback.channels));
+    ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.playback.format, pDeviceStateSDL->async.playback.channels));
 }
 
 static ma_result ma_device_init_internal__sdl(ma_device* pDevice, ma_context_state_sdl* pContextStateSDL, ma_device_state_sdl* pDeviceStateSDL, const ma_device_config_sdl* pDeviceConfigSDL, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
@@ -472,12 +472,8 @@ static ma_result ma_device_init_internal__sdl(ma_device* pDevice, ma_context_sta
 
     if (deviceType == ma_device_type_playback) {
         pDeviceStateSDL->playback.deviceID = deviceID;
-        pDeviceStateSDL->playback.format   = pDescriptor->format;
-        pDeviceStateSDL->playback.channels = pDescriptor->channels;
     } else {
-        pDeviceStateSDL->capture.deviceID  = deviceID;
-        pDeviceStateSDL->capture.format    = pDescriptor->format;
-        pDeviceStateSDL->capture.channels  = pDescriptor->channels;
+        pDeviceStateSDL->capture.deviceID = deviceID;
     }
 
     return MA_SUCCESS;
@@ -522,6 +518,19 @@ static ma_result ma_device_init__sdl(ma_device* pDevice, const void* pDeviceBack
         }
     }
 
+    result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateSDL->async);
+    if (result != MA_SUCCESS) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            pContextStateSDL->SDL_CloseAudioDevice(pDeviceStateSDL->capture.deviceID);
+        }
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            pContextStateSDL->SDL_CloseAudioDevice(pDeviceStateSDL->playback.deviceID);
+        }
+
+        ma_free(pDeviceStateSDL, ma_device_get_allocation_callbacks(pDevice));
+        return result;
+    }
+
     *ppDeviceState = pDeviceStateSDL;
 
     return MA_SUCCESS;
@@ -541,6 +550,8 @@ static void ma_device_uninit__sdl(ma_device* pDevice)
         pContextStateSDL->SDL_CloseAudioDevice(pDeviceStateSDL->playback.deviceID);
     }
 
+    ma_device_state_async_uninit(&pDeviceStateSDL->async, ma_device_get_allocation_callbacks(pDevice));
+
     ma_free(pDeviceStateSDL, ma_device_get_allocation_callbacks(pDevice));
 }
 
@@ -549,6 +560,9 @@ static ma_result ma_device_start__sdl(ma_device* pDevice)
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
     ma_context_state_sdl* pContextStateSDL = ma_context_get_backend_state__sdl(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    /* Step the device once to ensure buffers are pre-filled before starting. */
+    ma_device_step__sdl(pDevice);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         pContextStateSDL->SDL_PauseAudioDevice(pDeviceStateSDL->capture.deviceID, 0);
@@ -579,6 +593,33 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
 }
 
 
+static void ma_device_wait__sdl(ma_device* pDevice)
+{
+    ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
+    ma_device_state_async_wait(&pDeviceStateSDL->async);
+}
+
+static void ma_device_step__sdl(ma_device* pDevice)
+{
+    ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
+    ma_device_state_async_step(&pDeviceStateSDL->async, pDevice);
+}
+
+static void ma_device_loop__sdl(ma_device* pDevice)
+{
+    for (;;) {
+        ma_device_wait__sdl(pDevice);
+
+        /* If the wait terminated due to the device being stopped, abort now. */
+        if (!ma_device_is_started(pDevice)) {
+            break;
+        }
+
+        ma_device_step__sdl(pDevice);
+    }
+}
+
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
 {
     ma_backend_info__sdl,
@@ -591,7 +632,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     ma_device_stop__sdl,
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
-    NULL,   /* onDeviceLoop */
+    ma_device_loop__sdl,
     NULL    /* onDeviceWakeup */
 };
 

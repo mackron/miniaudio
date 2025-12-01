@@ -9489,6 +9489,34 @@ is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
 */
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate);
 
+
+/* BEG ma_device_state_async.h */
+typedef struct ma_device_state_async
+{
+    ma_device_type deviceType;
+    struct
+    {
+        ma_semaphore semaphore;
+        ma_spinlock lock;
+        ma_format format;
+        ma_uint32 channels;
+        ma_uint32 frameCap;
+        ma_uint32 frameCount;
+        void* pBuffer;  /* An offset of internal.pBuffer. */
+    } playback, capture;
+    struct
+    {
+        void* pBuffer;  /* One buffer allocation for both playback and capture. */
+    } internal;
+} ma_device_state_async;
+
+MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState);
+MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceState, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState);
+MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice);
+MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+/* END ma_device_state_async.h */
+
 #endif  /* MA_NO_DEVICE_IO */
 
 
@@ -45930,6 +45958,222 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
         return pDescriptor->periodSizeInFrames;
     }
 }
+
+
+/* BEG ma_device_state_async.c */
+MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState)
+{
+    ma_result result;
+    size_t bufferAllocSizeInBytesCapture  = 0;
+    size_t bufferAllocSizeInBytesPlayback = 0;
+
+    if (pAsyncDeviceState == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pAsyncDeviceState);
+    pAsyncDeviceState->deviceType = deviceType;
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        if (pDescriptorCapture == NULL) {
+            return MA_INVALID_ARGS;
+        }
+
+        result = ma_semaphore_init(0, &pAsyncDeviceState->capture.semaphore);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pAsyncDeviceState->capture.format   = pDescriptorCapture->format;
+        pAsyncDeviceState->capture.channels = pDescriptorCapture->channels;
+        pAsyncDeviceState->capture.frameCap = pDescriptorCapture->periodSizeInFrames;
+
+        bufferAllocSizeInBytesCapture = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->capture.format, pAsyncDeviceState->capture.channels) * pAsyncDeviceState->capture.frameCap);
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        if (pDescriptorPlayback == NULL) {
+            return MA_INVALID_ARGS;
+        }
+
+        result = ma_semaphore_init(0, &pAsyncDeviceState->playback.semaphore);
+        if (result != MA_SUCCESS) {
+            if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+                ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
+            }
+
+            return result;
+        }
+
+        pAsyncDeviceState->playback.format   = pDescriptorPlayback->format;
+        pAsyncDeviceState->playback.channels = pDescriptorPlayback->channels;
+        pAsyncDeviceState->playback.frameCap = pDescriptorPlayback->periodSizeInFrames;
+
+        bufferAllocSizeInBytesPlayback = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels) * pAsyncDeviceState->playback.frameCap);
+    }
+
+    pAsyncDeviceState->internal.pBuffer = ma_malloc(bufferAllocSizeInBytesCapture + bufferAllocSizeInBytesPlayback, pAllocationCallbacks);
+    if (pAsyncDeviceState->internal.pBuffer == NULL) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
+        }
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            ma_semaphore_uninit(&pAsyncDeviceState->playback.semaphore);
+        }
+        
+        return MA_OUT_OF_MEMORY;
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        pAsyncDeviceState->capture.pBuffer = pAsyncDeviceState->internal.pBuffer;
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        pAsyncDeviceState->playback.pBuffer = ma_offset_ptr(pAsyncDeviceState->internal.pBuffer, bufferAllocSizeInBytesCapture);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceState, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pAsyncDeviceState == NULL) {
+        return;
+    }
+
+    ma_free(pAsyncDeviceState->internal.pBuffer, pAllocationCallbacks);
+    pAsyncDeviceState->internal.pBuffer = NULL;
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
+    }
+    
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_semaphore_uninit(&pAsyncDeviceState->playback.semaphore);
+    }
+}
+
+MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
+{
+    if (pAsyncDeviceState == NULL) {
+        return;
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_semaphore_wait(&pAsyncDeviceState->capture.semaphore);
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_semaphore_wait(&pAsyncDeviceState->playback.semaphore);
+    }
+}
+
+MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice)
+{
+    if (pAsyncDeviceState == NULL || pDevice == NULL) {
+        return;
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
+        {
+            if (pAsyncDeviceState->capture.frameCount > 0) {
+                ma_device_handle_backend_data_callback(pDevice, NULL, pAsyncDeviceState->capture.pBuffer, pAsyncDeviceState->capture.frameCount);
+                pAsyncDeviceState->capture.frameCount = 0;
+            }
+        }
+        ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels);
+
+        ma_spinlock_lock(&pAsyncDeviceState->playback.lock);
+        {
+            if (pAsyncDeviceState->playback.frameCount < pAsyncDeviceState->playback.frameCap) {
+                ma_device_handle_backend_data_callback(pDevice, ma_offset_ptr(pAsyncDeviceState->playback.pBuffer, bytesPerFrame * pAsyncDeviceState->playback.frameCount), NULL, (pAsyncDeviceState->playback.frameCap - pAsyncDeviceState->playback.frameCount));
+                pAsyncDeviceState->playback.frameCount = pAsyncDeviceState->playback.frameCap;
+            }
+        }
+        ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
+    }
+}
+
+MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    if (pAsyncDeviceState == NULL || pDevice == NULL) {
+        return;
+    }
+
+    if (pInput != NULL) {
+        if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+            ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
+            {
+                ma_uint32 framesToCopy;
+                ma_uint32 framesAvailable;
+
+                MA_ASSERT(pAsyncDeviceState->capture.frameCap >= pAsyncDeviceState->capture.frameCount);
+                framesAvailable = pAsyncDeviceState->capture.frameCap - pAsyncDeviceState->capture.frameCount;
+
+                framesToCopy = frameCount;
+                if (framesToCopy > framesAvailable) {
+                    framesToCopy = framesAvailable;
+                }
+
+                if (framesToCopy > 0) {
+                    ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pAsyncDeviceState->capture.format, pAsyncDeviceState->capture.channels);
+
+                    MA_COPY_MEMORY(ma_offset_ptr(pAsyncDeviceState->capture.pBuffer, bytesPerFrame * pAsyncDeviceState->capture.frameCount), pInput, bytesPerFrame * framesToCopy);
+                    pAsyncDeviceState->capture.frameCount += framesToCopy;
+
+                    /* If we just filled up the buffer with data, it's time to release the semaphore. */
+                    if (pAsyncDeviceState->capture.frameCount == pAsyncDeviceState->capture.frameCap) {
+                        ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
+                    }
+                }
+            }
+            ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
+        } else {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. */
+        }
+    }
+
+    if (pOutput != NULL) {
+        if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+            ma_spinlock_lock(&pAsyncDeviceState->playback.lock);
+            {
+                ma_uint32 framesToCopy;
+
+                framesToCopy = frameCount;
+                if (framesToCopy > pAsyncDeviceState->playback.frameCount) {
+                    framesToCopy = pAsyncDeviceState->playback.frameCount;
+                }
+
+                if (framesToCopy > 0) {
+                    ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels);
+                    MA_COPY_MEMORY(pOutput, pAsyncDeviceState->playback.pBuffer, bytesPerFrame * framesToCopy);
+
+                    /* Move any remaining data to the front of the buffer. */
+                    if (framesToCopy < pAsyncDeviceState->playback.frameCount) {
+                        MA_COPY_MEMORY(pAsyncDeviceState->playback.pBuffer, ma_offset_ptr(pAsyncDeviceState->playback.pBuffer, bytesPerFrame * framesToCopy), bytesPerFrame * (pAsyncDeviceState->playback.frameCount - framesToCopy));
+                    }
+
+                    pAsyncDeviceState->playback.frameCount -= framesToCopy;
+                }
+
+                /* If we just emptied the buffer, it's time to release the semaphore. */
+                if (pAsyncDeviceState->playback.frameCount == 0) {
+                    ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
+                }
+            }
+            ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
+        } else {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. */
+        }
+    }
+}
+/* END ma_device_state_async.c */
+
 #endif  /* MA_NO_DEVICE_IO */
 
 
