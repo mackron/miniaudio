@@ -543,6 +543,7 @@ if(HAS_LIBVORBIS)
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
     target_link_libraries     (miniaudio_libvorbis PRIVATE libvorbis_interface)
+    target_include_directories(miniaudio_libvorbis PUBLIC  extras/decoders/libvorbis/)
 endif()
 
 
@@ -573,6 +574,7 @@ if(HAS_LIBOPUS)
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
     target_link_libraries     (miniaudio_libopus PRIVATE libopus_interface)
+    target_include_directories(miniaudio_libopus PUBLIC  extras/decoders/libopus/)
 endif()
 
 
