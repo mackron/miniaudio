@@ -10,9 +10,10 @@ to add the following to your build command:
     -I/usr/include/spa-0.2
 
 Unfortunately PipeWire has a hard dependency on the above package, and because it's made up
-entirely of non-trivial inlined code, it's not possible to avoid this dependency. It's for
+entirely of non-trivial inlined code, it's not practical to avoid this dependency. It's for
 this reason the PipeWire backend cannot be included in miniaudio.h since it has a requirement
-that it does not depend on external development packages.
+that it does not depend on external development packages. To use the PipeWire backend, you
+need to plug it in as a custom backend. See the custom_backend example for how to do this.
 
 The PipeWire backend cannot be used with `-std=c89`. This is because the SPA headers do not
 support it.
