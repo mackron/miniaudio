@@ -61879,6 +61879,8 @@ Decoding and Encoding Headers. These are auto-generated from a tool.
 
 **************************************************************************************************************************************************************/
 #if !defined(MA_NO_WAV) && (!defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING))
+#define MA_HAS_WAV
+
 /* dr_wav_h begin */
 #ifndef ma_dr_wav_h
 #define ma_dr_wav_h
@@ -62312,6 +62314,8 @@ MA_API ma_bool32 ma_dr_wav_fourcc_equal(const ma_uint8* a, const char* b);
 #endif  /* MA_NO_WAV */
 
 #if !defined(MA_NO_FLAC) && !defined(MA_NO_DECODING)
+#define MA_HAS_FLAC
+
 /* dr_flac_h begin */
 #ifndef ma_dr_flac_h
 #define ma_dr_flac_h
@@ -62604,6 +62608,8 @@ MA_API ma_bool32 ma_dr_flac_next_cuesheet_track(ma_dr_flac_cuesheet_track_iterat
 #endif  /* MA_NO_FLAC */
 
 #if !defined(MA_NO_MP3) && !defined(MA_NO_DECODING)
+#define MA_HAS_MP3
+
 #ifndef MA_DR_MP3_NO_SIMD
     #if (defined(MA_NO_NEON) && defined(MA_ARM)) || (defined(MA_NO_SSE2) && (defined(MA_X86) || defined(MA_X64)))
     #define MA_DR_MP3_NO_SIMD
@@ -63224,7 +63230,6 @@ static ma_result ma_decoder_init_custom_from_memory__internal(const void* pData,
 
 /* WAV */
 #ifdef ma_dr_wav_h
-#define MA_HAS_WAV
 
 typedef struct
 {
@@ -63930,7 +63935,6 @@ static ma_result ma_decoder_init_wav_from_memory__internal(const void* pData, si
 
 /* FLAC */
 #ifdef ma_dr_flac_h
-#define MA_HAS_FLAC
 
 typedef struct
 {
@@ -64574,7 +64578,6 @@ static ma_result ma_decoder_init_flac_from_memory__internal(const void* pData, s
 
 /* MP3 */
 #ifdef ma_dr_mp3_h
-#define MA_HAS_MP3
 
 typedef struct
 {
