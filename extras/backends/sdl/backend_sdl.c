@@ -636,9 +636,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     NULL    /* onDeviceWakeup */
 };
 
-ma_device_backend_vtable* ma_device_backend_sdl = &ma_gDeviceBackendVTable_SDL;
+MA_API ma_device_backend_vtable* ma_device_backend_sdl = &ma_gDeviceBackendVTable_SDL;
 #else
-ma_device_backend_vtable* ma_device_backend_sdl = NULL;
+MA_API ma_device_backend_vtable* ma_device_backend_sdl = NULL;
 #endif  /* MA_HAS_SDL */
 
 

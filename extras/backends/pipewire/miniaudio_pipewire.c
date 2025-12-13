@@ -1701,13 +1701,13 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
     NULL    /* onDeviceWakeup */
 };
 
-ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_PipeWire;
+MA_API ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_PipeWire;
 
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic pop
 #endif
 #else
-ma_device_backend_vtable* ma_device_backend_pipewire = NULL;
+MA_API ma_device_backend_vtable* ma_device_backend_pipewire = NULL;
 #endif  /* MA_HAS_PIPEWIRE */
 
 MA_API ma_context_config_pipewire ma_context_config_pipewire_init(void)

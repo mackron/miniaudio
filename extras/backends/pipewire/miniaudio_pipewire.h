@@ -27,7 +27,7 @@ support it.
 extern "C" {
 #endif
 
-extern ma_device_backend_vtable* ma_device_backend_pipewire;
+MA_API ma_device_backend_vtable* ma_device_backend_pipewire;
 
 
 typedef struct

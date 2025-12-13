@@ -604,9 +604,9 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_libvorbis =
     ma_decoding_backend_uninit__libvorbis,
     ma_decoding_backend_get_encoding_format__libvorbis
 };
-ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = &ma_gDecodingBackendVTable_libvorbis;
+MA_API ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = &ma_gDecodingBackendVTable_libvorbis;
 #else
-ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = NULL;
+MA_API ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = NULL;
 #endif
 
 #endif /* miniaudio_libvorbis_c */
