@@ -40098,6 +40098,7 @@ typedef struct ma_context_state_aaudio
 
 typedef struct ma_device_state_aaudio
 {
+    ma_device_state_async async;
     ma_AAudioStream* pStreamPlayback;
     ma_AAudioStream* pStreamCapture;
     ma_mutex rerouteLock;
@@ -40313,10 +40314,12 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
 static ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
 {
     ma_device* pDevice = (ma_device*)pUserData;
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+
     MA_ASSERT(pDevice != NULL);
 
     if (frameCount > 0) {
-        ma_device_handle_backend_data_callback(pDevice, NULL, pAudioData, (ma_uint32)frameCount);
+        ma_device_state_async_process(&pDeviceStateAAudio->async, pDevice, NULL, pAudioData, (ma_uint32)frameCount);
     }
 
     (void)pStream;
@@ -40326,6 +40329,8 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(
 static ma_aaudio_data_callback_result_t ma_stream_data_callback_playback__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
 {
     ma_device* pDevice = (ma_device*)pUserData;
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+
     MA_ASSERT(pDevice != NULL);
 
     /*
@@ -40334,7 +40339,7 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_playback__aaudio
     though I've not yet had any reports about that one.
     */
     if (frameCount > 0) {
-        ma_device_handle_backend_data_callback(pDevice, pAudioData, NULL, (ma_uint32)frameCount);
+        ma_device_state_async_process(&pDeviceStateAAudio->async, pDevice, pAudioData, NULL, (ma_uint32)frameCount);
     }
 
     (void)pStream;
@@ -40616,6 +40621,8 @@ static ma_result ma_close_streams__aaudio(ma_device* pDevice)
         pDeviceStateAAudio->pStreamPlayback = NULL;
     }
 
+    ma_device_state_async_uninit(&pDeviceStateAAudio->async, ma_device_get_allocation_callbacks(pDevice));
+
     return MA_SUCCESS;
 }
 
@@ -40696,6 +40703,12 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_st
         if (result != MA_SUCCESS) {
             return result;
         }
+    }
+
+    result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateAAudio->async);
+    if (result != MA_SUCCESS) {
+        ma_close_streams__aaudio(pDevice);
+        return result;
     }
 
     return MA_SUCCESS;
@@ -41013,6 +41026,44 @@ static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
     return result;
 }
 
+static ma_result ma_device_wait__aaudio(ma_device* pDevice)
+{
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_device_state_async_wait(&pDeviceStateAAudio->async);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_step__aaudio(ma_device* pDevice)
+{
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_device_state_async_step(&pDeviceStateAAudio->async, pDevice);
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_loop__aaudio(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    for (;;) {
+        ma_result result = ma_device_wait__aaudio(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        /* If the wait terminated due to the device being stopped, abort now. */
+        if (!ma_device_is_started(pDevice)) {
+            break;
+        }
+
+        result = ma_device_step__aaudio(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
 {
     ma_backend_info__aaudio,
@@ -41025,7 +41076,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
     ma_device_stop__aaudio,
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
-    NULL,   /* onDeviceLoop */
+    ma_device_loop__aaudio,
     NULL    /* onDeviceWakeup */
 };
 
