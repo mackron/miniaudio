@@ -41336,6 +41336,7 @@ typedef struct ma_context_state_opensl
 
 typedef struct ma_device_state_opensl
 {
+    ma_device_state_async async;
     SLObjectItf pOutputMixObj;
     SLOutputMixItf pOutputMix;
     SLObjectItf pAudioPlayerObj;
@@ -41698,30 +41699,16 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
 
     (void)pBufferQueue;
 
-    /*
-    For now, don't do anything unless the buffer was fully processed. From what I can tell, it looks like
-    OpenSL|ES 1.1 improves on buffer queues to the point that we could much more intelligently handle this,
-    but unfortunately it looks like Android is only supporting OpenSL|ES 1.0.1 for now :(
-    */
-
-    /* Don't do anything if the device is not started. */
-    if (ma_device_get_status(pDevice) != ma_device_status_started) {
-        return;
-    }
-
-    /* Don't do anything if the device is being drained. */
-    if (pDeviceStateOpenSL->isDrainingCapture) {
-        return;
-    }
-
     periodSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     pBuffer = pDeviceStateOpenSL->pBufferCapture + (pDeviceStateOpenSL->currentBufferIndexCapture * periodSizeInBytes);
 
-    ma_device_handle_backend_data_callback(pDevice, NULL, pBuffer, pDevice->capture.internalPeriodSizeInFrames);
+    ma_device_state_async_process(&pDeviceStateOpenSL->async, pDevice, NULL, pBuffer, pDevice->capture.internalPeriodSizeInFrames);
 
-    resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue(pDeviceStateOpenSL->pBufferQueueCapture, pBuffer, periodSizeInBytes);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        return;
+    if (!pDeviceStateOpenSL->isDrainingCapture) {
+        resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue(pDeviceStateOpenSL->pBufferQueueCapture, pBuffer, periodSizeInBytes);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return;
+        }
     }
 
     pDeviceStateOpenSL->currentBufferIndexCapture = (pDeviceStateOpenSL->currentBufferIndexCapture + 1) % pDevice->capture.internalPeriods;
@@ -41739,24 +41726,16 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
 
     (void)pBufferQueue;
 
-    /* Don't do anything if the device is not started. */
-    if (ma_device_get_status(pDevice) != ma_device_status_started) {
-        return;
-    }
-
-    /* Don't do anything if the device is being drained. */
-    if (pDeviceStateOpenSL->isDrainingPlayback) {
-        return;
-    }
-
     periodSizeInBytes = pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     pBuffer = pDeviceStateOpenSL->pBufferPlayback + (pDeviceStateOpenSL->currentBufferIndexPlayback * periodSizeInBytes);
 
-    ma_device_handle_backend_data_callback(pDevice, pBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+    ma_device_state_async_process(&pDeviceStateOpenSL->async, pDevice, pBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-    resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue(pDeviceStateOpenSL->pBufferQueuePlayback, pBuffer, periodSizeInBytes);
-    if (resultSL != SL_RESULT_SUCCESS) {
-        return;
+    if (!pDeviceStateOpenSL->isDrainingPlayback) {
+        resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue(pDeviceStateOpenSL->pBufferQueuePlayback, pBuffer, periodSizeInBytes);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            return;
+        }
     }
 
     pDeviceStateOpenSL->currentBufferIndexPlayback = (pDeviceStateOpenSL->currentBufferIndexPlayback + 1) % pDevice->playback.internalPeriods;
@@ -41879,6 +41858,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
     ma_device_config_opensl* pDeviceConfigOpenSL = (ma_device_config_opensl*)pDeviceBackendConfig;
     ma_device_config_opensl defaultConfigOpenSL;
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
 
 #ifdef MA_ANDROID
     SLDataLocator_AndroidSimpleBufferQueue queue;
@@ -42149,6 +42129,12 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferPlayback, bufferSizeInBytes);
     }
 
+    result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateOpenSL->async);
+    if (result != MA_SUCCESS) {
+        ma_device_uninit__opensl(pDevice);
+        return result;
+    }
+
     *ppDeviceState = pDeviceStateOpenSL;
 
     return MA_SUCCESS;
@@ -42187,6 +42173,8 @@ static void ma_device_uninit__opensl(ma_device* pDevice)
 
         ma_free(pDeviceStateOpenSL->pBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
+
+    ma_device_state_async_uninit(&pDeviceStateOpenSL->async, ma_device_get_allocation_callbacks(pDevice));
 
     ma_free(pDeviceStateOpenSL, ma_device_get_allocation_callbacks(pDevice));
 }
@@ -42330,6 +42318,62 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_wait__opensl(ma_device* pDevice)
+{
+    ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
+    ma_device_state_async_wait(&pDeviceStateOpenSL->async);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_step__opensl(ma_device* pDevice)
+{
+    ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    if (ma_device_get_status(pDevice) != ma_device_status_started) {
+        return MA_SUCCESS;  /* Device not started. Nothing to do. */
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        if (pDeviceStateOpenSL->isDrainingCapture) {
+            return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        if (pDeviceStateOpenSL->isDrainingPlayback) {
+            return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
+        }
+    }
+
+    ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice);
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_loop__opensl(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    for (;;) {
+        ma_result result = ma_device_wait__opensl(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        /* If the wait terminated due to the device being stopped, abort now. */
+        if (!ma_device_is_started(pDevice)) {
+            break;
+        }
+
+        result = ma_device_step__opensl(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
 {
     ma_backend_info__opensl,
@@ -42342,7 +42386,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
     ma_device_stop__opensl,
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
-    NULL,   /* onDeviceLoop */
+    ma_device_loop__opensl,
     NULL    /* onDeviceWakeup */
 };
 
@@ -46067,7 +46111,7 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
         bufferAllocSizeInBytesPlayback = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels) * pAsyncDeviceState->playback.frameCap);
     }
 
-    pAsyncDeviceState->internal.pBuffer = ma_malloc(bufferAllocSizeInBytesCapture + bufferAllocSizeInBytesPlayback, pAllocationCallbacks);
+    pAsyncDeviceState->internal.pBuffer = ma_calloc(bufferAllocSizeInBytesCapture + bufferAllocSizeInBytesPlayback, pAllocationCallbacks);
     if (pAsyncDeviceState->internal.pBuffer == NULL) {
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
             ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
