@@ -40392,6 +40392,7 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_playback__aaudio
     though I've not yet had any reports about that one.
     */
     if (frameCount > 0) {
+        /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "AAudio Playback Callback: frameCount=%d, async.frameCap=%d\n", frameCount, pDeviceStateAAudio->async.playback.frameCap);*/
         ma_device_state_async_process(&pDeviceStateAAudio->async, pDevice, pAudioData, NULL, (ma_uint32)frameCount);
     }
 
@@ -46310,12 +46311,14 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                     pAsyncDeviceState->capture.frameCount += framesToCopy;
 
                     /* If we just filled up the buffer with data, it's time to release the semaphore. */
-                    if (pAsyncDeviceState->capture.frameCount == pAsyncDeviceState->capture.frameCap) {
+                    /*if (pAsyncDeviceState->capture.frameCount == pAsyncDeviceState->capture.frameCap) {
                         ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
-                    }
+                    }*/
                 }
             }
             ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
+
+            ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
         } else {
             MA_ASSERT(MA_FALSE);    /* Should never get here. */
         }
@@ -46345,11 +46348,13 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                 }
 
                 /* If we just emptied the buffer, it's time to release the semaphore. */
-                if (pAsyncDeviceState->playback.frameCount == 0) {
+                /*if (pAsyncDeviceState->playback.frameCount == 0) {
                     ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
-                }
+                }*/
             }
             ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
+
+            ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
         } else {
             MA_ASSERT(MA_FALSE);    /* Should never get here. */
         }
