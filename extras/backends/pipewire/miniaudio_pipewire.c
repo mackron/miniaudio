@@ -463,7 +463,7 @@ static ma_device_state_pipewire* ma_device_get_backend_state__pipewire(ma_device
 }
 
 
-static void ma_device_step__pipewire(ma_device* pDevice);
+static ma_result ma_device_step__pipewire(ma_device* pDevice);
 
 
 static void ma_backend_info__pipewire(ma_device_backend_info* pBackendInfo)
@@ -1570,7 +1570,7 @@ static ma_result ma_device_stop__pipewire(ma_device* pDevice)
 }
 
 
-static void ma_device_wait__pipewire(ma_device* pDevice)
+static ma_result ma_device_wait__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
@@ -1581,12 +1581,12 @@ static void ma_device_wait__pipewire(ma_device* pDevice)
 
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
             if (ma_pcm_rb_available_read(&pDeviceStatePipeWire->capture.rb) > 0) {
-                return;
+                return MA_SUCCESS;
             }
         }
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
             if (ma_pcm_rb_available_write(&pDeviceStatePipeWire->playback.rb) > 0) {
-                return;
+                return MA_SUCCESS;
             }
         }
 
@@ -1601,9 +1601,11 @@ static void ma_device_wait__pipewire(ma_device* pDevice)
             break;
         }
     }
+
+    return MA_SUCCESS;
 }
 
-static void ma_device_step__pipewire(ma_device* pDevice)
+static ma_result ma_device_step__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
@@ -1668,19 +1670,27 @@ static void ma_device_step__pipewire(ma_device* pDevice)
             }
         }
     }
+
+    return MA_SUCCESS;
 }
 
 static void ma_device_loop__pipewire(ma_device* pDevice)
 {
     for (;;) {
-        ma_device_wait__pipewire(pDevice);
+        ma_result result = ma_device_wait__pipewire(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
 
         /* If the wait terminated due to the device being stopped, abort now. */
         if (!ma_device_is_started(pDevice)) {
             break;
         }
 
-        ma_device_step__pipewire(pDevice);
+        result = ma_device_step__pipewire(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
     }
 }
 

@@ -21174,7 +21174,7 @@ static ma_uint32 ma_device_get_available_frames__null(ma_device* pDevice)
     }
 }
 
-static void ma_device_wait__null(ma_device* pDevice)
+static ma_result ma_device_wait__null(ma_device* pDevice)
 {
     while (ma_device_is_started(pDevice)) {
         /* Check the frames available based on the timer. We want to wait until we have at least a whole period available. */
@@ -21184,9 +21184,11 @@ static void ma_device_wait__null(ma_device* pDevice)
 
         ma_sleep(1);
     }
+
+    return MA_SUCCESS;
 }
 
-static void ma_device_step__null(ma_device* pDevice)
+static ma_result ma_device_step__null(ma_device* pDevice)
 {
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
     ma_uint32 framesAvailable;
@@ -21199,7 +21201,7 @@ static void ma_device_step__null(ma_device* pDevice)
     framesAvailable = ma_device_get_available_frames__null(pDevice);
     if (framesAvailable == 0) {
         /* Not enough frames available for processing. Do nothing. */
-        return;
+        return MA_SUCCESS;
     }
 
     /* For capture we need to submit silence. For playback we just read and discard. */
@@ -21212,6 +21214,8 @@ static void ma_device_step__null(ma_device* pDevice)
 
     /* The cursor needs to be advanced by the number of frames we just processed. */
     pDeviceStateNull->cursor += framesAvailable;
+
+    return MA_SUCCESS;
 }
 
 static void ma_device_loop__null(ma_device* pDevice)

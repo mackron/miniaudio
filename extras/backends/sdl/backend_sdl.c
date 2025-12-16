@@ -169,7 +169,7 @@ static ma_device_state_sdl* ma_device_get_backend_state__sdl(ma_device* pDevice)
 }
 
 
-static void ma_device_step__sdl(ma_device* pDevice);
+static ma_result ma_device_step__sdl(ma_device* pDevice);
 
 
 static void ma_backend_info__sdl(ma_device_backend_info* pBackendInfo)
@@ -593,29 +593,39 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
 }
 
 
-static void ma_device_wait__sdl(ma_device* pDevice)
+static ma_result ma_device_wait__sdl(ma_device* pDevice)
 {
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
     ma_device_state_async_wait(&pDeviceStateSDL->async);
+
+    return MA_SUCCESS;
 }
 
-static void ma_device_step__sdl(ma_device* pDevice)
+static ma_result ma_device_step__sdl(ma_device* pDevice)
 {
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
     ma_device_state_async_step(&pDeviceStateSDL->async, pDevice);
+
+    return MA_SUCCESS;
 }
 
 static void ma_device_loop__sdl(ma_device* pDevice)
 {
     for (;;) {
-        ma_device_wait__sdl(pDevice);
+        ma_result result = ma_device_wait__sdl(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
 
         /* If the wait terminated due to the device being stopped, abort now. */
         if (!ma_device_is_started(pDevice)) {
             break;
         }
 
-        ma_device_step__sdl(pDevice);
+        result = ma_device_step__sdl(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
     }
 }
 
