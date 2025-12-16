@@ -46309,11 +46309,6 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
 
                     MA_COPY_MEMORY(ma_offset_ptr(pAsyncDeviceState->capture.pBuffer, bytesPerFrame * pAsyncDeviceState->capture.frameCount), pInput, bytesPerFrame * framesToCopy);
                     pAsyncDeviceState->capture.frameCount += framesToCopy;
-
-                    /* If we just filled up the buffer with data, it's time to release the semaphore. */
-                    /*if (pAsyncDeviceState->capture.frameCount == pAsyncDeviceState->capture.frameCap) {
-                        ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
-                    }*/
                 }
             }
             ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
@@ -46346,11 +46341,6 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
 
                     pAsyncDeviceState->playback.frameCount -= framesToCopy;
                 }
-
-                /* If we just emptied the buffer, it's time to release the semaphore. */
-                /*if (pAsyncDeviceState->playback.frameCount == 0) {
-                    ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
-                }*/
             }
             ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
 
