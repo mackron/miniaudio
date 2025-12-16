@@ -9516,6 +9516,7 @@ typedef struct ma_device_state_async
 
 MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceState, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDeviceState, ma_uint32 sizeInFramesPlayback, ma_uint32 sizeInFramesCapture, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice);
 MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
@@ -33118,6 +33119,7 @@ typedef struct ma_context_state_jack
 
 typedef struct ma_device_state_jack
 {
+    ma_device_state_async async;
     ma_context_state_jack* pContextStateJACK;
     ma_bool32 noAutoConnect;
     ma_jack_client_t* pClient;
@@ -33434,6 +33436,8 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
     }
 
+    ma_device_state_async_resize(&pDeviceStateJACK->async, frameCount, frameCount, ma_device_get_allocation_callbacks(pDevice));
+
     return 0;
 }
 
@@ -33447,12 +33451,12 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         /* Channels need to be interleaved. */
-        for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+        for (iChannel = 0; iChannel < pDevice->capture.internalChannels; iChannel += 1) {
             const float* pSrc = (const float*)pContextStateJACK->jack_port_get_buffer(pDeviceStateJACK->ppPortsCapture[iChannel], frameCount);
             if (pSrc != NULL) {
                 float* pDst = pDeviceStateJACK->pIntermediaryBufferCapture + iChannel;
                 ma_jack_nframes_t iFrame;
-                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                     *pDst = *pSrc;
 
                     pDst += pDevice->capture.internalChannels;
@@ -33461,19 +33465,19 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
             }
         }
 
-        ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
+        ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_device_handle_backend_data_callback(pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
+        ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
 
         /* Channels need to be deinterleaved. */
-        for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+        for (iChannel = 0; iChannel < pDevice->playback.internalChannels; iChannel += 1) {
             float* pDst = (float*)pContextStateJACK->jack_port_get_buffer(pDeviceStateJACK->ppPortsPlayback[iChannel], frameCount);
             if (pDst != NULL) {
                 const float* pSrc = pDeviceStateJACK->pIntermediaryBufferPlayback + iChannel;
                 ma_jack_nframes_t iFrame;
-                for (iFrame = 0; iFrame < frameCount; ++iFrame) {
+                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                     *pDst = *pSrc;
 
                     pDst += 1;
@@ -33669,6 +33673,12 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         }
     }
 
+    result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateJACK->async);
+    if (result != MA_SUCCESS) {
+        ma_device_uninit__jack(pDevice);
+        return result;
+    }
+
     *ppDeviceState = pDeviceStateJACK;
 
     return MA_SUCCESS;
@@ -33693,6 +33703,8 @@ static void ma_device_uninit__jack(ma_device* pDevice)
         ma_free(pDeviceStateJACK->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
         ma_free(pDeviceStateJACK->ppPortsPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
+
+    ma_device_state_async_uninit(&pDeviceStateJACK->async, ma_device_get_allocation_callbacks(pDevice));
 
     ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
 }
@@ -33781,6 +33793,43 @@ static ma_result ma_device_stop__jack(ma_device* pDevice)
 }
 
 
+static ma_result ma_device_wait__jack(ma_device* pDevice)
+{
+    ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
+    ma_device_state_async_wait(&pDeviceStateJACK->async);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_step__jack(ma_device* pDevice)
+{
+    ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
+    ma_device_state_async_step(&pDeviceStateJACK->async, pDevice);
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_loop__jack(ma_device* pDevice)
+{
+    for (;;) {
+        ma_result result = ma_device_wait__jack(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        /* If the wait terminated due to the device being stopped, abort now. */
+        if (!ma_device_is_started(pDevice)) {
+            break;
+        }
+
+        result = ma_device_step__jack(pDevice);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
+}
+
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
 {
     ma_backend_info__jack,
@@ -33793,7 +33842,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
     ma_device_stop__jack,
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
-    NULL,   /* onDeviceLoop */
+    ma_device_loop__jack,
     NULL    /* onDeviceWakeup */
 };
 
@@ -46063,8 +46112,6 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
 MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState)
 {
     ma_result result;
-    size_t bufferAllocSizeInBytesCapture  = 0;
-    size_t bufferAllocSizeInBytesPlayback = 0;
 
     if (pAsyncDeviceState == NULL) {
         return MA_INVALID_ARGS;
@@ -46085,9 +46132,6 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
 
         pAsyncDeviceState->capture.format   = pDescriptorCapture->format;
         pAsyncDeviceState->capture.channels = pDescriptorCapture->channels;
-        pAsyncDeviceState->capture.frameCap = pDescriptorCapture->periodSizeInFrames;
-
-        bufferAllocSizeInBytesCapture = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->capture.format, pAsyncDeviceState->capture.channels) * pAsyncDeviceState->capture.frameCap);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -46106,29 +46150,18 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
 
         pAsyncDeviceState->playback.format   = pDescriptorPlayback->format;
         pAsyncDeviceState->playback.channels = pDescriptorPlayback->channels;
-        pAsyncDeviceState->playback.frameCap = pDescriptorPlayback->periodSizeInFrames;
-
-        bufferAllocSizeInBytesPlayback = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels) * pAsyncDeviceState->playback.frameCap);
     }
 
-    pAsyncDeviceState->internal.pBuffer = ma_calloc(bufferAllocSizeInBytesCapture + bufferAllocSizeInBytesPlayback, pAllocationCallbacks);
-    if (pAsyncDeviceState->internal.pBuffer == NULL) {
+    result = ma_device_state_async_resize(pAsyncDeviceState, pDescriptorPlayback->periodSizeInFrames, pDescriptorCapture->periodSizeInFrames, pAllocationCallbacks);
+    if (result != MA_SUCCESS) {
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
             ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
         }
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
             ma_semaphore_uninit(&pAsyncDeviceState->playback.semaphore);
         }
-        
-        return MA_OUT_OF_MEMORY;
-    }
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        pAsyncDeviceState->capture.pBuffer = pAsyncDeviceState->internal.pBuffer;
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        pAsyncDeviceState->playback.pBuffer = ma_offset_ptr(pAsyncDeviceState->internal.pBuffer, bufferAllocSizeInBytesCapture);
+        return result;
     }
 
     return MA_SUCCESS;
@@ -46150,6 +46183,53 @@ MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceStat
     if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
         ma_semaphore_uninit(&pAsyncDeviceState->playback.semaphore);
     }
+}
+
+MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDeviceState, ma_uint32 sizeInFramesPlayback, ma_uint32 sizeInFramesCapture, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    size_t bufferAllocSizeInBytesCapture  = 0;
+    size_t bufferAllocSizeInBytesPlayback = 0;
+    void* pNewBuffer = NULL;
+
+    if (pAsyncDeviceState == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        if (sizeInFramesCapture == 0) {
+            return MA_INVALID_ARGS;
+        }
+
+        bufferAllocSizeInBytesCapture = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->capture.format, pAsyncDeviceState->capture.channels) * sizeInFramesCapture);
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        if (sizeInFramesPlayback == 0) {
+            return MA_INVALID_ARGS;
+        }
+
+        bufferAllocSizeInBytesPlayback = ma_align_64(ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels) * sizeInFramesPlayback);
+    }
+
+    pNewBuffer = ma_calloc(bufferAllocSizeInBytesCapture + bufferAllocSizeInBytesPlayback, pAllocationCallbacks);
+    if (pNewBuffer == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    ma_free(pAsyncDeviceState->internal.pBuffer, pAllocationCallbacks);
+    pAsyncDeviceState->internal.pBuffer = pNewBuffer;
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        pAsyncDeviceState->capture.pBuffer  = pAsyncDeviceState->internal.pBuffer;
+        pAsyncDeviceState->capture.frameCap = sizeInFramesCapture;
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        pAsyncDeviceState->playback.pBuffer  = ma_offset_ptr(pAsyncDeviceState->internal.pBuffer, bufferAllocSizeInBytesCapture);
+        pAsyncDeviceState->playback.frameCap = sizeInFramesPlayback;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
