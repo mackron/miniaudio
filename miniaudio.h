@@ -7239,6 +7239,11 @@ MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_
 
 
 
+typedef enum ma_blocking_mode
+{
+    MA_BLOCKING_MODE_BLOCKING,
+    MA_BLOCKING_MODE_NON_BLOCKING
+} ma_blocking_mode;
 
 /* ma_device_op* is used internally. Defined here because it's required by ma_device. */
 typedef struct ma_device_op_completion_event
@@ -43759,13 +43764,6 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
 }
 
 
-
-/* TODO: Make this public? */
-typedef enum ma_blocking_mode
-{
-    MA_BLOCKING_MODE_BLOCKING,
-    MA_BLOCKING_MODE_NON_BLOCKING
-} ma_blocking_mode;
 
 MA_API ma_result ma_device_op_completion_event_init(ma_device_op_completion_event* pCompletionEvent)
 {
