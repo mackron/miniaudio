@@ -169,7 +169,7 @@ static ma_device_state_sdl* ma_device_get_backend_state__sdl(ma_device* pDevice)
 }
 
 
-static ma_result ma_device_step__sdl(ma_device* pDevice);
+static ma_result ma_device_step__sdl(ma_device* pDevice, ma_blocking_mode blockingMode);
 
 
 static void ma_backend_info__sdl(ma_device_backend_info* pBackendInfo)
@@ -562,7 +562,7 @@ static ma_result ma_device_start__sdl(ma_device* pDevice)
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
     /* Step the device once to ensure buffers are pre-filled before starting. */
-    ma_device_step__sdl(pDevice);
+    ma_device_step__sdl(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         pContextStateSDL->SDL_PauseAudioDevice(pDeviceStateSDL->capture.deviceID, 0);
@@ -593,18 +593,39 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
 }
 
 
-static ma_result ma_device_wait__sdl(ma_device* pDevice)
+static ma_result ma_device_step__sdl(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
-    ma_device_state_async_wait(&pDeviceStateSDL->async);
 
-    return MA_SUCCESS;
-}
+    for (;;) {
+        ma_result result;
 
-static ma_result ma_device_step__sdl(ma_device* pDevice)
-{
-    ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
-    ma_device_state_async_step(&pDeviceStateSDL->async, pDevice);
+        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+            ma_device_state_async_wait(&pDeviceStateSDL->async);
+        }
+    
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+    
+        result = ma_device_state_async_step(&pDeviceStateSDL->async, pDevice);
+        if (result == MA_SUCCESS) {
+            break;
+        }
+
+        if (result != MA_NO_DATA_AVAILABLE) {
+            return result;
+        }
+
+        /* Getting here means no data was processed. In non-blocking mode we don't care, just get out of the loop. */
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            break;
+        }
+
+        /* Getting here means we're in blocking mode and no data was processed. In this case we'd rather keep waiting for data to be available. */
+        continue;
+    }
+
 
     return MA_SUCCESS;
 }
@@ -612,21 +633,17 @@ static ma_result ma_device_step__sdl(ma_device* pDevice)
 static void ma_device_loop__sdl(ma_device* pDevice)
 {
     for (;;) {
-        ma_result result = ma_device_wait__sdl(pDevice);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        /* If the wait terminated due to the device being stopped, abort now. */
-        if (!ma_device_is_started(pDevice)) {
-            break;
-        }
-
-        result = ma_device_step__sdl(pDevice);
+        ma_result result = ma_device_step__sdl(pDevice, MA_BLOCKING_MODE_BLOCKING);
         if (result != MA_SUCCESS) {
             break;
         }
     }
+}
+
+static void ma_device_wake__sdl(ma_device* pDevice)
+{
+    ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
+    ma_device_state_async_release(&pDeviceStateSDL->async);
 }
 
 
@@ -643,7 +660,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
     ma_device_loop__sdl,
-    NULL    /* onDeviceWakeup */
+    ma_device_wake__sdl
 };
 
 ma_device_backend_vtable* ma_device_backend_sdl = &ma_gDeviceBackendVTable_SDL;

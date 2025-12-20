@@ -9522,8 +9522,9 @@ typedef struct ma_device_state_async
 MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceState, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDeviceState, ma_uint32 sizeInFramesPlayback, ma_uint32 sizeInFramesCapture, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_device_state_async_release(ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState);
-MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice);
+MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice);  /* Returns MA_SUCCESS if some data was processed, MA_NO_DATA_AVAILABLE if no data was processed. */
 MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 /* END ma_device_state_async.h */
 
@@ -46235,6 +46236,21 @@ MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDevic
     return MA_SUCCESS;
 }
 
+MA_API void ma_device_state_async_release(ma_device_state_async* pAsyncDeviceState)
+{
+    if (pAsyncDeviceState == NULL) {
+        return;
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
+    }
+}
+
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
 {
     if (pAsyncDeviceState == NULL) {
@@ -46250,10 +46266,12 @@ MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
     }
 }
 
-MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice)
+MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice)
 {
+    ma_result result = MA_NO_DATA_AVAILABLE;
+
     if (pAsyncDeviceState == NULL || pDevice == NULL) {
-        return;
+        return MA_INVALID_ARGS;
     }
 
     if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
@@ -46262,6 +46280,7 @@ MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState,
             if (pAsyncDeviceState->capture.frameCount > 0) {
                 ma_device_handle_backend_data_callback(pDevice, NULL, pAsyncDeviceState->capture.pBuffer, pAsyncDeviceState->capture.frameCount);
                 pAsyncDeviceState->capture.frameCount = 0;
+                result = MA_SUCCESS;
             }
         }
         ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
@@ -46275,10 +46294,13 @@ MA_API void ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState,
             if (pAsyncDeviceState->playback.frameCount < pAsyncDeviceState->playback.frameCap) {
                 ma_device_handle_backend_data_callback(pDevice, ma_offset_ptr(pAsyncDeviceState->playback.pBuffer, bytesPerFrame * pAsyncDeviceState->playback.frameCount), NULL, (pAsyncDeviceState->playback.frameCap - pAsyncDeviceState->playback.frameCount));
                 pAsyncDeviceState->playback.frameCount = pAsyncDeviceState->playback.frameCap;
+                result = MA_SUCCESS;
             }
         }
         ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
     }
+
+    return result;
 }
 
 MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
