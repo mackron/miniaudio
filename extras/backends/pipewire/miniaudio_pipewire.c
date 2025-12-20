@@ -1666,7 +1666,7 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
             }
         }
 
-        if (hasProcessedData) {
+        if (hasProcessedData || blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
             break;
         }
     }
