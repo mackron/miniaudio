@@ -626,7 +626,6 @@ static ma_result ma_device_step__sdl(ma_device* pDevice, ma_blocking_mode blocki
         continue;
     }
 
-
     return MA_SUCCESS;
 }
 
