@@ -195,6 +195,8 @@ typedef int                       (* ma_pw_loop_set_name_proc           )(struct
 typedef void                      (* ma_pw_loop_enter_proc              )(struct ma_pw_loop* loop);
 typedef void                      (* ma_pw_loop_leave_proc              )(struct ma_pw_loop* loop);
 typedef int                       (* ma_pw_loop_iterate_proc            )(struct ma_pw_loop* loop, int timeout);
+typedef struct spa_source*        (* ma_pw_loop_add_event_proc          )(struct ma_pw_loop* loop, void (* func)(void* data, ma_uint64 count), void* data);
+typedef int                       (* ma_pw_loop_signal_event_proc       )(struct ma_pw_loop* loop, struct spa_source* source);
 typedef struct ma_pw_thread_loop* (* ma_pw_thread_loop_new_proc         )(const char* name, const struct spa_dict* props);
 typedef void                      (* ma_pw_thread_loop_destroy_proc     )(struct ma_pw_thread_loop* loop);
 typedef struct ma_pw_loop*        (* ma_pw_thread_loop_get_loop_proc    )(struct ma_pw_thread_loop* loop);
@@ -237,6 +239,8 @@ typedef struct
     ma_pw_loop_enter_proc               pw_loop_enter;
     ma_pw_loop_leave_proc               pw_loop_leave;
     ma_pw_loop_iterate_proc             pw_loop_iterate;
+    ma_pw_loop_add_event_proc           pw_loop_add_event;
+    ma_pw_loop_signal_event_proc        pw_loop_signal_event;
     ma_pw_thread_loop_new_proc          pw_thread_loop_new;
     ma_pw_thread_loop_destroy_proc      pw_thread_loop_destroy;
     ma_pw_thread_loop_get_loop_proc     pw_thread_loop_get_loop;
@@ -297,6 +301,7 @@ typedef struct
     struct ma_pw_loop* pLoop;
     struct ma_pw_context* pContext;
     struct ma_pw_core* pCore;
+    struct spa_source* pWakeup; /* This is for waking up the loop which we need to do after each data processing callback and the miniaudio wakeup callback. */
     ma_pipewire_stream_state playback;
     ma_pipewire_stream_state capture;
     struct
@@ -463,7 +468,7 @@ static ma_device_state_pipewire* ma_device_get_backend_state__pipewire(ma_device
 }
 
 
-static ma_result ma_device_step__pipewire(ma_device* pDevice);
+static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode blockingMode);
 
 
 static void ma_backend_info__pipewire(ma_device_backend_info* pBackendInfo)
@@ -518,6 +523,8 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     pContextStatePipeWire->pw_loop_enter               = (ma_pw_loop_enter_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_enter");
     pContextStatePipeWire->pw_loop_leave               = (ma_pw_loop_leave_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_leave");
     pContextStatePipeWire->pw_loop_iterate             = (ma_pw_loop_iterate_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_iterate");
+    pContextStatePipeWire->pw_loop_add_event           = (ma_pw_loop_add_event_proc          )ma_dlsym(pLog, hPipeWire, "pw_loop_add_event");
+    pContextStatePipeWire->pw_loop_signal_event        = (ma_pw_loop_signal_event_proc       )ma_dlsym(pLog, hPipeWire, "pw_loop_signal_event");
     pContextStatePipeWire->pw_thread_loop_new          = (ma_pw_thread_loop_new_proc         )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_new");
     pContextStatePipeWire->pw_thread_loop_destroy      = (ma_pw_thread_loop_destroy_proc     )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_destroy");
     pContextStatePipeWire->pw_thread_loop_get_loop     = (ma_pw_thread_loop_get_loop_proc    )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_get_loop");
@@ -1252,6 +1259,9 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     pBuffer->buffer->datas[0].chunk->size   = frameCount * bytesPerFrame;
 
     pContextStatePipeWire->pw_stream_queue_buffer(pStreamState->pStream, pBuffer);
+
+    /* We need to make sure the loop is woken up so we can refill the intermediary buffer in the step function. */
+    pContextStatePipeWire->pw_loop_signal_event(pDeviceStatePipeWire->pLoop, pDeviceStatePipeWire->pWakeup);
 }
 
 
@@ -1419,6 +1429,13 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     return MA_SUCCESS;
 }
 
+static void ma_device_on_wakupe__pipewire(void* pUserData, ma_uint64 count)
+{
+    /* Nothing to do here. This is only used for waking up the loop. */
+    (void)pUserData;
+    (void)count;
+}
+
 static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_result result;
@@ -1503,6 +1520,17 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
         return result;
     }
 
+    /* We need an event for waking up the loop. */
+    pDeviceStatePipeWire->pWakeup = pContextStatePipeWire->pw_loop_add_event(pLoop, ma_device_on_wakupe__pipewire, pDeviceStatePipeWire);
+    if (pDeviceStatePipeWire->pWakeup == NULL) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire loop wakeup event.");
+        pContextStatePipeWire->pw_core_disconnect(pCore);
+        pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
+        pContextStatePipeWire->pw_loop_destroy(pLoop);
+        ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
+        return MA_ERROR;
+    }
+
     *ppDeviceState = pDeviceStatePipeWire;
 
     return MA_SUCCESS;
@@ -1540,7 +1568,7 @@ static ma_result ma_device_start__pipewire(ma_device* pDevice)
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
 
     /* Prepare our buffers before starting the streams. To do this we just need to step. */
-    ma_device_step__pipewire(pDevice);
+    ma_device_step__pipewire(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
 
     if (pDeviceStatePipeWire->capture.pStream != NULL) {
         pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->capture.pStream, MA_TRUE);
@@ -1569,105 +1597,77 @@ static ma_result ma_device_stop__pipewire(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-
-static ma_result ma_device_wait__pipewire(ma_device* pDevice)
+static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    int timeout;
+    ma_bool32 hasProcessedData = MA_FALSE;
 
-    for (;;) {
-        int iterateResult;
-
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            if (ma_pcm_rb_available_read(&pDeviceStatePipeWire->capture.rb) > 0) {
-                return MA_SUCCESS;
-            }
-        }
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            if (ma_pcm_rb_available_write(&pDeviceStatePipeWire->playback.rb) > 0) {
-                return MA_SUCCESS;
-            }
-        }
-
-        iterateResult = pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, -1);
-        if (iterateResult < 0) {
-            /*
-            Getting here means the loop iteration failed. I've had this happen in cases where we really don't want to
-            be stopping the device, one example being when I insert a breakpoint while debugging. I'm just going to
-            break from the loop to ensure we don't get stuck.
-            */
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "PipeWire loop iterate failed.");
-            break;
-        }
+    if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+        timeout = -1;
+    } else {
+        timeout = 0;
     }
 
-    return MA_SUCCESS;
-}
+    /* We will keep looping until we've processed some data. This should keep our stepping in time with data processing. */
+    for (;;) {
+        pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, timeout);
 
-static ma_result ma_device_step__pipewire(ma_device* pDevice)
-{
-    ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
-    ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, 0);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_uint32 framesAvailable;
-
-        framesAvailable = ma_pcm_rb_available_read(&pDeviceStatePipeWire->capture.rb);
-        if (framesAvailable > 0) {
-            /*printf("framesAvailable (Capture): %d\n", (int)framesAvailable);*/
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
         }
 
-        while (framesAvailable > 0) {
-            void* pMappedBuffer;
-            ma_uint32 framesToRead = framesAvailable;
-            ma_result result;
+        /* We want to handle both playback and capture in a single iteration for duplex mode. */
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            ma_uint32 framesAvailable;
 
-            result = ma_pcm_rb_acquire_read(&pDeviceStatePipeWire->capture.rb, &framesToRead, &pMappedBuffer);
-            if (result == MA_SUCCESS) {
-                ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, framesToRead);
+            framesAvailable = ma_pcm_rb_available_read(&pDeviceStatePipeWire->capture.rb);
+            if (framesAvailable > 0) {
+                hasProcessedData = MA_TRUE;
+            }
 
-                result = ma_pcm_rb_commit_read(&pDeviceStatePipeWire->capture.rb, framesToRead);
-                framesAvailable -= framesToRead;
+            while (framesAvailable > 0) {
+                void* pMappedBuffer;
+                ma_uint32 framesToRead = framesAvailable;
+                ma_result result;
 
-                if (result != MA_SUCCESS) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to commit read to ring buffer.");
+                result = ma_pcm_rb_acquire_read(&pDeviceStatePipeWire->capture.rb, &framesToRead, &pMappedBuffer);
+                if (result == MA_SUCCESS) {
+                    ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, framesToRead);
+
+                    result = ma_pcm_rb_commit_read(&pDeviceStatePipeWire->capture.rb, framesToRead);
+                    framesAvailable -= framesToRead;
                 }
-            } else {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to acquire read to ring buffer.");
             }
         }
-    }    
+        
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            ma_uint32 framesAvailable;
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_uint32 framesAvailable;
+            framesAvailable = ma_pcm_rb_available_write(&pDeviceStatePipeWire->playback.rb);
+            if (framesAvailable > 0) {
+                hasProcessedData = MA_TRUE;
+            }
 
-        framesAvailable = ma_pcm_rb_available_write(&pDeviceStatePipeWire->playback.rb);
-        if (framesAvailable > 0) {
-            /*printf("framesAvailable (Playback): %d\n", (int)framesAvailable);*/
+            while (framesAvailable > 0) {
+                void* pMappedBuffer;
+                ma_uint32 framesToWrite = framesAvailable;
+                ma_result result;
+
+                result = ma_pcm_rb_acquire_write(&pDeviceStatePipeWire->playback.rb, &framesToWrite, &pMappedBuffer);
+                if (result == MA_SUCCESS) {
+                    ma_device_handle_backend_data_callback(pDevice, pMappedBuffer, NULL, framesToWrite);
+
+                    result = ma_pcm_rb_commit_write(&pDeviceStatePipeWire->playback.rb, framesToWrite);
+                    framesAvailable -= framesToWrite;
+                }
+            }
         }
 
-        while (framesAvailable > 0) {
-            void* pMappedBuffer;
-            ma_uint32 framesToWrite = framesAvailable;
-            ma_result result;
-
-            result = ma_pcm_rb_acquire_write(&pDeviceStatePipeWire->playback.rb, &framesToWrite, &pMappedBuffer);
-            if (result == MA_SUCCESS) {
-                ma_device_handle_backend_data_callback(pDevice, pMappedBuffer, NULL, framesToWrite);
-
-                result = ma_pcm_rb_commit_write(&pDeviceStatePipeWire->playback.rb, framesToWrite);
-                framesAvailable -= framesToWrite;
-
-                if (result != MA_SUCCESS) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to commit write to ring buffer.");
-                }
-            } else {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to acquire write to ring buffer.");
-            }
+        if (hasProcessedData) {
+            break;
         }
     }
 
@@ -1677,21 +1677,19 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice)
 static void ma_device_loop__pipewire(ma_device* pDevice)
 {
     for (;;) {
-        ma_result result = ma_device_wait__pipewire(pDevice);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        /* If the wait terminated due to the device being stopped, abort now. */
-        if (!ma_device_is_started(pDevice)) {
-            break;
-        }
-
-        result = ma_device_step__pipewire(pDevice);
+        ma_result result = ma_device_step__pipewire(pDevice, MA_BLOCKING_MODE_BLOCKING);
         if (result != MA_SUCCESS) {
             break;
         }
     }
+}
+
+static void ma_device_wake__pipewire(ma_device* pDevice)
+{
+    ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
+    ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+
+    pContextStatePipeWire->pw_loop_signal_event(pDeviceStatePipeWire->pLoop, pDeviceStatePipeWire->pWakeup);
 }
 
 
@@ -1708,7 +1706,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
     ma_device_loop__pipewire,
-    NULL    /* onDeviceWakeup */
+    ma_device_wake__pipewire
 };
 
 ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_PipeWire;
