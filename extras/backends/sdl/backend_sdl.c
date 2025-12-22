@@ -596,37 +596,7 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
 static ma_result ma_device_step__sdl(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
-
-    for (;;) {
-        ma_result result;
-
-        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
-            ma_device_state_async_wait(&pDeviceStateSDL->async);
-        }
-    
-        if (!ma_device_is_started(pDevice)) {
-            return MA_DEVICE_NOT_STARTED;
-        }
-    
-        result = ma_device_state_async_step(&pDeviceStateSDL->async, pDevice);
-        if (result == MA_SUCCESS) {
-            break;
-        }
-
-        if (result != MA_NO_DATA_AVAILABLE) {
-            return result;
-        }
-
-        /* Getting here means no data was processed. In non-blocking mode we don't care, just get out of the loop. */
-        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
-            break;
-        }
-
-        /* Getting here means we're in blocking mode and no data was processed. In this case we'd rather keep waiting for data to be available. */
-        continue;
-    }
-
-    return MA_SUCCESS;
+    return ma_device_state_async_step(&pDeviceStateSDL->async, pDevice, blockingMode, NULL);
 }
 
 static void ma_device_loop__sdl(ma_device* pDevice)

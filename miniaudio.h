@@ -9524,7 +9524,7 @@ MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceStat
 MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDeviceState, ma_uint32 sizeInFramesPlayback, ma_uint32 sizeInFramesCapture, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API void ma_device_state_async_release(ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState);
-MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice);  /* Returns MA_SUCCESS if some data was processed, MA_NO_DATA_AVAILABLE if no data was processed. */
+MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, ma_blocking_mode blockingMode, ma_result (* extra)(ma_device* pDevice));  /* Returns MA_SUCCESS if some data was processed, MA_NO_DATA_AVAILABLE if no data was processed. The `extra` function is optional, and is used for doing backend-specific stuff before doing data processing (an example might be device rerouting). */
 MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 /* END ma_device_state_async.h */
 
@@ -33792,36 +33792,16 @@ static ma_result ma_device_stop__jack(ma_device* pDevice)
 }
 
 
-static ma_result ma_device_wait__jack(ma_device* pDevice)
+static ma_result ma_device_step__jack(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
-    ma_device_state_async_wait(&pDeviceStateJACK->async);
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_step__jack(ma_device* pDevice)
-{
-    ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
-    ma_device_state_async_step(&pDeviceStateJACK->async, pDevice);
-
-    return MA_SUCCESS;
+    return ma_device_state_async_step(&pDeviceStateJACK->async, pDevice, blockingMode, NULL);
 }
 
 static void ma_device_loop__jack(ma_device* pDevice)
 {
     for (;;) {
-        ma_result result = ma_device_wait__jack(pDevice);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        /* If the wait terminated due to the device being stopped, abort now. */
-        if (!ma_device_is_started(pDevice)) {
-            break;
-        }
-
-        result = ma_device_step__jack(pDevice);
+        ma_result result = ma_device_step__jack(pDevice, MA_BLOCKING_MODE_BLOCKING);
         if (result != MA_SUCCESS) {
             break;
         }
@@ -41079,37 +41059,7 @@ static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
 static ma_result ma_device_step__aaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-
-    for (;;) {
-        ma_result result;
-
-        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
-            ma_device_state_async_wait(&pDeviceStateAAudio->async);
-        }
-    
-        if (!ma_device_is_started(pDevice)) {
-            return MA_DEVICE_NOT_STARTED;
-        }
-    
-        result = ma_device_state_async_step(&pDeviceStateAAudio->async, pDevice);
-        if (result == MA_SUCCESS) {
-            break;
-        }
-
-        if (result != MA_NO_DATA_AVAILABLE) {
-            return result;
-        }
-
-        /* Getting here means no data was processed. In non-blocking mode we don't care, just get out of the loop. */
-        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
-            break;
-        }
-
-        /* Getting here means we're in blocking mode and no data was processed. In this case we'd rather keep waiting for data to be available. */
-        continue;
-    }
-
-    return MA_SUCCESS;
+    return ma_device_state_async_step(&pDeviceStateAAudio->async, pDevice, blockingMode, NULL);
 }
 
 static void ma_device_loop__aaudio(ma_device* pDevice)
@@ -42381,50 +42331,7 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
 static ma_result ma_device_step__opensl(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-    
-    for (;;) {
-        ma_result result;
-
-        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
-            ma_device_state_async_wait(&pDeviceStateOpenSL->async);
-        }
-
-        if (!ma_device_is_started(pDevice)) {
-            return MA_DEVICE_NOT_STARTED;  /* Device not started. Nothing to do. */
-        }
-
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            if (pDeviceStateOpenSL->isDrainingCapture) {
-                return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
-            }
-        }
-
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            if (pDeviceStateOpenSL->isDrainingPlayback) {
-                return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
-            }
-        }
-
-        result = ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice);
-        if (result == MA_SUCCESS) {
-            break;
-        }
-
-        if (result != MA_NO_DATA_AVAILABLE) {
-            return result;
-        }
-
-        /* Getting here means no data was processed. In non-blocking mode we don't care, just get out of the loop. */
-        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
-            break;
-        }
-
-        /* Getting here means we're in blocking mode and no data was processed. In this case we'd rather keep waiting for data to be available. */
-        continue;
-    }
-
-    return MA_SUCCESS;
+    return ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice, blockingMode, NULL);
 }
 
 static void ma_device_loop__opensl(ma_device* pDevice)
@@ -46271,7 +46178,7 @@ MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
     }
 }
 
-MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice)
+static ma_result ma_device_state_async_step_internal(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice)
 {
     ma_result result = MA_NO_DATA_AVAILABLE;
 
@@ -46306,6 +46213,47 @@ MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceS
     }
 
     return result;
+}
+
+MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, ma_blocking_mode blockingMode, ma_result (* extra)(ma_device* pDevice))
+{
+    ma_result result;
+
+    for (;;) {
+        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+            ma_device_state_async_wait(pAsyncDeviceState);
+        }
+    
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        if (extra != NULL) {
+            result = extra(pDevice);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+    
+        result = ma_device_state_async_step_internal(pAsyncDeviceState, pDevice);
+        if (result == MA_SUCCESS) {
+            break;
+        }
+
+        if (result != MA_NO_DATA_AVAILABLE) {
+            return result;
+        }
+
+        /* Getting here means no data was processed. In non-blocking mode we don't care, just get out of the loop. */
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            break;
+        }
+
+        /* Getting here means we're in blocking mode and no data was processed. In this case we'd rather keep waiting for data to be available. */
+        continue;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
