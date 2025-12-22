@@ -42367,36 +42367,51 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_wait__opensl(ma_device* pDevice)
-{
-    ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
-    ma_device_state_async_wait(&pDeviceStateOpenSL->async);
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_step__opensl(ma_device* pDevice)
+static ma_result ma_device_step__opensl(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    
+    for (;;) {
+        ma_result result;
 
-    if (ma_device_get_status(pDevice) != ma_device_status_started) {
-        return MA_SUCCESS;  /* Device not started. Nothing to do. */
-    }
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        if (pDeviceStateOpenSL->isDrainingCapture) {
-            return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
+        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+            ma_device_state_async_wait(&pDeviceStateOpenSL->async);
         }
-    }
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        if (pDeviceStateOpenSL->isDrainingPlayback) {
-            return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;  /* Device not started. Nothing to do. */
         }
-    }
 
-    ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice);
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            if (pDeviceStateOpenSL->isDrainingCapture) {
+                return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
+            }
+        }
+
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            if (pDeviceStateOpenSL->isDrainingPlayback) {
+                return MA_SUCCESS;  /* Currently draining. Do not want to be firing the callback in this case. */
+            }
+        }
+
+        result = ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice);
+        if (result == MA_SUCCESS) {
+            break;
+        }
+
+        if (result != MA_NO_DATA_AVAILABLE) {
+            return result;
+        }
+
+        /* Getting here means no data was processed. In non-blocking mode we don't care, just get out of the loop. */
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            break;
+        }
+
+        /* Getting here means we're in blocking mode and no data was processed. In this case we'd rather keep waiting for data to be available. */
+        continue;
+    }
 
     return MA_SUCCESS;
 }
@@ -42406,17 +42421,7 @@ static void ma_device_loop__opensl(ma_device* pDevice)
     MA_ASSERT(pDevice != NULL);
 
     for (;;) {
-        ma_result result = ma_device_wait__opensl(pDevice);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        /* If the wait terminated due to the device being stopped, abort now. */
-        if (!ma_device_is_started(pDevice)) {
-            break;
-        }
-
-        result = ma_device_step__opensl(pDevice);
+        ma_result result = ma_device_step__opensl(pDevice, MA_BLOCKING_MODE_BLOCKING);
         if (result != MA_SUCCESS) {
             break;
         }
