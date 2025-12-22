@@ -21180,46 +21180,39 @@ static ma_uint32 ma_device_get_available_frames__null(ma_device* pDevice)
     }
 }
 
-static ma_result ma_device_wait__null(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        /* Check the frames available based on the timer. We want to wait until we have at least a whole period available. */
-        if (ma_device_get_available_frames__null(pDevice) > 0) {
-            break;
-        }
 
-        ma_sleep(1);
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_step__null(ma_device* pDevice)
+static ma_result ma_device_step__null(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
     ma_uint32 framesAvailable;
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    /*
-    The capture and playback sides both run on the same timer, so we need only check the timer once
-    and then just process both at the same time.
-    */
-    framesAvailable = ma_device_get_available_frames__null(pDevice);
-    if (framesAvailable == 0) {
-        /* Not enough frames available for processing. Do nothing. */
-        return MA_SUCCESS;
-    }
+    for (;;) {
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
 
-    /* For capture we need to submit silence. For playback we just read and discard. */
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateNull->pDataCapture, framesAvailable);
-    }
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_device_handle_backend_data_callback(pDevice, pDeviceStateNull->pDataPlayback, NULL, framesAvailable);
-    }
+        framesAvailable = ma_device_get_available_frames__null(pDevice);
+        if (framesAvailable > 0) {
+            /* For capture we need to submit silence. For playback we just read and discard. */
+            if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+                ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateNull->pDataCapture, framesAvailable);
+            }
+            if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+                ma_device_handle_backend_data_callback(pDevice, pDeviceStateNull->pDataPlayback, NULL, framesAvailable);
+            }
 
-    /* The cursor needs to be advanced by the number of frames we just processed. */
-    pDeviceStateNull->cursor += framesAvailable;
+            /* The cursor needs to be advanced by the number of frames we just processed. */
+            pDeviceStateNull->cursor += framesAvailable;
+        }
+
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            break;
+        }
+
+        /* Getting here means we're in blocking mode. Relax the CPU a bit and keep waiting for data. */
+        ma_sleep(1);
+    }
 
     return MA_SUCCESS;
 }
@@ -21227,14 +21220,10 @@ static ma_result ma_device_step__null(ma_device* pDevice)
 static void ma_device_loop__null(ma_device* pDevice)
 {
     for (;;) {
-        ma_device_wait__null(pDevice);
-
-        /* If the wait terminated due to the device being stopped, abort now. */
-        if (!ma_device_is_started(pDevice)) {
+        ma_result result = ma_device_step__null(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
             break;
         }
-
-        ma_device_step__null(pDevice);
     }
 }
 
