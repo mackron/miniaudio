@@ -40996,11 +40996,12 @@ static ma_result ma_device_start__aaudio(ma_device* pDevice)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
 
     ma_device_state_async_flush(&pDeviceStateAAudio->async);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
+        result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -41010,7 +41011,7 @@ static ma_result ma_device_start__aaudio(ma_device* pDevice)
         /* Do an initial step to get the buffer ready in preparation for the first callback instantiation. */
         ma_device_step__aaudio(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
 
-        ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
+        result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
         if (result != MA_SUCCESS) {
             if (deviceType == ma_device_type_duplex) {
                 ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
