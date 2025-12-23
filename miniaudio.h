@@ -66528,7 +66528,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
             due to an out of memory error. We're going to abort with an error here and not try to recover.
             */
             if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
+                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
             }
 
             return result;
@@ -67155,7 +67155,7 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
             due to an out of memory error. We're going to abort with an error here and not try to recover.
             */
             if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
+                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
             }
 
             return result;
@@ -67305,7 +67305,7 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
             due to an out of memory error. We're going to abort with an error here and not try to recover.
             */
             if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
+                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
             }
 
             return result;
