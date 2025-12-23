@@ -68085,7 +68085,7 @@ static ma_result ma_decoder__postinit_or_uninit(const ma_decoder_config* pConfig
         due to an out of memory error. We're going to abort with an error here and not try to recover.
         */
         if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-            pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
+            pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
         }
 
         return result;
