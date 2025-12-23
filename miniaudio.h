@@ -32972,26 +32972,34 @@ static ma_result ma_device_stop__pulseaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__pulseaudio(ma_device* pDevice)
+static ma_result ma_device_step__pulseaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_pulseaudio* pDeviceStatePulseAudio = ma_device_get_backend_state__pulseaudio(pDevice);
     ma_context_state_pulseaudio* pContextStatePulseAudio = ma_context_get_backend_state__pulseaudio(ma_device_get_context(pDevice));
+    int block = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? 1 : 0;
     int resultPA;
 
-    /* NOTE: Don't start the device here. It'll be done at a higher level. */
-
     /*
-    All data is handled through callbacks. All we need to do is iterate over the main loop and let
-    the callbacks deal with it.
+    The write callback is fired from pa_mainloop_iterate(). This meets miniaudio's specification that
+    the data callback be fired from the step() function, so there's no need to do anything here except
+    iterate the PulseAudio loop.
     */
+    resultPA = pContextStatePulseAudio->pa_mainloop_iterate(pDeviceStatePulseAudio->pMainLoop, block, NULL);
+    if (resultPA < 0) {
+        return MA_ERROR;
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_loop__pulseaudio(ma_device* pDevice)
+{
     while (ma_device_get_status(pDevice) == ma_device_status_started) {
-        resultPA = pContextStatePulseAudio->pa_mainloop_iterate(pDeviceStatePulseAudio->pMainLoop, 1, NULL);
-        if (resultPA < 0) {
+        ma_result result = ma_device_step__pulseaudio(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
             break;
         }
     }
-
-    /* NOTE: Don't stop the device here. It'll be done at a higher level. */
 }
 
 static void ma_device_wakeup__pulseaudio(ma_device* pDevice)
