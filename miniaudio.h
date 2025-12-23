@@ -18775,10 +18775,6 @@ static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob
 static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob);
 static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob);
 
-#if !defined(MA_NO_DEVICE_IO)
-static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob);
-#endif
-
 static ma_job_proc g_jobVTable[MA_JOB_TYPE_COUNT] =
 {
     /* Miscellaneous. */
@@ -18795,11 +18791,6 @@ static ma_job_proc g_jobVTable[MA_JOB_TYPE_COUNT] =
     ma_job_process__resource_manager__free_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM */
     ma_job_process__resource_manager__page_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM */
     ma_job_process__resource_manager__seek_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM */
-
-    /* Device. */
-#if !defined(MA_NO_DEVICE_IO)
-    ma_job_process__device__aaudio_reroute                      /* MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE */
-#endif
 };
 
 MA_API ma_result ma_job_process(ma_job* pJob)
@@ -40129,8 +40120,9 @@ typedef struct ma_device_state_aaudio
     ma_device_state_async async;
     ma_AAudioStream* pStreamPlayback;
     ma_AAudioStream* pStreamCapture;
-    ma_mutex rerouteLock;
     ma_atomic_bool32 isTearingDown;
+    ma_atomic_bool32 isReroutingPlayback;
+    ma_atomic_bool32 isReroutingCapture;
     ma_aaudio_usage usage;
     ma_aaudio_content_type contentType;
     ma_aaudio_input_preset inputPreset;
@@ -40148,6 +40140,10 @@ static ma_device_state_aaudio* ma_device_get_backend_state__aaudio(ma_device* pD
 {
     return (ma_device_state_aaudio*)ma_device_get_backend_state(pDevice);
 }
+
+
+static ma_result ma_device_start__aaudio(ma_device* pDevice);
+static ma_result ma_device_step__aaudio(ma_device* pDevice, ma_blocking_mode blockingMode);
 
 
 static void ma_backend_info__aaudio(ma_device_backend_info* pBackendInfo)
@@ -40308,34 +40304,24 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
     ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
-    ma_result result;
-    ma_job job;
     
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] ERROR CALLBACK: error=%d, AAudioStream_getState()=%d", error, pContextStateAAudio->AAudioStream_getState(pStream));
     
     /*
     When we get an error, we'll assume that the stream is in an erroneous state and needs to be restarted. From the documentation,
-    we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
-    cleanly and safely.
+    we cannot do this from the error callback, so instead we'll just set a flag and handle it from our step function.
     */
     if (ma_atomic_bool32_get(&pDeviceStateAAudio->isTearingDown)) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Tearing down device.");
-    }
-    else {
-        job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
-        job.data.device.aaudio.reroute.pDevice = pDevice;
-    
+    } else {
         if (pStream == pDeviceStateAAudio->pStreamCapture) {
-            job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
+            ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingCapture, MA_TRUE);
         } else {
-            job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
+            ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingPlayback, MA_TRUE);
         }
-    
-        result = ma_device_job_thread_post(&pContextStateAAudio->jobThread, &job);
-        if (result != MA_SUCCESS) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.");
-            return;
-        }
+
+        /* Make sure we wake up the semaphore so we can handle the rerouting in the step function. Not doing this might result in us getting stuck waiting. */
+        ma_device_state_async_release(&pDeviceStateAAudio->async);
     }
 }
 
@@ -40539,10 +40525,12 @@ static ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContex
     ma_aaudio_stream_state_t actualNewState;
     ma_aaudio_result_t resultAA = pContextStateAAudio->AAudioStream_waitForStateChange(pStream, oldState, &actualNewState, 5000000000); /* 5 second timeout. */
     if (resultAA != MA_AAUDIO_OK) {
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[AAudio] Failed to wait for state change.");
         return ma_result_from_aaudio(resultAA);
     }
 
     if (newState != actualNewState) {
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[AAudio] Expected state transition to %d but got %d instead.", newState, actualNewState);
         return MA_ERROR;   /* Failed to transition into the expected state. */
     }
 
@@ -40760,12 +40748,6 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const void* pDeviceB
         return result;
     }
 
-    result = ma_mutex_init(&pDeviceStateAAudio->rerouteLock);
-    if (result != MA_SUCCESS) {
-        ma_free(pDeviceStateAAudio, ma_device_get_allocation_callbacks(pDevice));
-        return result;
-    }
-
     *ppDeviceState = pDeviceStateAAudio;
 
     return MA_SUCCESS;
@@ -40781,150 +40763,9 @@ static void ma_device_uninit__aaudio(ma_device* pDevice)
     */
     ma_atomic_bool32_set(&pDeviceStateAAudio->isTearingDown, MA_TRUE);
 
-    /* Wait for any rerouting to finish before attempting to close the streams. */
-    ma_mutex_lock(&pDeviceStateAAudio->rerouteLock);
-    {
-        ma_close_streams__aaudio(pDevice);
-    }
-    ma_mutex_unlock(&pDeviceStateAAudio->rerouteLock);
-    ma_mutex_uninit(&pDeviceStateAAudio->rerouteLock);
+    ma_close_streams__aaudio(pDevice);
 
     ma_free(pDeviceStateAAudio, ma_device_get_allocation_callbacks(pDevice));
-}
-
-static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
-{
-    /*ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);*/
-    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
-    ma_aaudio_result_t resultAA;
-    ma_aaudio_stream_state_t currentState;
-
-    MA_ASSERT(pDevice != NULL);
-
-    if (pStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    resultAA = pContextStateAAudio->AAudioStream_requestStart(pStream);
-    if (resultAA != MA_AAUDIO_OK) {
-        return ma_result_from_aaudio(resultAA);
-    }
-
-    /* Do we actually need to wait for the device to transition into its started state? */
-
-    /* The device should be in either a starting or started state. If it's not set to started we need to wait for it to transition. It should go from starting to started. */
-    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
-    if (currentState != MA_AAUDIO_STREAM_STATE_STARTED) {
-        ma_result result;
-
-        if (currentState != MA_AAUDIO_STREAM_STATE_STARTING) {
-            return MA_ERROR;   /* Expecting the stream to be a starting or started state. */
-        }
-
-        result = ma_wait_for_simple_state_transition__aaudio(ma_device_get_context(pDevice), pStream, currentState, MA_AAUDIO_STREAM_STATE_STARTED);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
-{
-    /*ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);*/
-    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
-    ma_aaudio_result_t resultAA;
-    ma_aaudio_stream_state_t currentState;
-
-    MA_ASSERT(pDevice != NULL);
-
-    if (pStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    From the AAudio documentation:
-
-        The stream will stop after all of the data currently buffered has been played.
-
-    This maps with miniaudio's requirement that device's be drained which means we don't need to implement any draining logic.
-    */
-    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
-    if (currentState == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
-        return MA_SUCCESS;  /* The device is disconnected. Don't try stopping it. */
-    }
-
-    resultAA = pContextStateAAudio->AAudioStream_requestStop(pStream);
-    if (resultAA != MA_AAUDIO_OK) {
-        return ma_result_from_aaudio(resultAA);
-    }
-
-    /* The device should be in either a stopping or stopped state. If it's not set to started we need to wait for it to transition. It should go from stopping to stopped. */
-    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
-    if (currentState != MA_AAUDIO_STREAM_STATE_STOPPED) {
-        ma_result result;
-
-        if (currentState != MA_AAUDIO_STREAM_STATE_STOPPING) {
-            return MA_ERROR;   /* Expecting the stream to be a stopping or stopped state. */
-        }
-
-        result = ma_wait_for_simple_state_transition__aaudio(ma_device_get_context(pDevice), pStream, currentState, MA_AAUDIO_STREAM_STATE_STOPPED);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_start__aaudio(ma_device* pDevice)
-{
-    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
-        if (result != MA_SUCCESS) {
-            if (deviceType == ma_device_type_duplex) {
-                ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
-            }
-            return result;
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_stop__aaudio(ma_device* pDevice)
-{
-    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    ma_device_post_notification_stopped(pDevice);
-
-    return MA_SUCCESS;
 }
 
 static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type deviceType)
@@ -41024,42 +40865,215 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
     return result;
 }
 
-static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
+static ma_result ma_device_start_stream_internal__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
 {
-    ma_result result = MA_SUCCESS;
-    ma_device* pDevice;
-    ma_device_state_aaudio* pDeviceStateAAudio;
+    /*ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);*/
+    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
+    ma_aaudio_result_t resultAA;
+    ma_aaudio_stream_state_t currentState;
 
-    MA_ASSERT(pJob != NULL);
-
-    pDevice = (ma_device*)pJob->data.device.aaudio.reroute.pDevice;
     MA_ASSERT(pDevice != NULL);
 
-    pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    if (pStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    ma_mutex_lock(&pDeviceStateAAudio->rerouteLock);
-    {
-        /* Here is where we need to reroute the device. To do this we need to uninitialize the stream and reinitialize it. */
-        result = ma_device_reinit__aaudio(pDevice, (ma_device_type)pJob->data.device.aaudio.reroute.deviceType);
+    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Current stream state before starting: %d", currentState);
+    if (currentState == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Failed to start stream because it is disconnected.");
+        return MA_ERROR;
+    }
+
+
+    resultAA = pContextStateAAudio->AAudioStream_requestStart(pStream);
+    if (resultAA != MA_AAUDIO_OK) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Failed to start stream.");
+        return ma_result_from_aaudio(resultAA);
+    }
+
+    /* Do we actually need to wait for the device to transition into its started state? */
+
+    /* The device should be in either a starting or started state. If it's not set to started we need to wait for it to transition. It should go from starting to started. */
+    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
+    if (currentState != MA_AAUDIO_STREAM_STATE_STARTED) {
+        ma_result result;
+
+        if (currentState != MA_AAUDIO_STREAM_STATE_STARTING) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Failed to start stream because it was expected to be in STREAM_STATE_STARTING.");
+            return MA_ERROR;   /* Expecting the stream to be a starting or started state. */
+        }
+
+        result = ma_wait_for_simple_state_transition__aaudio(ma_device_get_context(pDevice), pStream, currentState, MA_AAUDIO_STREAM_STATE_STARTED);
         if (result != MA_SUCCESS) {
-            /*
-            Getting here means we failed to reroute the device. The best thing I can think of here is to
-            just stop the device.
-            */
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to reroute failure.");
-            ma_device_stop(pDevice);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Failed to start stream because it failed to transition to STREAM_STATE_STARTED.");
+            return result;
         }
     }
-    ma_mutex_unlock(&pDeviceStateAAudio->rerouteLock);
+
+    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Stream started successfully.");
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
+{
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_result result;
+
+    /*
+    If the stream is disconnected while the stream is in a stopped state, starting the stream will fail during the state
+    transition. When starting fails, we'll attempt to reinitialize the stream and try starting again. We'll only attempt
+    this once.
+    */
+    result = ma_device_start_stream_internal__aaudio(pDevice, pStream);
+    if (result == MA_ERROR) {
+        if (pStream == pDeviceStateAAudio->pStreamPlayback) {
+            result = ma_device_reinit__aaudio(pDevice, ma_device_type_playback);
+        } else {
+            result = ma_device_reinit__aaudio(pDevice, ma_device_type_capture);
+        }
+
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_device_start_stream_internal__aaudio(pDevice, pStream);
+    }
 
     return result;
 }
 
+static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStream* pStream)
+{
+    /*ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);*/
+    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(ma_device_get_context(pDevice));
+    ma_aaudio_result_t resultAA;
+    ma_aaudio_stream_state_t currentState;
+
+    MA_ASSERT(pDevice != NULL);
+
+    if (pStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    From the AAudio documentation:
+
+        The stream will stop after all of the data currently buffered has been played.
+
+    This maps with miniaudio's requirement that device's be drained which means we don't need to implement any draining logic.
+    */
+    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
+    if (currentState == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
+        return MA_SUCCESS;  /* The device is disconnected. Don't try stopping it. */
+    }
+
+    resultAA = pContextStateAAudio->AAudioStream_requestStop(pStream);
+    if (resultAA != MA_AAUDIO_OK) {
+        return ma_result_from_aaudio(resultAA);
+    }
+
+    /* The device should be in either a stopping or stopped state. If it's not set to started we need to wait for it to transition. It should go from stopping to stopped. */
+    currentState = pContextStateAAudio->AAudioStream_getState(pStream);
+    if (currentState != MA_AAUDIO_STREAM_STATE_STOPPED) {
+        ma_result result;
+
+        if (currentState != MA_AAUDIO_STREAM_STATE_STOPPING) {
+            return MA_ERROR;   /* Expecting the stream to be a stopping or stopped state. */
+        }
+
+        result = ma_wait_for_simple_state_transition__aaudio(ma_device_get_context(pDevice), pStream, currentState, MA_AAUDIO_STREAM_STATE_STOPPED);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_start__aaudio(ma_device* pDevice)
+{
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
+        if (result != MA_SUCCESS) {
+            if (deviceType == ma_device_type_duplex) {
+                ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
+            }
+            return result;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_stop__aaudio(ma_device* pDevice)
+{
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    ma_device_post_notification_stopped(pDevice);
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_device_step_extra__aaudio(ma_device* pDevice)
+{
+    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_result result;
+
+    /* Do device rerouting if necessary. */
+    if (ma_atomic_bool32_get(&pDeviceStateAAudio->isReroutingCapture)) {
+        ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingCapture, MA_FALSE);
+
+        result = ma_device_reinit__aaudio(pDevice, ma_device_type_capture);
+        if (result != MA_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to capture reroute failure.");
+            ma_device_stop(pDevice);
+        }
+    }
+
+    if (ma_atomic_bool32_get(&pDeviceStateAAudio->isReroutingPlayback)) {
+        ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingPlayback, MA_FALSE);
+
+        result = ma_device_reinit__aaudio(pDevice, ma_device_type_playback);
+        if (result != MA_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to playback reroute failure.");
+            ma_device_stop(pDevice);
+        }
+    }
+
+    return MA_SUCCESS;
+}
 
 static ma_result ma_device_step__aaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
-    return ma_device_state_async_step(&pDeviceStateAAudio->async, pDevice, blockingMode, NULL);
+    return ma_device_state_async_step(&pDeviceStateAAudio->async, pDevice, blockingMode, ma_device_step_extra__aaudio);
 }
 
 static void ma_device_loop__aaudio(ma_device* pDevice)
@@ -41092,12 +41106,6 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
 
 ma_device_backend_vtable* ma_device_backend_aaudio = &ma_gDeviceBackendVTable_AAudio;
 #else
-/* Getting here means there is no AAudio backend so we need a no-op job implementation. */
-static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
-{
-    return ma_job_process__noop(pJob);
-}
-
 ma_device_backend_vtable* ma_device_backend_aaudio = NULL;
 #endif  /* AAudio */
 
