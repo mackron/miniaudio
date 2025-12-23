@@ -9522,6 +9522,7 @@ typedef struct ma_device_state_async
 MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceState, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDeviceState, ma_uint32 sizeInFramesPlayback, ma_uint32 sizeInFramesCapture, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_device_state_async_flush(ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_release(ma_device_state_async* pAsyncDeviceState);
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState);
 MA_API ma_result ma_device_state_async_step(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice, ma_blocking_mode blockingMode, ma_result (* extra)(ma_device* pDevice));  /* Returns MA_SUCCESS if some data was processed, MA_NO_DATA_AVAILABLE if no data was processed. The `extra` function is optional, and is used for doing backend-specific stuff before doing data processing (an example might be device rerouting). */
@@ -40996,6 +40997,8 @@ static ma_result ma_device_start__aaudio(ma_device* pDevice)
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
+    ma_device_state_async_flush(&pDeviceStateAAudio->async);
+
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
         if (result != MA_SUCCESS) {
@@ -41004,6 +41007,9 @@ static ma_result ma_device_start__aaudio(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        /* Do an initial step to get the buffer ready in preparation for the first callback instantiation. */
+        ma_device_step__aaudio(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
+
         ma_result result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
         if (result != MA_SUCCESS) {
             if (deviceType == ma_device_type_duplex) {
@@ -46156,6 +46162,29 @@ MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDevic
     return MA_SUCCESS;
 }
 
+MA_API void ma_device_state_async_flush(ma_device_state_async* pAsyncDeviceState)
+{
+    if (pAsyncDeviceState == NULL) {
+        return;
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
+        {
+            pAsyncDeviceState->capture.frameCount = pAsyncDeviceState->capture.frameCap;
+        }
+        ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
+    }
+
+    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        ma_spinlock_lock(&pAsyncDeviceState->playback.lock);
+        {
+            pAsyncDeviceState->playback.frameCount = 0;
+        }
+        ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
+    }
+}
+
 MA_API void ma_device_state_async_release(ma_device_state_async* pAsyncDeviceState)
 {
     if (pAsyncDeviceState == NULL) {
@@ -46305,6 +46334,7 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
             ma_spinlock_lock(&pAsyncDeviceState->playback.lock);
             {
                 ma_uint32 framesToCopy;
+                ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels);
 
                 framesToCopy = frameCount;
                 if (framesToCopy > pAsyncDeviceState->playback.frameCount) {
@@ -46312,7 +46342,6 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                 }
 
                 if (framesToCopy > 0) {
-                    ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels);
                     MA_COPY_MEMORY(pOutput, pAsyncDeviceState->playback.pBuffer, bytesPerFrame * framesToCopy);
 
                     /* Move any remaining data to the front of the buffer. */
@@ -46321,6 +46350,12 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                     }
 
                     pAsyncDeviceState->playback.frameCount -= framesToCopy;
+                }
+
+                /* Silence any remaining data in the output buffer. */
+                if (framesToCopy < frameCount) {
+                    ma_uint32 framesToSilence = frameCount - framesToCopy;
+                    MA_ZERO_MEMORY(ma_offset_ptr(pOutput, bytesPerFrame * framesToCopy), bytesPerFrame * framesToSilence);
                 }
             }
             ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
