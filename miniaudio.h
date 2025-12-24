@@ -38195,6 +38195,8 @@ typedef struct ma_device_state_audio4
 {
     int fdPlayback;
     int fdCapture;
+    void* pIntermediaryBufferPlayback;
+    void* pIntermediaryBufferCapture;
 } ma_device_state_audio4;
 
 
@@ -38573,7 +38575,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD)
+static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD, void** ppIntermediaryBuffer)
 {
     const char* pDefaultDeviceNames[] = {
         "/dev/audio",
@@ -38588,10 +38590,12 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
     ma_uint32 internalSampleRate;
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
+    void* pIntermediaryBuffer;
 
     MA_ASSERT(deviceType != ma_device_type_duplex);
     MA_ASSERT(pDevice    != NULL);
     MA_ASSERT(pFD        != NULL);
+    MA_ASSERT(ppIntermediaryBuffer != NULL);
 
     /* The first thing to do is open the file. */
     if (deviceType == ma_device_type_capture) {
@@ -38830,14 +38834,22 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         return MA_FORMAT_NOT_SUPPORTED;
     }
 
-    *pFD = fd;
-
     pDescriptor->format             = internalFormat;
     pDescriptor->channels           = internalChannels;
     pDescriptor->sampleRate         = internalSampleRate;
     ma_channel_map_init_standard(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), internalChannels);
     pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
     pDescriptor->periodCount        = internalPeriods;
+
+    pIntermediaryBuffer = ma_malloc(ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels) * pDescriptor->periodSizeInFrames, ma_device_get_allocation_callbacks(pDevice));
+    if (pIntermediaryBuffer == NULL) {
+        close(fd);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to allocate memory for intermediary buffer.");
+        return MA_OUT_OF_MEMORY;
+    }
+
+    *pFD = fd;
+    *ppIntermediaryBuffer = pIntermediaryBuffer;
 
     return MA_SUCCESS;
 }
@@ -38882,7 +38894,7 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
 #endif
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture);
+        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture, &pDeviceStateAudio4->pIntermediaryBufferCapture);
         if (result != MA_SUCCESS) {
             ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
             return result;
@@ -38890,12 +38902,14 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateAudio4->fdPlayback);
+        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateAudio4->fdPlayback, &pDeviceStateAudio4->pIntermediaryBufferPlayback);
         if (result != MA_SUCCESS) {
             if (deviceType == ma_device_type_duplex) {
-                ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
                 close(pDeviceStateAudio4->fdCapture);
+                ma_free(pDeviceStateAudio4->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
             }
+
+            ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
             return result;
         }
     }
@@ -38912,10 +38926,12 @@ static void ma_device_uninit__audio4(ma_device* pDevice)
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         close(pDeviceStateAudio4->fdCapture);
+        ma_free(pDeviceStateAudio4->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         close(pDeviceStateAudio4->fdPlayback);
+        ma_free(pDeviceStateAudio4->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
 
     ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
@@ -39038,6 +39054,88 @@ static ma_result ma_device_read__audio4(ma_device* pDevice, void* pPCMFrames, ma
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blockingMode)
+{
+    ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    struct timeval tv;
+    struct timeval* pTimeout = NULL;
+    fd_set fds;
+    ma_result result;
+
+    if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+        tv.tv_sec  = 0;
+        tv.tv_usec = 0;
+        pTimeout = &tv;
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        int retval;
+
+        do
+        {
+            FD_ZERO(&fds);
+            FD_SET(pDeviceStateAudio4->fdCapture, &fds);
+
+            retval = select(pDeviceStateAudio4->fdCapture + 1, &fds, NULL, NULL, pTimeout);
+        } while (retval < 0 && errno == EINTR);
+
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        if (FD_ISSET(pDeviceStateAudio4->fdCapture, &fds)) {
+            ma_uint32 framesRead;
+
+            result = ma_device_read__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateAudio4->pIntermediaryBufferCapture, framesRead);
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        int retval;
+
+        do
+        {
+            FD_ZERO(&fds);
+            FD_SET(pDeviceStateAudio4->fdPlayback, &fds);
+
+            retval = select(pDeviceStateAudio4->fdPlayback + 1, NULL, &fds, NULL, pTimeout);
+        } while (retval < 0 && errno == EINTR);
+
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        if (FD_ISSET(pDeviceStateAudio4->fdPlayback, &fds)) {
+            ma_uint32 framesWritten;
+
+            result = ma_device_write__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, &framesWritten);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, NULL, framesWritten);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_loop__audio4(ma_device* pDevice)
+{
+    while (ma_device_is_started(pDevice)) {
+        ma_result result = ma_device_step__audio4(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_Audio4 =
 {
     ma_backend_info__audio4,
@@ -39048,9 +39146,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Audio4 =
     ma_device_uninit__audio4,
     ma_device_start__audio4,
     ma_device_stop__audio4,
-    ma_device_read__audio4,
-    ma_device_write__audio4,
-    NULL,   /* onDeviceLoop */
+    NULL,
+    NULL,
+    ma_device_loop__audio4,
     NULL    /* onDeviceWakeup */
 };
 
@@ -39652,6 +39750,7 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pDeviceConfigOSS != NULL);
     MA_ASSERT(pFD != NULL);
+    MA_ASSERT(ppIntermediaryBuffer != NULL);
     MA_ASSERT(deviceType != ma_device_type_duplex);
 
     pDeviceID     = pDescriptor->pDeviceID;
