@@ -28566,6 +28566,8 @@ typedef struct ma_device_state_alsa
 {
     ma_snd_pcm_t* pPCMPlayback;
     ma_snd_pcm_t* pPCMCapture;
+    void* pIntermediaryBufferPlayback;
+    void* pIntermediaryBufferCapture;
     struct pollfd* pPollDescriptorsPlayback;
     struct pollfd* pPollDescriptorsCapture;
     int pollDescriptorCountPlayback;
@@ -29655,6 +29657,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     int pollDescriptorCount;
     struct pollfd* pPollDescriptors;
     int wakeupfd;
+    void* pIntermediaryBuffer;
 
     MA_ASSERT(pContextStateALSA != NULL);
     MA_ASSERT(pDeviceStateALSA != NULL);
@@ -29993,6 +29996,13 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     }
 
 
+    /* Now that we know our internal data format and period size we can allocate an intermediary buffer. */
+    pIntermediaryBuffer = ma_malloc(ma_get_bytes_per_frame(internalFormat, internalChannels) * internalPeriodSizeInFrames, ma_context_get_allocation_callbacks(pContext));
+    if (pIntermediaryBuffer == NULL) {
+        pContextStateALSA->snd_pcm_close(pPCM);
+    }
+
+
     /*
     We need to retrieve the poll descriptors so we can use poll() to wait for data to become
     available for reading or writing. There's no well defined maximum for this so we're just going
@@ -30001,6 +30011,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     pollDescriptorCount = pContextStateALSA->snd_pcm_poll_descriptors_count(pPCM);
     if (pollDescriptorCount <= 0) {
         pContextStateALSA->snd_pcm_close(pPCM);
+        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.");
         return MA_ERROR;
     }
@@ -30008,6 +30019,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     pPollDescriptors = (struct pollfd*)ma_malloc(sizeof(*pPollDescriptors) * (pollDescriptorCount + 1), ma_context_get_allocation_callbacks(pContext));   /* +1 because we want room for the wakeup descriptor. */
     if (pPollDescriptors == NULL) {
         pContextStateALSA->snd_pcm_close(pPCM);
+        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to allocate memory for poll descriptors.");
         return MA_OUT_OF_MEMORY;
     }
@@ -30020,6 +30032,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     if (wakeupfd < 0) {
         ma_free(pPollDescriptors, ma_context_get_allocation_callbacks(pContext));
         pContextStateALSA->snd_pcm_close(pPCM);
+        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to create eventfd for poll wakeup.");
         return ma_result_from_errno(errno);
     }
@@ -30035,20 +30048,10 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
         close(wakeupfd);
         ma_free(pPollDescriptors, ma_context_get_allocation_callbacks(pContext));
         pContextStateALSA->snd_pcm_close(pPCM);
+        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.");
         return MA_ERROR;
     }
-
-    if (deviceType == ma_device_type_capture) {
-        pDeviceStateALSA->pollDescriptorCountCapture = pollDescriptorCount;
-        pDeviceStateALSA->pPollDescriptorsCapture = pPollDescriptors;
-        pDeviceStateALSA->wakeupfdCapture = wakeupfd;
-    } else {
-        pDeviceStateALSA->pollDescriptorCountPlayback = pollDescriptorCount;
-        pDeviceStateALSA->pPollDescriptorsPlayback = pPollDescriptors;
-        pDeviceStateALSA->wakeupfdPlayback = wakeupfd;
-    }
-
 
     /* We're done. Prepare the device. */
     resultALSA = pContextStateALSA->snd_pcm_prepare(pPCM);
@@ -30056,17 +30059,25 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
         close(wakeupfd);
         ma_free(pPollDescriptors, ma_context_get_allocation_callbacks(pContext));
         pContextStateALSA->snd_pcm_close(pPCM);
+        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to prepare device.");
         return ma_result_from_errno(-resultALSA);
     }
 
-
     if (deviceType == ma_device_type_capture) {
-        pDeviceStateALSA->pPCMCapture         = pPCM;
-        pDeviceStateALSA->isUsingMMapCapture  = isUsingMMap;
+        pDeviceStateALSA->pPCMCapture                 = pPCM;
+        pDeviceStateALSA->pIntermediaryBufferCapture  = pIntermediaryBuffer;
+        pDeviceStateALSA->isUsingMMapCapture          = isUsingMMap;
+        pDeviceStateALSA->pollDescriptorCountCapture  = pollDescriptorCount;
+        pDeviceStateALSA->pPollDescriptorsCapture     = pPollDescriptors;
+        pDeviceStateALSA->wakeupfdCapture             = wakeupfd;
     } else {
-        pDeviceStateALSA->pPCMPlayback        = pPCM;
-        pDeviceStateALSA->isUsingMMapPlayback = isUsingMMap;
+        pDeviceStateALSA->pPCMPlayback                = pPCM;
+        pDeviceStateALSA->pIntermediaryBufferPlayback = pIntermediaryBuffer;
+        pDeviceStateALSA->isUsingMMapPlayback         = isUsingMMap;
+        pDeviceStateALSA->pollDescriptorCountPlayback = pollDescriptorCount;
+        pDeviceStateALSA->pPollDescriptorsPlayback    = pPollDescriptors;
+        pDeviceStateALSA->wakeupfdPlayback            = wakeupfd;
     }
 
     pDescriptor->format             = internalFormat;
@@ -30133,12 +30144,14 @@ static void ma_device_uninit__alsa(ma_device* pDevice)
         pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMCapture);
         close(pDeviceStateALSA->wakeupfdCapture);
         ma_free(pDeviceStateALSA->pPollDescriptorsCapture, ma_device_get_allocation_callbacks(pDevice));
+        ma_free(pDeviceStateALSA->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
     }
 
     if (pDeviceStateALSA->pPCMPlayback) {
         pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMPlayback);
         close(pDeviceStateALSA->wakeupfdPlayback);
         ma_free(pDeviceStateALSA->pPollDescriptorsPlayback, ma_device_get_allocation_callbacks(pDevice));
+        ma_free(pDeviceStateALSA->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
 
     ma_free(pDeviceStateALSA, ma_device_get_allocation_callbacks(pDevice));
@@ -30242,12 +30255,16 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_snd_pcm_t* pPCM, struct pollfd* pPollDescriptors, int pollDescriptorCount, short requiredEvent)
+static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_snd_pcm_t* pPCM, struct pollfd* pPollDescriptors, int pollDescriptorCount, short requiredEvent, int timeout, ma_bool32* pIsDataAvailable)
 {
+    MA_ASSERT(pIsDataAvailable != NULL);
+
+    *pIsDataAvailable = MA_FALSE;
+
     for (;;) {
         unsigned short revents;
         int resultALSA;
-        int resultPoll = poll(pPollDescriptors, pollDescriptorCount, -1);
+        int resultPoll = poll(pPollDescriptors, pollDescriptorCount, timeout);
         if (resultPoll < 0) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] poll() failed.");
 
@@ -30297,6 +30314,7 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_context_state_alsa*
         }
 
         if ((revents & requiredEvent) == requiredEvent) {
+            *pIsDataAvailable = MA_TRUE;
             break;  /* We're done. Data available for reading or writing. */
         }
     }
@@ -30304,17 +30322,17 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_context_state_alsa*
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_wait_read__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA)
+static ma_result ma_device_wait_read__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, int timeout, ma_bool32* pIsDataAvailable)
 {
-    return ma_device_wait__alsa(pDevice, pContextStateALSA, pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPollDescriptorsCapture, pDeviceStateALSA->pollDescriptorCountCapture + 1, POLLIN); /* +1 to account for the wakeup descriptor. */
+    return ma_device_wait__alsa(pDevice, pContextStateALSA, pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPollDescriptorsCapture, pDeviceStateALSA->pollDescriptorCountCapture + 1, POLLIN, timeout, pIsDataAvailable); /* +1 to account for the wakeup descriptor. */
 }
 
-static ma_result ma_device_wait_write__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA)
+static ma_result ma_device_wait_write__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, int timeout, ma_bool32* pIsDataAvailable)
 {
-    return ma_device_wait__alsa(pDevice, pContextStateALSA, pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pPollDescriptorsPlayback, pDeviceStateALSA->pollDescriptorCountPlayback + 1, POLLOUT); /* +1 to account for the wakeup descriptor. */
+    return ma_device_wait__alsa(pDevice, pContextStateALSA, pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pPollDescriptorsPlayback, pDeviceStateALSA->pollDescriptorCountPlayback + 1, POLLOUT, timeout, pIsDataAvailable); /* +1 to account for the wakeup descriptor. */
 }
 
-static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, int timeout)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
@@ -30327,38 +30345,40 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
 
     for (;;) {
         ma_result result;
+        ma_bool32 isDataAvailable;
 
         /* The first thing to do is wait for data to become available for reading. This will return an error code if the device has been stopped. */
-        result = ma_device_wait_read__alsa(pDevice, pContextStateALSA, pDeviceStateALSA);
+        result = ma_device_wait_read__alsa(pDevice, pContextStateALSA, pDeviceStateALSA, timeout, &isDataAvailable);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        /* Getting here means we should have data available. */
-        resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pFramesOut, frameCount);
-        if (resultALSA >= 0) {
-            break;  /* Success. */
-        } else {
-            if (resultALSA == -EAGAIN) {
-                /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (read)");*/
-                continue;   /* Try again. */
-            } else if (resultALSA == -EPIPE) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (read)");
+        if (isDataAvailable) {
+            resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pFramesOut, frameCount);
+            if (resultALSA >= 0) {
+                break;  /* Success. */
+            } else {
+                if (resultALSA == -EAGAIN) {
+                    /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (read)");*/
+                    continue;   /* Try again. */
+                } else if (resultALSA == -EPIPE) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (read)");
 
-                /* Overrun. Recover and try again. If this fails we need to return an error. */
-                resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMCapture, resultALSA, MA_TRUE);
-                if (resultALSA < 0) {
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after overrun.");
-                    return ma_result_from_errno((int)-resultALSA);
+                    /* Overrun. Recover and try again. If this fails we need to return an error. */
+                    resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMCapture, resultALSA, MA_TRUE);
+                    if (resultALSA < 0) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after overrun.");
+                        return ma_result_from_errno((int)-resultALSA);
+                    }
+
+                    resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMCapture);
+                    if (resultALSA < 0) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.");
+                        return ma_result_from_errno((int)-resultALSA);
+                    }
+
+                    continue;   /* Try reading again. */
                 }
-
-                resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMCapture);
-                if (resultALSA < 0) {
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.");
-                    return ma_result_from_errno((int)-resultALSA);
-                }
-
-                continue;   /* Try reading again. */
             }
         }
     }
@@ -30370,7 +30390,7 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFramesIn, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFramesIn, ma_uint32 frameCount, ma_uint32* pFramesWritten, int timeout)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
@@ -30383,44 +30403,47 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFramesIn
 
     for (;;) {
         ma_result result;
+        ma_bool32 isDataAvailable;
 
         /* The first thing to do is wait for space to become available for writing. This will return an error code if the device has been stopped. */
-        result = ma_device_wait_write__alsa(pDevice, pContextStateALSA, pDeviceStateALSA);
+        result = ma_device_wait_write__alsa(pDevice, pContextStateALSA, pDeviceStateALSA, timeout, &isDataAvailable);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pFramesIn, frameCount);
-        if (resultALSA >= 0) {
-            break;  /* Success. */
-        } else {
-            if (resultALSA == -EAGAIN) {
-                /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (write)");*/
-                continue;   /* Try again. */
-            } else if (resultALSA == -EPIPE) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (write)");
+        if (isDataAvailable) {
+            resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pFramesIn, frameCount);
+            if (resultALSA >= 0) {
+                break;  /* Success. */
+            } else {
+                if (resultALSA == -EAGAIN) {
+                    /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (write)");*/
+                    continue;   /* Try again. */
+                } else if (resultALSA == -EPIPE) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (write)");
 
-                /* Underrun. Recover and try again. If this fails we need to return an error. */
-                resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);    /* MA_TRUE=silent (don't print anything on error). */
-                if (resultALSA < 0) {
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.");
-                    return ma_result_from_errno((int)-resultALSA);
+                    /* Underrun. Recover and try again. If this fails we need to return an error. */
+                    resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);    /* MA_TRUE=silent (don't print anything on error). */
+                    if (resultALSA < 0) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.");
+                        return ma_result_from_errno((int)-resultALSA);
+                    }
+
+                    /*
+                    In my testing I have had a situation where writei() does not automatically restart the device even though I've set it
+                    up as such in the software parameters. What will happen is writei() will block indefinitely even though the number of
+                    frames is well beyond the auto-start threshold. To work around this I've needed to add an explicit start here. Not sure
+                    if this is me just being stupid and not recovering the device properly, but this definitely feels like something isn't
+                    quite right here.
+                    */
+                    resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
+                    if (resultALSA < 0) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.");
+                        return ma_result_from_errno((int)-resultALSA);
+                    }
+
+                    continue;   /* Try writing again. */
                 }
-
-                /*
-                In my testing I have had a situation where writei() does not automatically restart the device even though I've set it
-                up as such in the software parameters. What will happen is writei() will block indefinitely even though the number of
-                frames is well beyond the auto-start threshold. To work around this I've needed to add an explicit start here. Not sure
-                if this is me just being stupid and not recovering the device properly, but this definitely feels like something isn't
-                quite right here.
-                */
-                resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
-                if (resultALSA < 0) {
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.");
-                    return ma_result_from_errno((int)-resultALSA);
-                }
-
-                continue;   /* Try writing again. */
             }
         }
     }
@@ -30430,6 +30453,52 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFramesIn
     }
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode blockingMode)
+{
+    ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
+    int timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? -1 : 0;
+
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        ma_uint32 framesRead;
+
+        result = ma_device_read__alsa(pDevice, pDeviceStateALSA->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames, &framesRead, timeout);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateALSA->pIntermediaryBufferCapture, framesRead);
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_uint32 framesWritten;
+
+        result = ma_device_write__alsa(pDevice, pDeviceStateALSA->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, &framesWritten, timeout);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBufferPlayback, NULL, framesWritten);
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_loop__alsa(ma_device* pDevice)
+{
+    while (ma_device_is_started(pDevice)) {
+        ma_result result = ma_device_step__alsa(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
 }
 
 static void ma_device_wakeup__alsa(ma_device* pDevice)
@@ -30468,9 +30537,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_ALSA =
     ma_device_uninit__alsa,
     ma_device_start__alsa,
     ma_device_stop__alsa,
-    ma_device_read__alsa,
-    ma_device_write__alsa,
-    NULL,   /* onDeviceLoop */
+    NULL,
+    NULL,
+    ma_device_loop__alsa,
     ma_device_wakeup__alsa
 };
 
