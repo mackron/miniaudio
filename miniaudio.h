@@ -30317,6 +30317,11 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_context_state_alsa*
             *pIsDataAvailable = MA_TRUE;
             break;  /* We're done. Data available for reading or writing. */
         }
+
+        /* In non-blocking mode we don't want to keep looping while we wait for data. */
+        if (timeout == 0) {
+            break;
+        }
     }
 
     return MA_SUCCESS;
