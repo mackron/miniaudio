@@ -42963,9 +42963,6 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
         MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback);
     }
 
-    /* Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it. */
-    ma_device_post_notification_stopped(pDevice);
-
     return MA_SUCCESS;
 }
 
