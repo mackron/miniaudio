@@ -27,6 +27,7 @@
 /tests/_build/vc15/
 /tests/_build/vc17/
 /tests/_build/watcom/
+/tests/_build/xcode/
 /tests/_build/capture.wav
 /tests/_build/a.out
 /tests/_build/a.exe
