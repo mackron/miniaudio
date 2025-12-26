@@ -36290,7 +36290,7 @@ static void ma_on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Au
     Audio APIs in the callback when the device has been stopped or uninitialized.
     */
     if (ma_device_get_status(pDevice) == ma_device_status_uninitialized || ma_device_get_status(pDevice) == ma_device_status_stopping || ma_device_get_status(pDevice) == ma_device_status_stopped) {
-        ma_device_post_notification_stopped(pDevice);
+        /* Device not started. Do nothing. See note just above ^. */
     } else {
         UInt32 isRunning;
         UInt32 isRunningSize = sizeof(isRunning);
@@ -36330,9 +36330,6 @@ static void ma_on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Au
                 */
                 goto done;
             }
-
-            /* Getting here means we need to stop the device. */
-            ma_device_post_notification_stopped(pDevice);
         }
     }
 
