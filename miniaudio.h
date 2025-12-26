@@ -7036,7 +7036,7 @@ typedef enum
 
 typedef struct ma_context_config_aaudio
 {
-    int _unused;
+    void* pVM;
 } ma_context_config_aaudio;
 
 MA_API ma_context_config_aaudio ma_context_config_aaudio_init(void);
@@ -40487,6 +40487,15 @@ AAudio Backend
 
 #ifdef MA_NO_RUNTIME_LINKING
     #include <AAudio/AAudio.h>
+    #if defined(__has_include)
+        #if __has_include(<jni.h>)
+            #include <jni.h>
+        #else
+            #define MA_ANDROID_NO_JNI
+        #endif
+    #else
+        #include <jni.h>
+    #endif
 #endif
 
 typedef int32_t                                         ma_aaudio_result_t;
@@ -40707,6 +40716,9 @@ static ma_aaudio_performance_mode_t ma_to_performance_mode__aaudio(ma_aaudio_per
 
 typedef struct ma_context_state_aaudio
 {
+#ifndef MA_ANDROID_NO_JNI
+    JavaVM* pVM;
+#endif
     ma_handle hAAudio; /* libaaudio.so */
     MA_PFN_AAudio_createStreamBuilder                    AAudio_createStreamBuilder;
     MA_PFN_AAudioStreamBuilder_delete                    AAudioStreamBuilder_delete;
@@ -40883,6 +40895,10 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
         pContextStateAAudio->AAudioStream_requestStop                      = AAudioStream_requestStop;
     }
     #endif
+
+#ifndef MA_ANDROID_NO_JNI
+    pContextStateAAudio->pVM = (JavaVM *)pContextConfigAAudio->pVM;
+#endif
 
     /* We need a job thread so we can deal with rerouting. */
     {
@@ -41183,6 +41199,354 @@ static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_conte
     ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_s16, flags, pDeviceInfo);
 }
 
+#ifndef MA_ANDROID_NO_JNI
+#ifdef __cplusplus
+jclass ma_android_jni_find_class(JNIEnv *env, const char *className)
+{
+    return env->FindClass(className);
+}
+
+jmethodID ma_android_jni_get_static_method_id(JNIEnv *env, jclass clazz, const char *methodName, const char *methodSig)
+{
+    return env->GetStaticMethodID(clazz, methodName, methodSig);
+}
+
+jmethodID ma_android_jni_get_method_id(JNIEnv *env, jclass clazz, const char *methodName, const char *methodSig)
+{
+    return env->GetMethodID(clazz, methodName, methodSig);
+}
+
+jobject ma_android_jni_call_static_object_method(JNIEnv *env, jclass clazz, jmethodID methodID, ...)
+{
+    va_list args;
+    jobject result;
+
+    va_start(args, methodID);
+    result = env->CallStaticObjectMethodV(clazz, methodID, args);
+    va_end(args);
+    return result;
+}
+
+jobject ma_android_jni_call_object_method(JNIEnv *env, jobject obj, jmethodID methodID, ...)
+{
+    va_list args;
+    jobject result;
+
+    va_start(args, methodID);
+    result = env->CallObjectMethodV(obj, methodID, args);
+    va_end(args);
+    return result;
+}
+
+jint ma_android_jni_call_int_method(JNIEnv *env, jobject obj, jmethodID methodID, ...)
+{
+    va_list args;
+    jint result;
+
+    va_start(args, methodID);
+    result = env->CallIntMethodV(obj, methodID, args);
+    va_end(args);
+    return result;
+}
+
+jint ma_android_jni_get_env(JavaVM *vm, void **penv, jint version)
+{
+    return vm->GetEnv(penv, version);
+}
+
+jint ma_android_jni_attach_current_thread(JavaVM *vm, JNIEnv **penv, void *args)
+{
+    return vm->AttachCurrentThread(penv, args);
+}
+
+jstring ma_android_jni_new_string_utf(JNIEnv *env, const char *str)
+{
+    return env->NewStringUTF(str);
+}
+
+void ma_android_jni_get_string_utf_chars(JNIEnv *env, jstring str, const char **pChars, jboolean *pIsCopy)
+{
+    *pChars = env->GetStringUTFChars(str, pIsCopy);
+}
+
+void ma_android_jni_release_string_utf_chars(JNIEnv *env, jstring str, const char *chars)
+{
+    env->ReleaseStringUTFChars(str, chars);
+}
+
+jsize ma_android_jni_get_array_length(JNIEnv *env, jobjectArray array)
+{
+    return env->GetArrayLength(array);
+}
+
+jobject ma_android_jni_get_object_array_element(JNIEnv *env, jobjectArray array, jsize index)
+{
+    return env->GetObjectArrayElement(array, index);
+}
+#else
+jclass ma_android_jni_find_class(JNIEnv *env, const char *className)
+{
+    return (*env)->FindClass(env, className);
+}
+
+jmethodID ma_android_jni_get_static_method_id(JNIEnv *env, jclass clazz, const char *methodName, const char *methodSig)
+{
+    return (*env)->GetStaticMethodID(env, clazz, methodName, methodSig);
+}
+
+jmethodID ma_android_jni_get_method_id(JNIEnv *env, jclass clazz, const char *methodName, const char *methodSig)
+{
+    return (*env)->GetMethodID(env, clazz, methodName, methodSig);
+}
+
+jobject ma_android_jni_call_static_object_method(JNIEnv *env, jclass clazz, jmethodID methodID, ...)
+{
+    va_list args;
+    jobject result;
+
+    va_start(args, methodID);
+    result = (*env)->CallStaticObjectMethodV(env, clazz, methodID, args);
+    va_end(args);
+    return result;
+}
+
+jobject ma_android_jni_call_object_method(JNIEnv *env, jobject obj, jmethodID methodID, ...)
+{
+    va_list args;
+    jobject result;
+
+    va_start(args, methodID);
+    result = (*env)->CallObjectMethodV(env, obj, methodID, args);
+    va_end(args);
+    return result;
+}
+
+jint ma_android_jni_call_int_method(JNIEnv *env, jobject obj, jmethodID methodID, ...)
+{
+    va_list args;
+    jint result;
+
+    va_start(args, methodID);
+    result = (*env)->CallIntMethodV(env, obj, methodID, args);
+    va_end(args);
+    return result;
+}
+
+void ma_android_jni_delete_local_ref(JNIEnv *env, jobject obj)
+{
+    (*env)->DeleteLocalRef(env, obj);
+}
+
+jint ma_android_jni_get_env(JavaVM *vm, void **penv, jint version)
+{
+    return (*vm)->GetEnv(vm, penv, version);
+}
+
+jint ma_android_jni_attach_current_thread(JavaVM *vm, JNIEnv **penv, void *args)
+{
+    return (*vm)->AttachCurrentThread(vm, penv, args);
+}
+
+jstring ma_android_jni_new_string_utf(JNIEnv *env, const char *str)
+{
+    return (*env)->NewStringUTF(env, str);
+}
+
+void ma_android_jni_get_string_utf_chars(JNIEnv *env, jstring str, const char **pChars, jboolean *pIsCopy)
+{
+    *pChars = (*env)->GetStringUTFChars(env, str, pIsCopy);
+}
+
+void ma_android_jni_release_string_utf_chars(JNIEnv *env, jstring str, const char *chars)
+{
+    (*env)->ReleaseStringUTFChars(env, str, chars);
+}
+
+jsize ma_android_jni_get_array_length(JNIEnv *env, jobjectArray array)
+{
+    return (*env)->GetArrayLength(env, array);
+}
+
+jobject ma_android_jni_get_object_array_element(JNIEnv *env, jobjectArray array, jsize index)
+{
+    return (*env)->GetObjectArrayElement(env, array, index);
+}
+#endif
+
+static int ma_android_jni_get_current_env(JavaVM *pVM, JNIEnv **pEnv)
+{
+    if (pVM == NULL)
+    {
+        /* We don't have a JavaVM. This should never happen if JNI_OnLoad is implemented correctly in an Android context. */
+        return -1;
+    }
+
+    jint jniResult = ma_android_jni_get_env(pVM, (void **)pEnv, JNI_VERSION_1_6);
+    if (jniResult == JNI_OK)
+    {
+        return 0;
+    }
+    else if (jniResult == JNI_EDETACHED)
+    {
+        jniResult = ma_android_jni_attach_current_thread(pVM, pEnv, NULL);
+        if (jniResult != JNI_OK)
+        {
+            return -1;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+static ma_device_enumeration_result ma_context_enumerate_devices_callback_data__aaudio(ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData, JNIEnv *env, jmethodID getIdMethodID, jmethodID getProductNameMethodID, jobjectArray deviceArray, jsize iDevice)
+{
+    ma_device_info deviceInfo;
+
+    jobject device = ma_android_jni_get_object_array_element(env, deviceArray, iDevice);
+    if (device == NULL)
+    {
+        return MA_DEVICE_ENUMERATION_CONTINUE;
+    }
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* Default. */
+    deviceInfo.isDefault = iDevice == 0 ? MA_TRUE : MA_FALSE;
+    
+    /* ID. */
+    jint deviceId = ma_android_jni_call_int_method(env, device, getIdMethodID);
+    deviceInfo.id.aaudio = (int)deviceId;
+
+    /* Name. */
+    jstring deviceProductName = (jstring)ma_android_jni_call_object_method(env, device, getProductNameMethodID);
+    if (deviceProductName != NULL)
+    {
+        const char *deviceName = NULL;
+        ma_android_jni_get_string_utf_chars(env, deviceProductName, &deviceName, NULL);
+
+        if (deviceName != NULL && deviceName[0] != '\0')
+        {
+            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), deviceName, (size_t)-1);
+            ma_android_jni_release_string_utf_chars(env, deviceProductName, deviceName);
+        }
+        else
+        {
+            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        }
+    }
+    
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
+
+
+static ma_result ma_context_enumerate_devices__aaudio(ma_context *pContext, ma_enum_devices_callback_proc callback, void *pUserData)
+{
+    ma_result result = MA_SUCCESS;
+
+    jsize playbackDeviceCount;
+    jsize captureDeviceCount;
+    jsize iPlaybackDevice;
+    jsize iCaptureDevice;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(pContext);
+
+    JNIEnv *env;
+    if (ma_android_jni_get_current_env(pContextStateAAudio->pVM, &env) != 0 || env == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    jclass activityThreadClass = ma_android_jni_find_class(env, "android/app/ActivityThread");
+    jclass audioManagerClass = ma_android_jni_find_class(env, "android/media/AudioManager");
+    jclass contextClass = ma_android_jni_find_class(env, "android/content/Context");
+    jclass audioDeviceInfoClass = ma_android_jni_find_class(env, "android/media/AudioDeviceInfo");
+    if (activityThreadClass == NULL || audioManagerClass == NULL || contextClass == NULL || audioDeviceInfoClass == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    jmethodID currentActivityThreadMethodID = ma_android_jni_get_static_method_id(env, activityThreadClass,
+                                                                            "currentActivityThread",
+                                                                            "()Landroid/app/ActivityThread;");
+    jmethodID getApplicationMethodID = ma_android_jni_get_method_id(env, activityThreadClass,
+                                                              "getApplication",
+                                                              "()Landroid/app/Application;");
+    jmethodID getSystemServiceMethodID = ma_android_jni_get_method_id(env, contextClass,
+                                                                "getSystemService",
+                                                                "(Ljava/lang/String;)Ljava/lang/Object;");
+    jmethodID getDevicesMethodID = ma_android_jni_get_method_id(env, audioManagerClass, "getDevices", "(I)[Landroid/media/AudioDeviceInfo;");
+    jmethodID getIdMethodID = ma_android_jni_get_method_id(env, audioDeviceInfoClass, "getId", "()I");
+    jmethodID getProductNameMethodID = ma_android_jni_get_method_id(env, audioDeviceInfoClass, "getProductName", "()Ljava/lang/CharSequence;");
+    if (currentActivityThreadMethodID == NULL || getApplicationMethodID == NULL || getSystemServiceMethodID == NULL || getDevicesMethodID == NULL || getIdMethodID == NULL || getProductNameMethodID == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    jobject activityThreadObj = ma_android_jni_call_static_object_method(env, activityThreadClass,
+                                                                     currentActivityThreadMethodID);
+    if (activityThreadObj == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    jobject applicationContext = ma_android_jni_call_object_method(env, activityThreadObj,
+                                                               getApplicationMethodID);
+    if (applicationContext == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    jstring audioServiceString = ma_android_jni_new_string_utf(env, "audio");
+    if (audioServiceString == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    jobject audioManagerObj = ma_android_jni_call_object_method(env, applicationContext,
+                                                            getSystemServiceMethodID, audioServiceString);
+    if (audioManagerObj == NULL)
+    {
+        return MA_ERROR;
+    }
+
+    /* Playback. */
+    jobjectArray playbackDeviceArray = (jobjectArray)ma_android_jni_call_object_method(env, audioManagerObj, getDevicesMethodID, 2 /* AudioManager.GET_DEVICES_OUTPUTS */);
+    if (playbackDeviceArray != NULL)
+    {
+        playbackDeviceCount = ma_android_jni_get_array_length(env, playbackDeviceArray);
+        for (iPlaybackDevice = 0; iPlaybackDevice < playbackDeviceCount; ++iPlaybackDevice)
+        {
+            int cbResult = ma_context_enumerate_devices_callback_data__aaudio(ma_device_type_playback, callback, pUserData, env, getIdMethodID, getProductNameMethodID, playbackDeviceArray, iPlaybackDevice);
+            if (cbResult == MA_DEVICE_ENUMERATION_ABORT)
+            {
+                break;
+            }
+        }
+    }
+
+    /* Capture. */
+    jobjectArray captureDeviceArray = (jobjectArray)ma_android_jni_call_object_method(env, audioManagerObj, getDevicesMethodID, 1 /* AudioManager.GET_DEVICES_INPUTS */);
+    if (captureDeviceArray != NULL)
+    {
+        captureDeviceCount = ma_android_jni_get_array_length(env, captureDeviceArray);
+        for (iCaptureDevice = 0; iCaptureDevice < captureDeviceCount; ++iCaptureDevice)
+        {
+            int cbResult = ma_context_enumerate_devices_callback_data__aaudio(ma_device_type_capture, callback, pUserData, env, getIdMethodID, getProductNameMethodID, captureDeviceArray, iCaptureDevice);
+            if (cbResult == MA_DEVICE_ENUMERATION_ABORT)
+            {
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+#else
+
 static ma_device_enumeration_result ma_context_enumerate_device_from_type__aaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_result result;
@@ -41245,6 +41609,7 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_e
 
     return MA_SUCCESS;
 }
+#endif /* MA_ANDROID_NO_JNI */
 
 static ma_result ma_close_streams__aaudio(ma_device* pDevice)
 {
