@@ -9503,9 +9503,9 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
 typedef struct ma_device_state_async
 {
     ma_device_type deviceType;
+    ma_semaphore semaphore;
     struct
     {
-        ma_semaphore semaphore;
         ma_spinlock lock;
         ma_format format;
         ma_uint32 channels;
@@ -46684,14 +46684,14 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
     MA_ZERO_OBJECT(pAsyncDeviceState);
     pAsyncDeviceState->deviceType = deviceType;
 
+    result = ma_semaphore_init(0, &pAsyncDeviceState->semaphore);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         if (pDescriptorCapture == NULL) {
             return MA_INVALID_ARGS;
-        }
-
-        result = ma_semaphore_init(0, &pAsyncDeviceState->capture.semaphore);
-        if (result != MA_SUCCESS) {
-            return result;
         }
 
         pAsyncDeviceState->capture.format   = pDescriptorCapture->format;
@@ -46705,15 +46705,6 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
             return MA_INVALID_ARGS;
         }
 
-        result = ma_semaphore_init(0, &pAsyncDeviceState->playback.semaphore);
-        if (result != MA_SUCCESS) {
-            if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-                ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
-            }
-
-            return result;
-        }
-
         pAsyncDeviceState->playback.format   = pDescriptorPlayback->format;
         pAsyncDeviceState->playback.channels = pDescriptorPlayback->channels;
 
@@ -46722,13 +46713,7 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
 
     result = ma_device_state_async_resize(pAsyncDeviceState, periodSizeInFramesPlayback, periodSizeInFramesCapture, pAllocationCallbacks);
     if (result != MA_SUCCESS) {
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
-        }
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            ma_semaphore_uninit(&pAsyncDeviceState->playback.semaphore);
-        }
-
+        ma_semaphore_uninit(&pAsyncDeviceState->semaphore);
         return result;
     }
 
@@ -46744,13 +46729,7 @@ MA_API void ma_device_state_async_uninit(ma_device_state_async* pAsyncDeviceStat
     ma_free(pAsyncDeviceState->internal.pBuffer, pAllocationCallbacks);
     pAsyncDeviceState->internal.pBuffer = NULL;
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
-    }
-    
-    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        ma_semaphore_uninit(&pAsyncDeviceState->playback.semaphore);
-    }
+    ma_semaphore_uninit(&pAsyncDeviceState->semaphore);
 }
 
 MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDeviceState, ma_uint32 sizeInFramesPlayback, ma_uint32 sizeInFramesCapture, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -46829,13 +46808,7 @@ MA_API void ma_device_state_async_release(ma_device_state_async* pAsyncDeviceSta
         return;
     }
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
-    }
-
-    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
-    }
+    ma_semaphore_release(&pAsyncDeviceState->semaphore);
 }
 
 MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
@@ -46844,13 +46817,7 @@ MA_API void ma_device_state_async_wait(ma_device_state_async* pAsyncDeviceState)
         return;
     }
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        ma_semaphore_wait(&pAsyncDeviceState->capture.semaphore);
-    }
-
-    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        ma_semaphore_wait(&pAsyncDeviceState->playback.semaphore);
-    }
+    ma_semaphore_wait(&pAsyncDeviceState->semaphore);
 }
 
 static ma_result ma_device_state_async_step_internal(ma_device_state_async* pAsyncDeviceState, ma_device* pDevice)
@@ -46960,8 +46927,6 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                 }
             }
             ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
-
-            ma_semaphore_release(&pAsyncDeviceState->capture.semaphore);
         } else {
             MA_ASSERT(MA_FALSE);    /* Should never get here. */
         }
@@ -46997,12 +46962,12 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                 }
             }
             ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
-
-            ma_semaphore_release(&pAsyncDeviceState->playback.semaphore);
         } else {
             MA_ASSERT(MA_FALSE);    /* Should never get here. */
         }
     }
+
+    ma_semaphore_release(&pAsyncDeviceState->semaphore);
 }
 /* END ma_device_state_async.c */
 
