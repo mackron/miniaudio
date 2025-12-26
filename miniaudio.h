@@ -41670,8 +41670,6 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
         }
     }
 
-    ma_device_post_notification_stopped(pDevice);
-
     return MA_SUCCESS;
 }
 
