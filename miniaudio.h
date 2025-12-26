@@ -32448,10 +32448,8 @@ static void ma_device_on_suspended__pulseaudio(ma_pa_stream* pStream, void* pUse
 
     if (suspended == 1) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Suspended.");
-        ma_device_post_notification_stopped(pDevice);
     } else {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Resumed.");
-        ma_device_post_notification_started(pDevice);
     }
 }
 
