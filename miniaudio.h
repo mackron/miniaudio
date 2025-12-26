@@ -34047,21 +34047,22 @@ typedef struct ma_context_state_coreaudio
 
 typedef struct ma_device_state_coreaudio
 {
+    ma_device_state_async async;
     ma_uint32 deviceObjectIDPlayback;
     ma_uint32 deviceObjectIDCapture;
     AudioUnit audioUnitPlayback;
     AudioUnit audioUnitCapture;
-    AudioBufferList* pAudioBufferList;   /* Only used for input devices. */
-    ma_uint32 audioBufferCapInFrames;               /* Only used for input devices. The capacity in frames of each buffer in pAudioBufferList. */
+    AudioBufferList* pAudioBufferList;          /* Only used for input devices. */
+    ma_uint32 audioBufferCapInFrames;           /* Only used for input devices. The capacity in frames of each buffer in pAudioBufferList. */
     ma_event stopEvent;
     ma_uint32 originalPeriodSizeInFrames;
     ma_uint32 originalPeriodSizeInMilliseconds;
     ma_uint32 originalPeriods;
     ma_bool32 isDefaultPlaybackDevice;
     ma_bool32 isDefaultCaptureDevice;
-    ma_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
-    ma_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
-    void* pNotificationHandler;             /* Only used on mobile platforms. Obj-C object for handling route changes. */
+    ma_atomic_bool32 isSwitchingPlaybackDevice; /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
+    ma_atomic_bool32 isSwitchingCaptureDevice;  /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
+    void* pNotificationHandler;                 /* Only used on mobile platforms. Obj-C object for handling route changes. */
 } ma_device_state_coreaudio;
 
 
@@ -35223,53 +35224,21 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
     {
         ma_uint32 iDevice;
         for (iDevice = 0; iDevice < g_TrackedDeviceCount_CoreAudio; iDevice += 1) {
-            ma_result reinitResult;
             ma_device* pDevice;
             ma_device_state_coreaudio* pDeviceStateCoreAudio;
-            ma_context_state_coreaudio* pContextStateCoreAudio;
 
             pDevice = g_ppTrackedDevices_CoreAudio[iDevice];
             pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
-            pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
 
             if (ma_device_get_type(pDevice) == deviceType || ma_device_get_type(pDevice) == ma_device_type_duplex) {
                 if (deviceType == ma_device_type_playback) {
-                    pDeviceStateCoreAudio->isSwitchingPlaybackDevice = MA_TRUE;
-                    reinitResult = ma_device_reinit_internal__coreaudio(pDevice, deviceType, MA_TRUE);
-                    pDeviceStateCoreAudio->isSwitchingPlaybackDevice = MA_FALSE;
+                    ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice, MA_TRUE);
                 } else {
-                    pDeviceStateCoreAudio->isSwitchingCaptureDevice = MA_TRUE;
-                    reinitResult = ma_device_reinit_internal__coreaudio(pDevice, deviceType, MA_TRUE);
-                    pDeviceStateCoreAudio->isSwitchingCaptureDevice = MA_FALSE;
+                    ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingCaptureDevice, MA_TRUE);
                 }
 
-                if (reinitResult == MA_SUCCESS) {
-                    ma_device__post_init_setup(pDevice, deviceType);
-
-                    /* Restart the device if required. If this fails we need to stop the device entirely. */
-                    if (ma_device_get_status(pDevice) == ma_device_status_started) {
-                        OSStatus status;
-                        if (deviceType == ma_device_type_playback) {
-                            status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitPlayback);
-                            if (status != noErr) {
-                                if (ma_device_get_type(pDevice) == ma_device_type_duplex) {
-                                    pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitCapture);
-                                }
-                                ma_device_set_status(pDevice, ma_device_status_stopped);
-                            }
-                        } else if (deviceType == ma_device_type_capture) {
-                            status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitCapture);
-                            if (status != noErr) {
-                                if (ma_device_get_type(pDevice) == ma_device_type_duplex) {
-                                    pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitPlayback);
-                                }
-                                ma_device_set_status(pDevice, ma_device_status_stopped);
-                            }
-                        }
-                    }
-
-                    ma_device_post_notification_rerouted(pDevice);
-                }
+                /* This ensures our step function gets unblocked and executes the reroute. */
+                ma_device_state_async_release(&pDeviceStateCoreAudio->async);
             }
         }
     }
@@ -36028,6 +35997,7 @@ static ma_result ma_device_realloc_AudioBufferList__coreaudio(ma_device* pDevice
 static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pActionFlags, const AudioTimeStamp* pTimeStamp, UInt32 busNumber, UInt32 frameCount, AudioBufferList* pBufferList)
 {
     ma_device* pDevice = (ma_device*)pUserData;
+    ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
     ma_stream_layout layout;
 
     MA_ASSERT(pDevice != NULL);
@@ -36040,6 +36010,35 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
         layout = ma_stream_layout_deinterleaved;
     }
 
+    /*
+    I've observed with iOS that the callback can be fired with inconsistent frame counts, differing from the
+    reported period size which is what our internal buffer would have been initially sized with. We need to
+    check what's reported and then resize the buffer as necessary.
+    */
+    {
+        ma_uint32 totalFrameCount = 0;
+
+        if (layout == ma_stream_layout_interleaved) {
+            UInt32 iBuffer;
+            for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
+                totalFrameCount += pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pBufferList->mBuffers[iBuffer].mNumberChannels);
+            }  
+        } else {
+            if ((pBufferList->mNumberBuffers % pDevice->playback.internalChannels) == 0) {
+                UInt32 iBuffer;
+                for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; iBuffer += pDevice->playback.internalChannels) {
+                    totalFrameCount += pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_sample(pDevice->playback.internalFormat);    /* <-- Note the use of ma_get_bytes_per_sample() instead of ma_get_bytes_per_frame(). This is a single-channel non-interleaved buffer. */
+                }
+            }
+        }
+
+        /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "INTERLEAVED: totalFrameCount=%d", (int)totalFrameCount);*/
+
+        if (pDeviceStateCoreAudio->async.playback.frameCap < totalFrameCount) {
+            ma_device_state_async_resize(&pDeviceStateCoreAudio->async, totalFrameCount, pDeviceStateCoreAudio->async.capture.frameCap, ma_device_get_allocation_callbacks(pDevice));
+        }
+    }
+
     if (layout == ma_stream_layout_interleaved) {
         /* For now we can assume everything is interleaved. */
         UInt32 iBuffer;
@@ -36047,10 +36046,11 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
             if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->playback.internalChannels) {
                 ma_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (frameCountForThisBuffer > 0) {
-                    ma_device_handle_backend_data_callback(pDevice, pBufferList->mBuffers[iBuffer].mData, NULL, frameCountForThisBuffer);
+                    ma_device_state_async_process(&pDeviceStateCoreAudio->async, pDevice, pBufferList->mBuffers[iBuffer].mData, NULL, frameCountForThisBuffer);
+                    /*ma_device_handle_backend_data_callback(pDevice, pBufferList->mBuffers[iBuffer].mData, NULL, frameCountForThisBuffer);*/
                 }
 
-                /*a_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  frameCount=%d, mNumberChannels=%d, mDataByteSize=%d", (int)frameCount, (int)pBufferList->mBuffers[iBuffer].mNumberChannels, (int)pBufferList->mBuffers[iBuffer].mDataByteSize);*/
+                /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "INTERLEAVED: frameCount=%d, mNumberChannels=%d, mDataByteSize=%d", (int)frameCount, (int)pBufferList->mBuffers[iBuffer].mNumberChannels, (int)pBufferList->mBuffers[iBuffer].mDataByteSize);*/
             } else {
                 /*
                 This case is where the number of channels in the output buffer do not match our internal channels. It could mean that it's
@@ -36077,6 +36077,8 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
                 ma_uint32 frameCountPerBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_sample(pDevice->playback.internalFormat);
                 ma_uint32 framesRemaining = frameCountPerBuffer;
 
+                /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  frameCount=%d, mNumberChannels=%d, mDataByteSize=%d", (int)frameCount, (int)pBufferList->mBuffers[iBuffer].mNumberChannels, (int)pBufferList->mBuffers[iBuffer].mDataByteSize);*/
+
                 while (framesRemaining > 0) {
                     void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
                     ma_uint32 iChannel;
@@ -36085,7 +36087,8 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
                         framesToRead = framesRemaining;
                     }
 
-                    ma_device_handle_backend_data_callback(pDevice, tempBuffer, NULL, framesToRead);
+                    ma_device_state_async_process(&pDeviceStateCoreAudio->async, pDevice, tempBuffer, NULL, framesToRead);
+                    /*ma_device_handle_backend_data_callback(pDevice, tempBuffer, NULL, framesToRead);*/
 
                     for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
                         ppDeinterleavedBuffers[iChannel] = (void*)ma_offset_ptr(pBufferList->mBuffers[iBuffer+iChannel].mData, (frameCountPerBuffer - framesRemaining) * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
@@ -36165,10 +36168,36 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
         return status;
     }
 
+    /* Like with playback we need to make sure our internal buffer is big enough for what's reported by Core Audio. */
+    {
+        ma_uint32 totalFrameCount = 0;
+
+        if (layout == ma_stream_layout_interleaved) {
+            UInt32 iBuffer;
+            for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
+                totalFrameCount += frameCount;
+            }  
+        } else {
+            if ((pRenderedBufferList->mNumberBuffers % pDevice->capture.internalChannels) == 0) {
+                UInt32 iBuffer;
+                for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->capture.internalChannels) {
+                    totalFrameCount += frameCount;
+                }
+            }
+        }
+
+        /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "INTERLEAVED: totalFrameCount=%d", (int)totalFrameCount);*/
+
+        if (pDeviceStateCoreAudio->async.capture.frameCap < totalFrameCount) {
+            ma_device_state_async_resize(&pDeviceStateCoreAudio->async, pDeviceStateCoreAudio->async.playback.frameCap, totalFrameCount, ma_device_get_allocation_callbacks(pDevice));
+        }
+    }
+
     if (layout == ma_stream_layout_interleaved) {
         for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
             if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->capture.internalChannels) {
-                ma_device_handle_backend_data_callback(pDevice, NULL, pRenderedBufferList->mBuffers[iBuffer].mData, frameCount);
+                ma_device_state_async_process(&pDeviceStateCoreAudio->async, pDevice, NULL, pRenderedBufferList->mBuffers[iBuffer].mData, frameCount);
+                /*ma_device_handle_backend_data_callback(pDevice, NULL, pRenderedBufferList->mBuffers[iBuffer].mData, frameCount);*/
                 /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  mDataByteSize=%d.", (int)pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);*/
             } else {
                 /*
@@ -36187,7 +36216,8 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
                         framesToSend = framesRemaining;
                     }
 
-                    ma_device_handle_backend_data_callback(pDevice, NULL, silentBuffer, framesToSend);
+                    ma_device_state_async_process(&pDeviceStateCoreAudio->async, pDevice, NULL, silentBuffer, framesToSend);
+                    /*ma_device_handle_backend_data_callback(pDevice, NULL, silentBuffer, framesToSend);*/
 
                     framesRemaining -= framesToSend;
                 }
@@ -36220,7 +36250,9 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
                     }
 
                     ma_interleave_pcm_frames(pDevice->capture.internalFormat, pDevice->capture.internalChannels, framesToSend, (const void**)ppDeinterleavedBuffers, tempBuffer);
-                    ma_device_handle_backend_data_callback(pDevice, NULL, tempBuffer, framesToSend);
+                    
+                    ma_device_state_async_process(&pDeviceStateCoreAudio->async, pDevice, NULL, tempBuffer, framesToSend);
+                    /*ma_device_handle_backend_data_callback(pDevice, NULL, tempBuffer, framesToSend);*/
 
                     framesRemaining -= framesToSend;
                 }
@@ -36237,7 +36269,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     return noErr;
 }
 
-static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPropertyID propertyID, AudioUnitScope scope, AudioUnitElement element)
+static void ma_on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPropertyID propertyID, AudioUnitScope scope, AudioUnitElement element)
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
@@ -36246,8 +36278,8 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     MA_ASSERT(pDevice != NULL);
 
     /* Don't do anything if it looks like we're just reinitializing due to a device switch. */
-    if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && pDeviceStateCoreAudio->isSwitchingPlaybackDevice) ||
-        ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && pDeviceStateCoreAudio->isSwitchingCaptureDevice)) {
+    if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice)) ||
+        ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingCaptureDevice))) {
         return;
     }
 
@@ -36284,8 +36316,8 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
                 device to be seamless to the client (we don't want them receiving the stopped event and thinking that the device has stopped when it
                 hasn't!).
                 */
-                if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && pDeviceStateCoreAudio->isSwitchingPlaybackDevice) ||
-                    ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && pDeviceStateCoreAudio->isSwitchingCaptureDevice)) {
+                if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice)) ||
+                    ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingCaptureDevice))) {
                     goto done;
                 }
 
@@ -36464,6 +36496,8 @@ static void ma_device_uninit__coreaudio(ma_device* pDevice)
     if (pDeviceStateCoreAudio->pAudioBufferList) {
         ma_free(pDeviceStateCoreAudio->pAudioBufferList, ma_device_get_allocation_callbacks(pDevice));
     }
+
+    ma_device_state_async_uninit(&pDeviceStateCoreAudio->async, ma_device_get_allocation_callbacks(pDevice));
 
     ma_free(pDeviceStateCoreAudio, ma_device_get_allocation_callbacks(pDevice));
 }
@@ -36867,7 +36901,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
 
     /* We need to listen for stop events. */
     if (pData->registerStopEvent) {
-        status = pContextStateCoreAudio->AudioUnitAddPropertyListener(pData->audioUnit, kAudioOutputUnitProperty_IsRunning, on_start_stop__coreaudio, pDevice_DoNotReference);
+        status = pContextStateCoreAudio->AudioUnitAddPropertyListener(pData->audioUnit, kAudioOutputUnitProperty_IsRunning, ma_on_start_stop__coreaudio, pDevice_DoNotReference);
         if (status != noErr) {
             pContextStateCoreAudio->AudioComponentInstanceDispose(pData->audioUnit);
             return ma_result_from_OSStatus(status);
@@ -36954,34 +36988,65 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
         return result;
     }
 
+    /*
+    We need to reinitialize our async state object to account for the new internal format and
+    buffer configuration. To do this we'll need to set up a dummy descriptor.
+    */
+    ma_device_state_async_uninit(&pDeviceStateCoreAudio->async, ma_device_get_allocation_callbacks(pDevice));
+
     if (deviceType == ma_device_type_capture) {
     #if defined(MA_APPLE_DESKTOP)
-        pDeviceStateCoreAudio->deviceObjectIDCapture     = (ma_uint32)data.deviceObjectID;
+        pDeviceStateCoreAudio->deviceObjectIDCapture  = (ma_uint32)data.deviceObjectID;
         ma_get_AudioObject_uid(pDevice->pContext, pDeviceStateCoreAudio->deviceObjectIDCapture, sizeof(pDevice->capture.id.coreaudio), pDevice->capture.id.coreaudio);
     #endif
-        pDeviceStateCoreAudio->audioUnitCapture          = data.audioUnit;
-        pDeviceStateCoreAudio->pAudioBufferList          = data.pAudioBufferList;
-        pDeviceStateCoreAudio->audioBufferCapInFrames    = data.periodSizeInFramesOut;
+        pDeviceStateCoreAudio->audioUnitCapture       = data.audioUnit;
+        pDeviceStateCoreAudio->pAudioBufferList       = data.pAudioBufferList;
+        pDeviceStateCoreAudio->audioBufferCapInFrames = data.periodSizeInFramesOut;
 
-        pDevice->capture.internalFormat              = data.formatOut;
-        pDevice->capture.internalChannels            = data.channelsOut;
-        pDevice->capture.internalSampleRate          = data.sampleRateOut;
+        pDevice->capture.internalFormat               = data.formatOut;
+        pDevice->capture.internalChannels             = data.channelsOut;
+        pDevice->capture.internalSampleRate           = data.sampleRateOut;
         MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-        pDevice->capture.internalPeriodSizeInFrames  = data.periodSizeInFramesOut;
-        pDevice->capture.internalPeriods             = data.periodsOut;
+        pDevice->capture.internalPeriodSizeInFrames   = data.periodSizeInFramesOut;
+        pDevice->capture.internalPeriods              = data.periodsOut;
     } else if (deviceType == ma_device_type_playback) {
     #if defined(MA_APPLE_DESKTOP)
-        pDeviceStateCoreAudio->deviceObjectIDPlayback    = (ma_uint32)data.deviceObjectID;
+        pDeviceStateCoreAudio->deviceObjectIDPlayback = (ma_uint32)data.deviceObjectID;
         ma_get_AudioObject_uid(pDevice->pContext, pDeviceStateCoreAudio->deviceObjectIDPlayback, sizeof(pDevice->playback.id.coreaudio), pDevice->playback.id.coreaudio);
     #endif
-        pDeviceStateCoreAudio->audioUnitPlayback         = data.audioUnit;
+        pDeviceStateCoreAudio->audioUnitPlayback      = data.audioUnit;
 
-        pDevice->playback.internalFormat             = data.formatOut;
-        pDevice->playback.internalChannels           = data.channelsOut;
-        pDevice->playback.internalSampleRate         = data.sampleRateOut;
+        pDevice->playback.internalFormat              = data.formatOut;
+        pDevice->playback.internalChannels            = data.channelsOut;
+        pDevice->playback.internalSampleRate          = data.sampleRateOut;
         MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-        pDevice->playback.internalPeriodSizeInFrames = data.periodSizeInFramesOut;
-        pDevice->playback.internalPeriods            = data.periodsOut;
+        pDevice->playback.internalPeriodSizeInFrames  = data.periodSizeInFramesOut;
+        pDevice->playback.internalPeriods             = data.periodsOut;
+    }
+
+    {
+        ma_device_descriptor descriptorPlayback;
+        ma_device_descriptor descriptorCapture;
+
+        MA_ZERO_OBJECT(&descriptorPlayback);
+        descriptorPlayback.format             = pDevice->playback.internalFormat;
+        descriptorPlayback.channels           = pDevice->playback.internalChannels;
+        descriptorPlayback.sampleRate         = pDevice->playback.internalSampleRate;
+        descriptorPlayback.periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
+        descriptorPlayback.periodCount        = pDevice->playback.internalPeriods;
+
+        MA_ZERO_OBJECT(&descriptorCapture);
+        descriptorCapture.format             = pDevice->capture.internalFormat;
+        descriptorCapture.channels           = pDevice->capture.internalChannels;
+        descriptorCapture.sampleRate         = pDevice->capture.internalSampleRate;
+        descriptorCapture.periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
+        descriptorCapture.periodCount        = pDevice->capture.internalPeriods;
+
+        result = ma_device_state_async_init(ma_device_get_type(pDevice), &descriptorPlayback, &descriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateCoreAudio->async);
+        if (result != MA_SUCCESS) {
+            ma_device_uninit__coreaudio(pDevice);
+            return result;
+        }
     }
 
     return MA_SUCCESS;
@@ -37117,12 +37182,12 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         pDeviceStateCoreAudio->originalPeriodSizeInMilliseconds = pDescriptorPlayback->periodSizeInMilliseconds;
         pDeviceStateCoreAudio->originalPeriods                  = pDescriptorPlayback->periodCount;
 
-        pDescriptorPlayback->format                         = data.formatOut;
-        pDescriptorPlayback->channels                       = data.channelsOut;
-        pDescriptorPlayback->sampleRate                     = data.sampleRateOut;
+        pDescriptorPlayback->format             = data.formatOut;
+        pDescriptorPlayback->channels           = data.channelsOut;
+        pDescriptorPlayback->sampleRate         = data.sampleRateOut;
         MA_COPY_MEMORY(pDescriptorPlayback->channelMap, data.channelMapOut, sizeof(data.channelMapOut));
-        pDescriptorPlayback->periodSizeInFrames             = data.periodSizeInFramesOut;
-        pDescriptorPlayback->periodCount                    = data.periodsOut;
+        pDescriptorPlayback->periodSizeInFrames = data.periodSizeInFramesOut;
+        pDescriptorPlayback->periodCount        = data.periodsOut;
 
     #if defined(MA_APPLE_DESKTOP)
         ma_get_AudioObject_uid(ma_device_get_context(pDevice), pDeviceStateCoreAudio->deviceObjectIDPlayback, sizeof(pDevice->playback.id.coreaudio), pDevice->playback.id.coreaudio);
@@ -37135,6 +37200,20 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
             ma_device__track__coreaudio(pDevice);
         }
     #endif
+    }
+
+    result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateCoreAudio->async);
+    if (result != MA_SUCCESS) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            pContextStateCoreAudio->AudioComponentInstanceDispose(pDeviceStateCoreAudio->audioUnitCapture);
+            if (pDeviceStateCoreAudio->pAudioBufferList) {
+                ma_free(pDeviceStateCoreAudio->pAudioBufferList, ma_device_get_allocation_callbacks(pDevice));
+            }
+        }
+
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            pContextStateCoreAudio->AudioComponentInstanceDispose(pDeviceStateCoreAudio->audioUnitPlayback);
+        }
     }
 
     /*
@@ -37211,6 +37290,87 @@ static ma_result ma_device_stop__coreaudio(ma_device* pDevice)
 }
 
 
+static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
+{
+    #if defined(MA_APPLE_DESKTOP)
+    {
+        ma_result result = MA_SUCCESS;
+        ma_bool32 wasReinitialized = MA_FALSE;
+        ma_device_state_coreaudio* pDeviceStateCoreAudio;
+        ma_context_state_coreaudio* pContextStateCoreAudio;
+        ma_device_type deviceType = ma_device_get_type(pDevice);
+
+        pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
+        pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
+
+        if (ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice)) {
+            result = ma_device_reinit_internal__coreaudio(pDevice, ma_device_type_playback, MA_TRUE);
+            ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice, MA_FALSE);
+            wasReinitialized = MA_TRUE;
+        }
+
+        if (ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingCaptureDevice)) {
+            result = ma_device_reinit_internal__coreaudio(pDevice, ma_device_type_capture, MA_TRUE);
+            ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingCaptureDevice, MA_FALSE);
+            wasReinitialized = MA_TRUE;
+        }
+
+        if (wasReinitialized && result == MA_SUCCESS) {
+            ma_device__post_init_setup(pDevice, deviceType);
+
+            /* Restart the device if required. If this fails we need to stop the device entirely. */
+            if (ma_device_get_status(pDevice) == ma_device_status_started) {
+                OSStatus status;
+                if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+                    status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitPlayback);
+                    if (status != noErr) {
+                        if (deviceType == ma_device_type_duplex) {
+                            pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitCapture);
+                        }
+                        ma_device_set_status(pDevice, ma_device_status_stopped);
+                    }
+                }
+                
+                if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+                    status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitCapture);
+                    if (status != noErr) {
+                        if (deviceType == ma_device_type_duplex) {
+                            pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitPlayback);
+                        }
+                        ma_device_set_status(pDevice, ma_device_status_stopped);
+                    }
+                }
+            }
+
+            ma_device_post_notification_rerouted(pDevice);
+        }
+    }
+    #else
+    {
+        /* iOS. Nothing to do here. */
+        (void)pDevice;
+    }
+    #endif
+    
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_step__coreaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
+{
+    ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
+    return ma_device_state_async_step(&pDeviceStateCoreAudio->async, pDevice, blockingMode, ma_device_step_extra__coreaudio);
+}
+
+static void ma_device_loop__coreaudio(ma_device* pDevice)
+{
+    while (ma_device_is_started(pDevice)) {
+        ma_result result = ma_device_step__coreaudio(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
 {
     ma_backend_info__coreaudio,
@@ -37223,7 +37383,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
     ma_device_stop__coreaudio,
     NULL,   /* onDeviceRead */
     NULL,   /* onDeviceWrite */
-    NULL,   /* onDeviceLoop */
+    ma_device_loop__coreaudio,
     NULL    /* onDeviceWakeup */
 };
 
@@ -46514,6 +46674,8 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
 MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_async* pAsyncDeviceState)
 {
     ma_result result;
+    ma_uint32 periodSizeInFramesPlayback = 0;
+    ma_uint32 periodSizeInFramesCapture  = 0;
 
     if (pAsyncDeviceState == NULL) {
         return MA_INVALID_ARGS;
@@ -46534,6 +46696,8 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
 
         pAsyncDeviceState->capture.format   = pDescriptorCapture->format;
         pAsyncDeviceState->capture.channels = pDescriptorCapture->channels;
+
+        periodSizeInFramesCapture = pDescriptorCapture->periodSizeInFrames;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -46552,9 +46716,11 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
 
         pAsyncDeviceState->playback.format   = pDescriptorPlayback->format;
         pAsyncDeviceState->playback.channels = pDescriptorPlayback->channels;
+
+        periodSizeInFramesPlayback = pDescriptorPlayback->periodSizeInFrames;
     }
 
-    result = ma_device_state_async_resize(pAsyncDeviceState, pDescriptorPlayback->periodSizeInFrames, pDescriptorCapture->periodSizeInFrames, pAllocationCallbacks);
+    result = ma_device_state_async_resize(pAsyncDeviceState, periodSizeInFramesPlayback, periodSizeInFramesCapture, pAllocationCallbacks);
     if (result != MA_SUCCESS) {
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
             ma_semaphore_uninit(&pAsyncDeviceState->capture.semaphore);
