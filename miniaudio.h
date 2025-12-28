@@ -27761,12 +27761,6 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwFlags        = 0L;
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwLoops        = 0L;
             pContextStateWinMM->waveInPrepareHeader(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[iPeriod], sizeof(MA_WAVEHDR));
-
-            /*
-            The user data of the MA_WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
-            it's unlocked and available for writing. A value of 1 means it's locked.
-            */
-            pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwUser = 0;
         }
     }
 
@@ -27777,7 +27771,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
             pDeviceStateWinMM->pWAVEHDRPlayback            = (MA_WAVEHDR*)pDeviceStateWinMM->_pHeapData;
             pDeviceStateWinMM->pIntermediaryBufferPlayback = pDeviceStateWinMM->_pHeapData + (sizeof(MA_WAVEHDR)*pDescriptorPlayback->periodCount);
         } else {
-            pDeviceStateWinMM->pWAVEHDRPlayback            = (MA_WAVEHDR*)pDeviceStateWinMM->_pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount));
+            pDeviceStateWinMM->pWAVEHDRPlayback            = (MA_WAVEHDR*)pDeviceStateWinMM->_pHeapData + pDescriptorCapture->periodCount;
             pDeviceStateWinMM->pIntermediaryBufferPlayback = pDeviceStateWinMM->_pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount)) + (pDescriptorCapture->periodSizeInFrames*pDescriptorCapture->periodCount*ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
         }
 
@@ -27792,10 +27786,10 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
             pContextStateWinMM->waveOutPrepareHeader(pDeviceStateWinMM->hDevicePlayback, &pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod], sizeof(MA_WAVEHDR));
 
             /*
-            The user data of the MA_WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
-            it's unlocked and available for writing. A value of 1 means it's locked.
+            We use the WHDR_DONE flag to determine whether not not a buffer is available for writing. Since in playback
+            mode we want buffers to be writable from the start, we will set the flag here at initialization time.
             */
-            pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwUser = 0;
+            pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwFlags |= MA_WHDR_DONE;
         }
     }
 
@@ -27880,9 +27874,6 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.");
                 return ma_result_from_MMRESULT(resultMM);
             }
-
-            /* Make sure all of the buffers start out locked. We don't want to access them until the backend tells us we can. */
-            pWAVEHDR[iPeriod].dwUser = 1;   /* 1 = locked. */
         }
 
         /* Capture devices need to be explicitly started, unlike playback devices. */
@@ -27929,12 +27920,8 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
         /* We need to drain the device. To do this we just loop over each header and if it's locked just wait for the event. */
         pWAVEHDR = pDeviceStateWinMM->pWAVEHDRPlayback;
         for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
-            if (pWAVEHDR[iPeriod].dwUser == 1) { /* 1 = locked. */
-                if (WaitForSingleObject(pDeviceStateWinMM->hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
-                    break;  /* An error occurred so just abandon ship and stop the device without draining. */
-                }
-
-                pWAVEHDR[iPeriod].dwUser = 0;
+            if (WaitForSingleObject(pDeviceStateWinMM->hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
+                break;  /* An error occurred so just abandon ship and stop the device without draining. */
             }
         }
 
@@ -27947,189 +27934,105 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_winmm* pDeviceStateWinMM = ma_device_get_backend_state__winmm(pDevice);
     ma_context_state_winmm* pContextStateWinMM = ma_context_get_backend_state__winmm(ma_device_get_context(pDevice));
-    ma_result result = MA_SUCCESS;
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    HANDLE handles[2];
+    DWORD handleCount;
+    DWORD timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? INFINITE : 0;
+    DWORD waitResult;
     MA_MMRESULT resultMM;
-    ma_uint32 totalFramesWritten;
-    MA_WAVEHDR* pWAVEHDR;
 
-    MA_ASSERT(pDevice != NULL);
-    MA_ASSERT(pPCMFrames != NULL);
-
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = 0;
+    handleCount = 0;
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        handles[handleCount++] = pDeviceStateWinMM->hEventCapture;
+    }
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        handles[handleCount++] = pDeviceStateWinMM->hEventPlayback;
     }
 
-    pWAVEHDR = pDeviceStateWinMM->pWAVEHDRPlayback;
-
-    /* Keep processing as much data as possible. */
-    totalFramesWritten = 0;
-    while (totalFramesWritten < frameCount) {
-        /* If the current header has some space available we need to write part of it. */
-        if (pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwUser == 0) { /* 0 = unlocked. */
-            /*
-            This header has room in it. We copy as much of it as we can. If we end up fully consuming the buffer we need to
-            write it out and move on to the next iteration.
-            */
-            ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-            ma_uint32 framesRemainingInHeader = (pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwBufferLength/bpf) - pDeviceStateWinMM->headerFramesConsumedPlayback;
-
-            ma_uint32 framesToCopy = ma_min(framesRemainingInHeader, (frameCount - totalFramesWritten));
-            const void* pSrc = ma_offset_ptr(pPCMFrames, totalFramesWritten*bpf);
-            void* pDst = ma_offset_ptr(pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].lpData, pDeviceStateWinMM->headerFramesConsumedPlayback*bpf);
-            MA_COPY_MEMORY(pDst, pSrc, framesToCopy*bpf);
-
-            pDeviceStateWinMM->headerFramesConsumedPlayback += framesToCopy;
-            totalFramesWritten += framesToCopy;
-
-            /* If we've consumed the buffer entirely we need to write it out to the device. */
-            if (pDeviceStateWinMM->headerFramesConsumedPlayback == (pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwBufferLength/bpf)) {
-                pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwUser = 1;            /* 1 = locked. */
-                pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags &= ~MA_WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
-
-                /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-                ResetEvent(pDeviceStateWinMM->hEventPlayback);
-
-                /* The device will be started here. */
-                resultMM = pContextStateWinMM->waveOutWrite(pDeviceStateWinMM->hDevicePlayback, &pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback], sizeof(MA_WAVEHDR));
-                if (resultMM != MA_MMSYSERR_NOERROR) {
-                    result = ma_result_from_MMRESULT(resultMM);
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.");
-                    break;
-                }
-
-                /* Make sure we move to the next header. */
-                pDeviceStateWinMM->iNextHeaderPlayback = (pDeviceStateWinMM->iNextHeaderPlayback + 1) % pDevice->playback.internalPeriods;
-                pDeviceStateWinMM->headerFramesConsumedPlayback = 0;
-            }
-
-            /* If at this point we have consumed the entire input buffer we can return. */
-            MA_ASSERT(totalFramesWritten <= frameCount);
-            if (totalFramesWritten == frameCount) {
-                break;
-            }
-
-            /* Getting here means there's more to process. */
-            continue;
-        }
-
-        /* Getting here means there isn't enough room in the buffer and we need to wait for one to become available. */
-        if (WaitForSingleObject(pDeviceStateWinMM->hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
-            result = MA_ERROR;
-            break;
-        }
-
-        /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
-        if ((pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags & MA_WHDR_DONE) != 0) {
-            pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwUser = 0;    /* 0 = unlocked (make it available for writing). */
-            pDeviceStateWinMM->headerFramesConsumedPlayback = 0;
-        }
-
-        /* If the device has been stopped we need to break. */
-        if (ma_device_get_status(pDevice) != ma_device_status_started) {
-            break;
-        }
+    waitResult = WaitForMultipleObjects(handleCount, handles, FALSE, timeout);
+    if (waitResult == WAIT_FAILED) {
+        return MA_ERROR;    /* Backend is in an erroneous state. */
     }
 
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = totalFramesWritten;
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
     }
 
-    return result;
-}
+    if (waitResult >= WAIT_OBJECT_0 && waitResult <= WAIT_OBJECT_0 + handleCount-1) {
+        /* Something is available for processing. */
+        HANDLE handle = handles[waitResult - WAIT_OBJECT_0];
+        ma_uint32 frameCount;
 
-static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
-{
-    ma_device_state_winmm* pDeviceStateWinMM = ma_device_get_backend_state__winmm(pDevice);
-    ma_context_state_winmm* pContextStateWinMM = ma_context_get_backend_state__winmm(ma_device_get_context(pDevice));
-    ma_result result = MA_SUCCESS;
-    MA_MMRESULT resultMM;
-    ma_uint32 totalFramesRead;
-    MA_WAVEHDR* pWAVEHDR;
+        /* Capture. */
+        if (handle == pDeviceStateWinMM->hEventCapture && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex)) {
+            MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRCapture;
 
-    MA_ASSERT(pDevice != NULL);
-    MA_ASSERT(pPCMFrames != NULL);
+            /* Consume any completed header. */
+            while ((pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags & MA_WHDR_DONE) != 0) {
+                pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags &= ~MA_WHDR_DONE;
 
-    if (pFramesRead != NULL) {
-        *pFramesRead = 0;
-    }
-
-    pWAVEHDR = pDeviceStateWinMM->pWAVEHDRCapture;
-
-    /* Keep processing as much data as possible. */
-    totalFramesRead = 0;
-    while (totalFramesRead < frameCount) {
-        /* If the current header has some space available we need to write part of it. */
-        if (pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwUser == 0) { /* 0 = unlocked. */
-            /* The buffer is available for reading. If we fully consume it we need to add it back to the buffer. */
-            ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-            ma_uint32 framesRemainingInHeader = (pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwBufferLength/bpf) - pDeviceStateWinMM->headerFramesConsumedCapture;
-
-            ma_uint32 framesToCopy = ma_min(framesRemainingInHeader, (frameCount - totalFramesRead));
-            const void* pSrc = ma_offset_ptr(pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].lpData, pDeviceStateWinMM->headerFramesConsumedCapture*bpf);
-            void* pDst = ma_offset_ptr(pPCMFrames, totalFramesRead*bpf);
-            MA_COPY_MEMORY(pDst, pSrc, framesToCopy*bpf);
-
-            pDeviceStateWinMM->headerFramesConsumedCapture += framesToCopy;
-            totalFramesRead += framesToCopy;
-
-            /* If we've consumed the buffer entirely we need to add it back to the device. */
-            if (pDeviceStateWinMM->headerFramesConsumedCapture == (pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwBufferLength/bpf)) {
-                pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwUser = 1;            /* 1 = locked. */
-                pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags &= ~MA_WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
-
-                /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-                ResetEvent(pDeviceStateWinMM->hEventCapture);
+                frameCount = pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwBufferLength / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                ma_device_handle_backend_data_callback(pDevice, NULL, pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].lpData, frameCount);
 
                 /* The device will be started here. */
                 resultMM = pContextStateWinMM->waveInAddBuffer(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[pDeviceStateWinMM->iNextHeaderCapture], sizeof(MA_WAVEHDR));
                 if (resultMM != MA_MMSYSERR_NOERROR) {
-                    result = ma_result_from_MMRESULT(resultMM);
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] waveInAddBuffer() failed.");
-                    break;
+                    return ma_result_from_MMRESULT(resultMM);
                 }
 
                 /* Make sure we move to the next header. */
                 pDeviceStateWinMM->iNextHeaderCapture = (pDeviceStateWinMM->iNextHeaderCapture + 1) % pDevice->capture.internalPeriods;
-                pDeviceStateWinMM->headerFramesConsumedCapture = 0;
             }
 
-            /* If at this point we have filled the entire input buffer we can return. */
-            MA_ASSERT(totalFramesRead <= frameCount);
-            if (totalFramesRead == frameCount) {
-                break;
+            /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
+            ResetEvent(pDeviceStateWinMM->hEventCapture);
+        }
+
+        /* Playback. */
+        if (handle == pDeviceStateWinMM->hEventPlayback && (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex)) {
+            MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRPlayback;
+
+            /* Fill out any completed header with fresh data. */
+            while ((pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags & MA_WHDR_DONE) != 0) {
+                pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags &= ~MA_WHDR_DONE;
+
+                frameCount = pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwBufferLength / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                ma_device_handle_backend_data_callback(pDevice, pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].lpData, NULL, frameCount);
+
+                /* The device will be started here. */
+                resultMM = pContextStateWinMM->waveOutWrite(pDeviceStateWinMM->hDevicePlayback, &pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback], sizeof(MA_WAVEHDR));
+                if (resultMM != MA_MMSYSERR_NOERROR) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.");
+                    return ma_result_from_MMRESULT(resultMM);
+                }
+
+                /* Make sure we move to the next header. */
+                pDeviceStateWinMM->iNextHeaderPlayback = (pDeviceStateWinMM->iNextHeaderPlayback + 1) % pDevice->playback.internalPeriods;
             }
 
-            /* Getting here means there's more to process. */
-            continue;
+            /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
+            ResetEvent(pDeviceStateWinMM->hEventPlayback);
         }
+    } else {
+        /* Most likely a timeout in non-blocking mode. Nothing to do. */
+    }
 
-        /* Getting here means there isn't enough any data left to send to the client which means we need to wait for more. */
-        if (WaitForSingleObject(pDeviceStateWinMM->hEventCapture, INFINITE) != WAIT_OBJECT_0) {
-            result = MA_ERROR;
-            break;
-        }
+    return MA_SUCCESS;
+}
 
-        /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
-        if ((pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags & MA_WHDR_DONE) != 0) {
-            pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwUser = 0;    /* 0 = unlocked (make it available for reading). */
-            pDeviceStateWinMM->headerFramesConsumedCapture = 0;
-        }
-
-        /* If the device has been stopped we need to break. */
-        if (ma_device_get_status(pDevice) != ma_device_status_started) {
+static void ma_device_loop__winmm(ma_device* pDevice)
+{
+    while (ma_device_is_started(pDevice)) {
+        ma_result result = ma_device_step__winmm(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
             break;
         }
     }
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = totalFramesRead;
-    }
-
-    return result;
 }
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
@@ -28142,9 +28045,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
     ma_device_uninit__winmm,
     ma_device_start__winmm,
     ma_device_stop__winmm,
-    ma_device_read__winmm,
-    ma_device_write__winmm,
-    NULL,   /* onDeviceLopp */
+    NULL,
+    NULL,
+    ma_device_loop__winmm,
     NULL    /* onDeviceWakeup */
 };
 
