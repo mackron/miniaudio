@@ -878,6 +878,7 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_simple_playback_sine simple_playback_sine.c)
     add_miniaudio_example(miniaudio_simple_playback simple_playback.c)
     add_miniaudio_example(miniaudio_simple_spatialization simple_spatialization.c)
+    add_miniaudio_example(miniaudio_single_threaded single_threaded.c)
 endif()
 
 
