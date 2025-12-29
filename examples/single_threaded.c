@@ -21,6 +21,9 @@ use `MA_BLOCKING_MODE_NON_BLOCKING`.
 You should only ever call `ma_device_step()` in single-threaded mode. In multi-threaded mode (the
 default), you should never call this function manually. You can query whether or not the device is
 in single-threaded mode via `ma_device_get_threading_mode()`.
+
+When in single-threaded mode, you should ensure that all `ma_device` API calls are made from the same
+thread. This is due to some backends that require it, such as WASAPI.
 */
 #include "../miniaudio.c"
 
