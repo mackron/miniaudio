@@ -7237,7 +7237,11 @@ MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_
 
 
 
-
+typedef enum ma_threading_mode
+{
+    MA_THREADING_MODE_MULTITHREADED = 0,    /* Default. */
+    MA_THREADING_MODE_SINGLE_THREADED
+} ma_threading_mode;
 
 typedef enum ma_blocking_mode
 {
@@ -7509,6 +7513,7 @@ typedef struct
 struct ma_device_config
 {
     ma_device_type deviceType;
+    ma_threading_mode threadingMode;
     ma_uint32 sampleRate;
     ma_uint32 periodSizeInFrames;
     ma_uint32 periodSizeInMilliseconds;
@@ -44976,7 +44981,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_result result;
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
-    ma_bool32 singleThreaded = MA_FALSE;    /* TODO: Make this a config variable. */
+    ma_threading_mode threadingMode = MA_THREADING_MODE_MULTITHREADED;
     ma_device_op_params initParams;
 
     /* The context can be null, in which case we self-manage it. */
@@ -44988,20 +44993,20 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         return MA_INVALID_ARGS;
     }
 
-    /* Force single-threaded mode if threading has been disabled at compile time. */
-    #ifdef MA_NO_THREADING
-    {
-        singleThreaded = MA_TRUE;
-    }
-    #endif
-
-    (void)singleThreaded;
-
     MA_ZERO_OBJECT(pDevice);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    threadingMode = pConfig->threadingMode;
+
+    /* Force single-threaded mode if threading has been disabled at compile time. */
+    #ifdef MA_NO_THREADING
+    {
+        threadingMode = MA_THREADING_MODE_SINGLE_THREADED;
+    }
+    #endif
 
     /* Check that we have our callbacks defined. */
     if (pContext->pVTable->onDeviceInit == NULL) {
@@ -45128,7 +45133,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     be initialized. It won't be doing anything at first because no operation will be put onto the queue.
     */
     #ifndef MA_NO_THREADING
-    if (singleThreaded == MA_FALSE) {
+    if (threadingMode == MA_THREADING_MODE_MULTITHREADED) {
         /* We need an operation queue before starting the audio thread. */
         result = ma_device_op_queue_init(&pDevice->opQueue);
         if (result != MA_SUCCESS) {
@@ -45177,19 +45182,19 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     #endif
     {
         /* Getting here means we're running in single-threaded mode. We want to run the init operation immediately. */
+        MA_ASSERT(threadingMode == MA_THREADING_MODE_SINGLE_THREADED);
+
         result = ma_device_op_do_init(pDevice, initParams, NULL);
         if (result != MA_SUCCESS) {
             return result;  /* Failed to initialize backend. */
         }
     }
 
-
     result = ma_device_post_init(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
     if (result != MA_SUCCESS) {
         ma_device_uninit(pDevice);
         return result;
     }
-
 
     /*
     If we're using fixed sized callbacks we'll need to make use of an intermediary buffer. Needs to
