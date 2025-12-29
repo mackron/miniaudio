@@ -22147,12 +22147,6 @@ typedef struct ma_device_state_wasapi
     ma_uint32 originalPeriods;
     ma_uint32 periodSizeInFramesPlayback;
     ma_uint32 periodSizeInFramesCapture;
-    void* pMappedBufferCapture;
-    ma_uint32 mappedBufferCaptureCap;
-    ma_uint32 mappedBufferCaptureLen;
-    void* pMappedBufferPlayback;
-    ma_uint32 mappedBufferPlaybackCap;
-    ma_uint32 mappedBufferPlaybackLen;
     ma_atomic_bool32 isStartedCapture;                      /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
     ma_atomic_bool32 isStartedPlayback;                     /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
     ma_uint32 loopbackProcessID;
@@ -24557,23 +24551,9 @@ static void ma_device_uninit__wasapi(ma_device* pDevice)
     #endif
 
     if (pDeviceStateWASAPI->pRenderClient) {
-        if (pDeviceStateWASAPI->pMappedBufferPlayback != NULL) {
-            ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDeviceStateWASAPI->pRenderClient, pDeviceStateWASAPI->mappedBufferPlaybackCap, 0);
-            pDeviceStateWASAPI->pMappedBufferPlayback   = NULL;
-            pDeviceStateWASAPI->mappedBufferPlaybackCap = 0;
-            pDeviceStateWASAPI->mappedBufferPlaybackLen = 0;
-        }
-
         ma_IAudioRenderClient_Release((ma_IAudioRenderClient*)pDeviceStateWASAPI->pRenderClient);
     }
     if (pDeviceStateWASAPI->pCaptureClient) {
-        if (pDeviceStateWASAPI->pMappedBufferCapture != NULL) {
-            ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDeviceStateWASAPI->pCaptureClient, pDeviceStateWASAPI->mappedBufferCaptureCap);
-            pDeviceStateWASAPI->pMappedBufferCapture   = NULL;
-            pDeviceStateWASAPI->mappedBufferCaptureCap = 0;
-            pDeviceStateWASAPI->mappedBufferCaptureLen = 0;
-        }
-
         ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDeviceStateWASAPI->pCaptureClient);
     }
 
@@ -24744,14 +24724,6 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        /* If we have a mapped buffer we need to release it. */
-        if (pDeviceStateWASAPI->pMappedBufferCapture != NULL) {
-            ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, pDeviceStateWASAPI->mappedBufferCaptureCap);
-            pDeviceStateWASAPI->pMappedBufferCapture = NULL;
-            pDeviceStateWASAPI->mappedBufferCaptureCap = 0;
-            pDeviceStateWASAPI->mappedBufferCaptureLen = 0;
-        }
-
         hr = ma_IAudioClient_Stop(pDeviceStateWASAPI->pAudioClientCapture);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.");
@@ -24769,18 +24741,6 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        if (pDeviceStateWASAPI->pMappedBufferPlayback != NULL) {
-            ma_silence_pcm_frames(
-                ma_offset_pcm_frames_ptr(pDeviceStateWASAPI->pMappedBufferPlayback, pDeviceStateWASAPI->mappedBufferPlaybackLen, pDevice->playback.internalFormat, pDevice->playback.internalChannels),
-                pDeviceStateWASAPI->mappedBufferPlaybackCap - pDeviceStateWASAPI->mappedBufferPlaybackLen,
-                pDevice->playback.internalFormat, pDevice->playback.internalChannels
-            );
-            ma_IAudioRenderClient_ReleaseBuffer(pDeviceStateWASAPI->pRenderClient, pDeviceStateWASAPI->mappedBufferPlaybackCap, 0);
-            pDeviceStateWASAPI->pMappedBufferPlayback = NULL;
-            pDeviceStateWASAPI->mappedBufferPlaybackCap = 0;
-            pDeviceStateWASAPI->mappedBufferPlaybackLen = 0;
-        }
-
         /*
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
@@ -24868,58 +24828,53 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 #define MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS 5000
 #endif
 
-static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
+static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
-    ma_result result = MA_SUCCESS;
-    ma_uint32 totalFramesProcessed = 0;
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    HRESULT hr;
+    HANDLE hEvents[2];
+    DWORD eventCount;
+    DWORD waitResult;
+    DWORD timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS : 0;
 
     /*
-    When reading, we need to get a buffer and process all of it before releasing it. Because the
-    frame count (frameCount) can be different to the size of the buffer, we'll need to cache the
-    pointer to the buffer.
+    With loopback mode, a timeout from WaitForMultipleObjects() almost certainly means there is simply
+    nothing being played through the speakers. We don't want to be stalling for ages in this case, so
+    for loopback we'll set a timeout of 10ms.
     */
+    if (deviceType == ma_device_type_loopback && blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+        timeout = 10;
+    }
 
-    /* Keep running until we've processed the requested number of frames. */
-    while (ma_device_get_status(pDevice) == ma_device_status_started && totalFramesProcessed < frameCount) {
-        ma_uint32 framesRemaining = frameCount - totalFramesProcessed;
+    eventCount = 0;
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
+        hEvents[eventCount++] = pDeviceStateWASAPI->hEventCapture;
+    }
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        hEvents[eventCount++] = pDeviceStateWASAPI->hEventPlayback;
+    }
 
-        /* If we have a mapped data buffer, consume that first. */
-        if (pDeviceStateWASAPI->pMappedBufferCapture != NULL) {
-            /* We have a cached data pointer so consume that before grabbing another one from WASAPI. */
-            ma_uint32 framesToProcessNow = framesRemaining;
-            if (framesToProcessNow > pDeviceStateWASAPI->mappedBufferCaptureLen) {
-                framesToProcessNow = pDeviceStateWASAPI->mappedBufferCaptureLen;
-            }
+    waitResult = WaitForMultipleObjects(eventCount, hEvents, FALSE, timeout);
+    if (waitResult >= WAIT_OBJECT_0 && waitResult <= WAIT_OBJECT_0 + eventCount-1) {
+        HANDLE hEvent = hEvents[waitResult - WAIT_OBJECT_0];
 
-            /* Now just copy the data over to the output buffer. */
-            ma_copy_pcm_frames(
-                ma_offset_pcm_frames_ptr(pFrames, totalFramesProcessed, pDevice->capture.internalFormat, pDevice->capture.internalChannels),
-                ma_offset_pcm_frames_const_ptr(pDeviceStateWASAPI->pMappedBufferCapture, pDeviceStateWASAPI->mappedBufferCaptureCap - pDeviceStateWASAPI->mappedBufferCaptureLen, pDevice->capture.internalFormat, pDevice->capture.internalChannels),
-                framesToProcessNow,
-                pDevice->capture.internalFormat, pDevice->capture.internalChannels
-            );
+        /* We may have been woken up due to the device stopping. Check for that. */
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
 
-            totalFramesProcessed                       += framesToProcessNow;
-            pDeviceStateWASAPI->mappedBufferCaptureLen -= framesToProcessNow;
+        /* TODO: Do rerouting here. */
 
-            /* If the data buffer has been fully consumed we need to release it. */
-            if (pDeviceStateWASAPI->mappedBufferCaptureLen == 0) {
-                ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, pDeviceStateWASAPI->mappedBufferCaptureCap);
-                pDeviceStateWASAPI->pMappedBufferCapture   = NULL;
-                pDeviceStateWASAPI->mappedBufferCaptureCap = 0;
-            }
-        } else {
-            /* We don't have any cached data pointer, so grab another one. */
-            HRESULT hr;
+        /* Capture. */
+        if (hEvent == pDeviceStateWASAPI->hEventCapture) {
             DWORD flags = 0;
+            ma_uint32 bufferSizeInFrames;
+            BYTE* pMappedBuffer;
 
             /* First just ask WASAPI for a data buffer. If it's not available, we'll wait for more. */
-            hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, (BYTE**)&pDeviceStateWASAPI->pMappedBufferCapture, &pDeviceStateWASAPI->mappedBufferCaptureCap, &flags, NULL, NULL);
+            hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, &pMappedBuffer, &bufferSizeInFrames, &flags, NULL, NULL);
             if (hr == S_OK) {
-                /* We got a data buffer. Continue to the next loop iteration which will then read from the mapped pointer. */
-                pDeviceStateWASAPI->mappedBufferCaptureLen = pDeviceStateWASAPI->mappedBufferCaptureCap;
-
                 /*
                 There have been reports that indicate that at times the AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY is reported for every
                 call to IAudioCaptureClient_GetBuffer() above which results in spamming of the debug messages below. To partially
@@ -24932,7 +24887,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld", flags);
 
                         if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
-                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. mappedBufferCaptureCap=%d", pDeviceStateWASAPI->mappedBufferCaptureCap);
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. bufferSizeInFrames=%d", bufferSizeInFrames);
                         }
                     }
                 }
@@ -24940,189 +24895,26 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 
                 /* Overrun detection. */
                 if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
-                    /* Glitched. Probably due to an overrun. */
-
-                    /*
-                    If we got an overrun it probably means we're straddling the end of the buffer. In normal capture
-                    mode this is the fault of the client application because they're responsible for ensuring data is
-                    processed fast enough. In duplex mode, however, the processing of audio is tied to the playback
-                    device, so this can possibly be the result of a timing de-sync.
-
-                    In capture mode we're not going to do any kind of recovery because the real fix is for the client
-                    application to process faster. In duplex mode, we'll treat this as a desync and reset the buffers
-                    to prevent a never-ending sequence of glitches due to straddling the end of the buffer.
-                    */
-                    if (ma_device_get_type(pDevice) == ma_device_type_duplex) {
-                        /*
-                        Experiment:
-
-                        If we empty out the *entire* buffer we may end up putting ourselves into an underrun position
-                        which isn't really any better than the overrun we're probably in right now. Instead we'll just
-                        empty out about half.
-                        */
-                        ma_uint32 i;
-                        ma_uint32 periodCount = (pDeviceStateWASAPI->actualBufferSizeInFramesCapture / pDeviceStateWASAPI->periodSizeInFramesCapture);
-                        ma_uint32 iterationCount = periodCount / 2;
-                        if ((periodCount % 2) > 0) {
-                            iterationCount += 1;
-                        }
-
-                        for (i = 0; i < iterationCount; i += 1) {
-                            hr = ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, pDeviceStateWASAPI->mappedBufferCaptureCap);
-                            if (FAILED(hr)) {
-                                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: IAudioCaptureClient_ReleaseBuffer() failed with %ld.", hr);
-                                break;
-                            }
-
-                            flags = 0;
-                            hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, (BYTE**)&pDeviceStateWASAPI->pMappedBufferCapture, &pDeviceStateWASAPI->mappedBufferCaptureCap, &flags, NULL, NULL);
-                            if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || FAILED(hr)) {
-                                /*
-                                The buffer has been completely emptied or an error occurred. In this case we'll need
-                                to reset the state of the mapped buffer which will trigger the next iteration to get
-                                a fresh buffer from WASAPI.
-                                */
-                                pDeviceStateWASAPI->pMappedBufferCapture   = NULL;
-                                pDeviceStateWASAPI->mappedBufferCaptureCap = 0;
-                                pDeviceStateWASAPI->mappedBufferCaptureLen = 0;
-
-                                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY) {
-                                    if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
-                                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: Buffer emptied, and data discontinuity still reported.");
-                                    } else {
-                                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: Buffer emptied.");
-                                    }
-                                }
-
-                                if (FAILED(hr)) {
-                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: IAudioCaptureClient_GetBuffer() failed with %ld.", hr);
-                                }
-
-                                break;
-                            }
-                        }
-
-                        /* If at this point we have a valid buffer mapped, make sure the buffer length is set appropriately. */
-                        if (pDeviceStateWASAPI->pMappedBufferCapture != NULL) {
-                            pDeviceStateWASAPI->mappedBufferCaptureLen = pDeviceStateWASAPI->mappedBufferCaptureCap;
-                        }
-                    }
+                    /* Glitched. Maybe try some recovery system here? */
                 }
 
-                continue;
+                ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, bufferSizeInFrames);
+                ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
             } else {
                 if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
-                    /*
-                    No data is available. We need to wait for more. There's two situations to consider
-                    here. The first is normal capture mode. If this times out it probably means the
-                    microphone isn't delivering data for whatever reason. In this case we'll just
-                    abort the read and return whatever we were able to get. The other situations is
-                    loopback mode, in which case a timeout probably just means the nothing is playing
-                    through the speakers.
-                    */
-
-                    /* Experiment: Use a shorter timeout for loopback mode. */
-                    DWORD timeoutInMilliseconds = MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS;
-                    if (pDevice->type == ma_device_type_loopback) {
-                        timeoutInMilliseconds = 10;
-                    }
-
-                    if (WaitForSingleObject(pDeviceStateWASAPI->hEventCapture, timeoutInMilliseconds) != WAIT_OBJECT_0) {
-                        if (pDevice->type == ma_device_type_loopback) {
-                            continue;   /* Keep waiting in loopback mode. */
-                        } else {
-                            result = MA_ERROR;
-                            break;      /* Wait failed. */
-                        }
-                    }
-
-                    /* At this point we should be able to loop back to the start of the loop and try retrieving a data buffer again. */
+                    /* No data available. */
                 } else {
                     /* An error occurred and we need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.", (int)hr);
-                    result = ma_result_from_HRESULT(hr);
-                    break;
+                    return ma_result_from_HRESULT(hr);
                 }
             }
         }
-    }
 
-    /*
-    If we were unable to process the entire requested frame count, but we still have a mapped buffer,
-    there's a good chance either an error occurred or the device was stopped mid-read. In this case
-    we'll need to make sure the buffer is released.
-    */
-    if (totalFramesProcessed < frameCount && pDeviceStateWASAPI->pMappedBufferCapture != NULL) {
-        ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, pDeviceStateWASAPI->mappedBufferCaptureCap);
-        pDeviceStateWASAPI->pMappedBufferCapture   = NULL;
-        pDeviceStateWASAPI->mappedBufferCaptureCap = 0;
-        pDeviceStateWASAPI->mappedBufferCaptureLen = 0;
-    }
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = totalFramesProcessed;
-    }
-
-    return result;
-}
-
-static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
-{
-    ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
-    ma_result result = MA_SUCCESS;
-    ma_uint32 totalFramesProcessed = 0;
-
-    /* Keep writing to the device until it's stopped or we've consumed all of our input. */
-    while (ma_device_get_status(pDevice) == ma_device_status_started && totalFramesProcessed < frameCount) {
-        ma_uint32 framesRemaining = frameCount - totalFramesProcessed;
-
-        /*
-        We're going to do this in a similar way to capture. We'll first check if the cached data pointer
-        is valid, and if so, read from that. Otherwise We will call IAudioRenderClient_GetBuffer() with
-        a requested buffer size equal to our actual period size. If it returns AUDCLNT_E_BUFFER_TOO_LARGE
-        it means we need to wait for some data to become available.
-        */
-        if (pDeviceStateWASAPI->pMappedBufferPlayback != NULL) {
-            /* We still have some space available in the mapped data buffer. Write to it. */
-            ma_uint32 framesToProcessNow = framesRemaining;
-            if (framesToProcessNow > (pDeviceStateWASAPI->mappedBufferPlaybackCap - pDeviceStateWASAPI->mappedBufferPlaybackLen)) {
-                framesToProcessNow = (pDeviceStateWASAPI->mappedBufferPlaybackCap - pDeviceStateWASAPI->mappedBufferPlaybackLen);
-            }
-
-            /* Now just copy the data over to the output buffer. */
-            ma_copy_pcm_frames(
-                ma_offset_pcm_frames_ptr(pDeviceStateWASAPI->pMappedBufferPlayback, pDeviceStateWASAPI->mappedBufferPlaybackLen, pDevice->playback.internalFormat, pDevice->playback.internalChannels),
-                ma_offset_pcm_frames_const_ptr(pFrames, totalFramesProcessed, pDevice->playback.internalFormat, pDevice->playback.internalChannels),
-                framesToProcessNow,
-                pDevice->playback.internalFormat, pDevice->playback.internalChannels
-            );
-
-            totalFramesProcessed                        += framesToProcessNow;
-            pDeviceStateWASAPI->mappedBufferPlaybackLen += framesToProcessNow;
-
-            /* If the data buffer has been fully consumed we need to release it. */
-            if (pDeviceStateWASAPI->mappedBufferPlaybackLen == pDeviceStateWASAPI->mappedBufferPlaybackCap) {
-                ma_IAudioRenderClient_ReleaseBuffer(pDeviceStateWASAPI->pRenderClient, pDeviceStateWASAPI->mappedBufferPlaybackCap, 0);
-                pDeviceStateWASAPI->pMappedBufferPlayback   = NULL;
-                pDeviceStateWASAPI->mappedBufferPlaybackCap = 0;
-                pDeviceStateWASAPI->mappedBufferPlaybackLen = 0;
-
-                /*
-                In exclusive mode we need to wait here. Exclusive mode is weird because GetBuffer() never
-                seems to return AUDCLNT_E_BUFFER_TOO_LARGE, which is what we normally use to determine
-                whether or not we need to wait for more data.
-                */
-                if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                    if (WaitForSingleObject(pDeviceStateWASAPI->hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
-                        result = MA_ERROR;
-                        break;   /* Wait failed. Probably timed out. */
-                    }
-                }
-            }
-        } else {
-            /* We don't have a mapped data buffer so we'll need to get one. */
-            HRESULT hr;
+        /* Playback. */
+        if (hEvent == pDeviceStateWASAPI->hEventPlayback) {
             ma_uint32 bufferSizeInFrames;
+            BYTE* pMappedBuffer;
 
             /* Special rules for exclusive mode. */
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
@@ -25131,33 +24923,36 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 bufferSizeInFrames = pDeviceStateWASAPI->periodSizeInFramesPlayback;
             }
 
-            hr = ma_IAudioRenderClient_GetBuffer(pDeviceStateWASAPI->pRenderClient, bufferSizeInFrames, (BYTE**)&pDeviceStateWASAPI->pMappedBufferPlayback);
+            hr = ma_IAudioRenderClient_GetBuffer(pDeviceStateWASAPI->pRenderClient, bufferSizeInFrames, &pMappedBuffer);
             if (hr == S_OK) {
                 /* We have data available. */
-                pDeviceStateWASAPI->mappedBufferPlaybackCap = bufferSizeInFrames;
-                pDeviceStateWASAPI->mappedBufferPlaybackLen = 0;
+                ma_device_handle_backend_data_callback(pDevice, pMappedBuffer, NULL, bufferSizeInFrames);
+                ma_IAudioRenderClient_ReleaseBuffer(pDeviceStateWASAPI->pRenderClient, bufferSizeInFrames, 0);
             } else {
                 if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
-                    /* Not enough data available. We need to wait for more. */
-                    if (WaitForSingleObject((HANDLE)pDeviceStateWASAPI->hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
-                        result = MA_ERROR;
-                        break;   /* Wait failed. Probably timed out. */
-                    }
+                    /* Not enough data available. Nothing to do. */
                 } else {
                     /* Some error occurred. We'll need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.", (int)hr);
-                    result = ma_result_from_HRESULT(hr);
-                    break;
+                    return ma_result_from_HRESULT(hr);
                 }
             }
         }
+    } else {
+        /* Most likely timed out. */
     }
 
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = totalFramesProcessed;
-    }
+    return MA_SUCCESS;
+}
 
-    return result;
+static void ma_device_loop__wasapi(ma_device* pDevice)
+{
+    while (ma_device_is_started(pDevice)) {
+        ma_result result = ma_device_step__wasapi(pDevice, MA_BLOCKING_MODE_BLOCKING);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
 }
 
 static void ma_device_wakeup__wasapi(ma_device* pDevice)
@@ -25176,8 +24971,6 @@ static void ma_device_wakeup__wasapi(ma_device* pDevice)
     }
 }
 
-
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_WASAPI =
 {
     ma_backend_info__wasapi,
@@ -25188,9 +24981,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WASAPI =
     ma_device_uninit__wasapi,
     ma_device_start__wasapi,
     ma_device_stop__wasapi,
-    ma_device_read__wasapi,
-    ma_device_write__wasapi,
-    NULL, /* onDeviceLoop */
+    NULL,
+    NULL,
+    ma_device_loop__wasapi,
     ma_device_wakeup__wasapi
 };
 
