@@ -7750,6 +7750,7 @@ struct ma_device
 {
     ma_context* pContext;
     ma_device_type type;
+    ma_threading_mode threadingMode;
     ma_uint32 sampleRate;
     ma_atomic_device_status state;                  /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;                     /* Set once at initialization time and should not be changed after. */
@@ -8855,6 +8856,11 @@ MA_API ma_log* ma_device_get_log(ma_device* pDevice);
 Helper function for retrieving the device type (playback, capture, etc.)
 */
 MA_API ma_device_type ma_device_get_type(ma_device* pDevice);
+
+/*
+Helper function for retrieving the threading mode.
+*/
+MA_API ma_threading_mode ma_device_get_threading_mode(ma_device* pDevice);
 
 
 
@@ -44981,7 +44987,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_result result;
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
-    ma_threading_mode threadingMode = MA_THREADING_MODE_MULTITHREADED;
+    ma_threading_mode threadingMode;
     ma_device_op_params initParams;
 
     /* The context can be null, in which case we self-manage it. */
@@ -45035,6 +45041,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
     pDevice->pContext       = pContext;
+    pDevice->threadingMode  = threadingMode;
     pDevice->pUserData      = pConfig->pUserData;
     pDevice->onData         = pConfig->dataCallback;
     pDevice->onNotification = pConfig->notificationCallback;
@@ -45516,7 +45523,20 @@ MA_API ma_log* ma_device_get_log(ma_device* pDevice)
 
 MA_API ma_device_type ma_device_get_type(ma_device* pDevice)
 {
+    if (pDevice == NULL) {
+        return ma_device_type_playback;
+    }
+
     return pDevice->type;
+}
+
+MA_API ma_threading_mode ma_device_get_threading_mode(ma_device* pDevice)
+{
+    if (pDevice == NULL) {
+        return MA_THREADING_MODE_MULTITHREADED;
+    }
+
+    return pDevice->threadingMode;
 }
 
 MA_API const ma_allocation_callbacks* ma_device_get_allocation_callbacks(ma_device* pDevice)
