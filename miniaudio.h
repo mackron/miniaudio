@@ -45686,20 +45686,19 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         ma_device_set_status(pDevice, ma_device_status_starting);
 
         #ifndef MA_NO_THREADING
-        {
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTITHREADED) {
             result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_START, NULL, &pDevice->opCompletionEvent);
             if (result == MA_SUCCESS) {
                 result = ma_device_op_completion_event_result(&pDevice->opCompletionEvent); /* <-- This will wait for the operation to complete. */
             } else {
                 /* Failed to push the operation for some reason. Fall through. This should never happen. */
             }
-        }
-        #else
+        } else
+        #endif
         {
             /* Threading is disabled. */
             result = ma_device_op_do_start(pDevice, NULL);
         }
-        #endif
     }
     ma_device_start_stop_unlock(pDevice);
 
@@ -45739,7 +45738,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         ma_device_set_status(pDevice, ma_device_status_stopping);
 
         #ifndef MA_NO_THREADING
-        {
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTITHREADED) {
             result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_STOP, NULL, &pDevice->opCompletionEvent);
             if (result == MA_SUCCESS) {
                 /*
@@ -45754,13 +45753,12 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             } else {
                 /* Failed to push the operation for some reason. Fall through. This should never happen. */
             }
-        }
-        #else
+        } else
+        #endif
         {
             /* Threading is disabled. */
             result = ma_device_op_do_stop(pDevice, NULL);
         }
-        #endif
 
         /*
         This is a safety measure to ensure the internal buffer has been cleared so any leftover
