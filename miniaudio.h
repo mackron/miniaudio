@@ -9159,6 +9159,14 @@ MA_API ma_device_status ma_device_get_status(const ma_device* pDevice);
 
 
 /*
+Steps the device.
+
+This should only be called in single-threaded mode. It should be called in a loop.
+*/
+MA_API ma_result ma_device_step(ma_device* pDevice, ma_blocking_mode blockingMode);
+
+
+/*
 Performs post backend initialization routines for setting up internal data conversion.
 
 This should be called whenever the backend is initialized. The only time this should be called from
@@ -45755,6 +45763,28 @@ MA_API ma_device_status ma_device_get_status(const ma_device* pDevice)
     }
 
     return ma_atomic_device_status_get((ma_atomic_device_status*)&pDevice->state);   /* Naughty cast to get rid of a const warning. */
+}
+
+MA_API ma_result ma_device_step(ma_device* pDevice, ma_blocking_mode blockingMode)
+{
+    ma_result result;
+
+    if (pDevice == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
+    }
+
+    if (pDevice->pContext->pVTable->onDeviceStep) {
+        result = pDevice->pContext->pVTable->onDeviceStep(pDevice, blockingMode);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
