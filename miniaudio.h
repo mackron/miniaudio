@@ -22147,8 +22147,6 @@ typedef struct ma_device_state_wasapi
     ma_uint32 originalPeriods;
     ma_uint32 periodSizeInFramesPlayback;
     ma_uint32 periodSizeInFramesCapture;
-    ma_atomic_bool32 isStartedCapture;                      /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
-    ma_atomic_bool32 isStartedPlayback;                     /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
     ma_uint32 loopbackProcessID;
     ma_bool8 loopbackProcessExclude;
     ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
@@ -24525,9 +24523,6 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
     }
 #endif
 
-    ma_atomic_bool32_set(&pDeviceStateWASAPI->isStartedCapture,  MA_FALSE);
-    ma_atomic_bool32_set(&pDeviceStateWASAPI->isStartedPlayback, MA_FALSE);
-
     *ppDeviceState = pDeviceStateWASAPI;
 
     return MA_SUCCESS;
@@ -24675,8 +24670,6 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device. HRESULT = %d.", (int)hr);
             return ma_result_from_HRESULT(hr);
         }
-
-        ma_atomic_bool32_set(&pDeviceStateWASAPI->isStartedCapture, MA_TRUE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -24685,8 +24678,6 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device. HRESULT = %d.", (int)hr);
             return ma_result_from_HRESULT(hr);
         }
-
-        ma_atomic_bool32_set(&pDeviceStateWASAPI->isStartedPlayback, MA_TRUE);
     }
 
     return MA_SUCCESS;
@@ -24736,8 +24727,6 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.");
             return ma_result_from_HRESULT(hr);
         }
-
-        ma_atomic_bool32_set(&pDeviceStateWASAPI->isStartedCapture, MA_FALSE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -24745,37 +24734,36 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
-        if (ma_atomic_bool32_get(&pDeviceStateWASAPI->isStartedPlayback)) {
-            /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
-            DWORD waitTime = (pDeviceStateWASAPI->actualBufferSizeInFramesPlayback * 1000) / pDevice->playback.internalSampleRate;
 
-            if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                WaitForSingleObject(pDeviceStateWASAPI->hEventPlayback, waitTime);
-            } else {
-                ma_uint32 prevFramesAvailablePlayback = (ma_uint32)-1;
-                ma_uint32 framesAvailablePlayback;
-                for (;;) {
-                    result = ma_device__get_available_frames__wasapi(pDevice, pDeviceStateWASAPI->pAudioClientPlayback, &framesAvailablePlayback);
-                    if (result != MA_SUCCESS) {
-                        break;
-                    }
+        /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
+        DWORD waitTime = (pDeviceStateWASAPI->actualBufferSizeInFramesPlayback * 1000) / pDevice->playback.internalSampleRate;
 
-                    if (framesAvailablePlayback >= pDeviceStateWASAPI->actualBufferSizeInFramesPlayback) {
-                        break;
-                    }
-
-                    /*
-                    Just a safety check to avoid an infinite loop. If this iteration results in a situation where the number of available frames
-                    has not changed, get out of the loop. I don't think this should ever happen, but I think it's nice to have just in case.
-                    */
-                    if (framesAvailablePlayback == prevFramesAvailablePlayback) {
-                        break;
-                    }
-                    prevFramesAvailablePlayback = framesAvailablePlayback;
-
-                    ResetEvent(pDeviceStateWASAPI->hEventPlayback); /* Manual reset. */
-                    WaitForSingleObject(pDeviceStateWASAPI->hEventPlayback, waitTime);
+        if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
+            WaitForSingleObject(pDeviceStateWASAPI->hEventPlayback, waitTime);
+        } else {
+            ma_uint32 prevFramesAvailablePlayback = (ma_uint32)-1;
+            ma_uint32 framesAvailablePlayback;
+            for (;;) {
+                result = ma_device__get_available_frames__wasapi(pDevice, pDeviceStateWASAPI->pAudioClientPlayback, &framesAvailablePlayback);
+                if (result != MA_SUCCESS) {
+                    break;
                 }
+
+                if (framesAvailablePlayback >= pDeviceStateWASAPI->actualBufferSizeInFramesPlayback) {
+                    break;
+                }
+
+                /*
+                Just a safety check to avoid an infinite loop. If this iteration results in a situation where the number of available frames
+                has not changed, get out of the loop. I don't think this should ever happen, but I think it's nice to have just in case.
+                */
+                if (framesAvailablePlayback == prevFramesAvailablePlayback) {
+                    break;
+                }
+                prevFramesAvailablePlayback = framesAvailablePlayback;
+
+                ResetEvent(pDeviceStateWASAPI->hEventPlayback); /* Manual reset. */
+                WaitForSingleObject(pDeviceStateWASAPI->hEventPlayback, waitTime);
             }
         }
 
@@ -24799,8 +24787,6 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.");
             return ma_result_from_HRESULT(hr);
         }
-
-        ma_atomic_bool32_set(&pDeviceStateWASAPI->isStartedPlayback, MA_FALSE);
     }
 
     return MA_SUCCESS;
