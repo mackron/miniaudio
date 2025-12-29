@@ -22148,7 +22148,7 @@ typedef struct ma_context_state_wasapi
     ma_context_command__wasapi commands[4];
     ma_handle hAvrt;
     MA_PFN_AvSetMmThreadCharacteristicsA AvSetMmThreadCharacteristicsA;
-    MA_PFN_AvRevertMmThreadCharacteristics AvRevertMmThreadcharacteristics;
+    MA_PFN_AvRevertMmThreadCharacteristics AvRevertMmThreadCharacteristics;
     #if defined(MA_WIN32_UWP)
     ma_handle hMMDevapi;
     MA_PFN_ActivateAudioInterfaceAsync ActivateAudioInterfaceAsync;
@@ -23512,12 +23512,12 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const void* pCont
     pContextStateWASAPI->hAvrt = ma_dlopen(ma_context_get_log(pContext), "avrt.dll");
     if (pContextStateWASAPI->hAvrt) {
         pContextStateWASAPI->AvSetMmThreadCharacteristicsA   = (MA_PFN_AvSetMmThreadCharacteristicsA  )ma_dlsym(ma_context_get_log(pContext), pContextStateWASAPI->hAvrt, "AvSetMmThreadCharacteristicsA");
-        pContextStateWASAPI->AvRevertMmThreadcharacteristics = (MA_PFN_AvRevertMmThreadCharacteristics)ma_dlsym(ma_context_get_log(pContext), pContextStateWASAPI->hAvrt, "AvRevertMmThreadCharacteristics");
+        pContextStateWASAPI->AvRevertMmThreadCharacteristics = (MA_PFN_AvRevertMmThreadCharacteristics)ma_dlsym(ma_context_get_log(pContext), pContextStateWASAPI->hAvrt, "AvRevertMmThreadCharacteristics");
 
         /* If either function could not be found, disable use of avrt entirely. */
-        if (!pContextStateWASAPI->AvSetMmThreadCharacteristicsA || !pContextStateWASAPI->AvRevertMmThreadcharacteristics) {
+        if (!pContextStateWASAPI->AvSetMmThreadCharacteristicsA || !pContextStateWASAPI->AvRevertMmThreadCharacteristics) {
             pContextStateWASAPI->AvSetMmThreadCharacteristicsA   = NULL;
-            pContextStateWASAPI->AvRevertMmThreadcharacteristics = NULL;
+            pContextStateWASAPI->AvRevertMmThreadCharacteristics = NULL;
             ma_dlclose(ma_context_get_log(pContext), pContextStateWASAPI->hAvrt);
             pContextStateWASAPI->hAvrt = NULL;
         }
@@ -24321,6 +24321,7 @@ static void ma_device_uninit__wasapi(ma_device* pDevice);
 static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = NULL;
+    ma_context_state_wasapi* pContextStateWASAPI = (ma_context_state_wasapi*)ma_context_get_backend_state(ma_device_get_context(pDevice));
     const ma_device_config_wasapi* pDeviceConfigWASAPI = (const ma_device_config_wasapi*)pDeviceBackendConfig;
     ma_device_config_wasapi defaultConfigWASAPI;
     ma_device_type deviceType = ma_device_get_type(pDevice);
@@ -24555,6 +24556,14 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
     }
 #endif
 
+    if (pContextStateWASAPI->hAvrt) {
+        const char* pTaskName = ma_to_usage_string__wasapi(pDeviceStateWASAPI->usage);
+        if (pTaskName) {
+            DWORD idx = 0;
+            pDeviceStateWASAPI->hAvrtHandle = pContextStateWASAPI->AvSetMmThreadCharacteristicsA(pTaskName, &idx);
+        }
+    }
+
     *ppDeviceState = pDeviceStateWASAPI;
 
     return MA_SUCCESS;
@@ -24563,8 +24572,14 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
 static void ma_device_uninit__wasapi(ma_device* pDevice)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
+    ma_context_state_wasapi* pContextStateWASAPI = (ma_context_state_wasapi*)ma_context_get_backend_state(ma_device_get_context(pDevice));
 
     MA_ASSERT(pDevice != NULL);
+
+    if (pDeviceStateWASAPI->hAvrtHandle) {
+        pContextStateWASAPI->AvRevertMmThreadCharacteristics(pDeviceStateWASAPI->hAvrtHandle);
+        pDeviceStateWASAPI->hAvrtHandle = NULL;
+    }
 
     #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     {
@@ -24686,14 +24701,6 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
     ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     HRESULT hr;
 
-    if (pContextStateWASAPI->hAvrt) {
-        const char* pTaskName = ma_to_usage_string__wasapi(pDeviceStateWASAPI->usage);
-        if (pTaskName) {
-            DWORD idx = 0;
-            pDeviceStateWASAPI->hAvrtHandle = pContextStateWASAPI->AvSetMmThreadCharacteristicsA(pTaskName, &idx);
-        }
-    }
-
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start(pDeviceStateWASAPI->pAudioClientCapture);
         if (FAILED(hr)) {
@@ -24808,11 +24815,6 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
     ma_result result;
 
     MA_ASSERT(pDevice != NULL);
-
-    if (pDeviceStateWASAPI->hAvrtHandle) {
-        pContextStateWASAPI->AvRevertMmThreadcharacteristics(pDeviceStateWASAPI->hAvrtHandle);
-        pDeviceStateWASAPI->hAvrtHandle = NULL;
-    }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         result = ma_device_stop_client_by_type__wasapi(pDevice, ma_device_type_capture);
