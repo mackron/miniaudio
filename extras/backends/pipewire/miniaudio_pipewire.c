@@ -1674,16 +1674,6 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__pipewire(ma_device* pDevice)
-{
-    for (;;) {
-        ma_result result = ma_device_step__pipewire(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static void ma_device_wake__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
@@ -1703,9 +1693,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
     ma_device_uninit__pipewire,
     ma_device_start__pipewire,
     ma_device_stop__pipewire,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__pipewire,
+    ma_device_step__pipewire,
     ma_device_wake__pipewire
 };
 

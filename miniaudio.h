@@ -7670,9 +7670,7 @@ struct ma_device_backend_vtable
     void      (* onDeviceUninit           )(ma_device* pDevice);
     ma_result (* onDeviceStart            )(ma_device* pDevice);
     ma_result (* onDeviceStop             )(ma_device* pDevice);
-    ma_result (* onDeviceRead             )(ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
-    ma_result (* onDeviceWrite            )(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
-    void      (* onDeviceLoop             )(ma_device* pDevice);
+    ma_result (* onDeviceStep             )(ma_device* pDevice, ma_blocking_mode blockingMode);
     void      (* onDeviceWakeup           )(ma_device* pDevice);
 };
 
@@ -20713,200 +20711,6 @@ static ma_bool32 ma_device_descriptor_is_valid(const ma_device_descriptor* pDevi
 }
 
 
-#ifndef MA_NO_THREADING
-static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
-{
-    ma_result result = MA_SUCCESS;
-    ma_bool32 exitLoop = MA_FALSE;
-    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 capturedDeviceDataCapInFrames = 0;
-    ma_uint32 playbackDeviceDataCapInFrames = 0;
-
-    MA_ASSERT(pDevice != NULL);
-
-    /* Just some quick validation on the device type and the available callbacks. */
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        if (pDevice->pContext->pVTable->onDeviceRead == NULL) {
-            return MA_NOT_IMPLEMENTED;
-        }
-
-        capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-    }
-
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        if (pDevice->pContext->pVTable->onDeviceWrite == NULL) {
-            return MA_NOT_IMPLEMENTED;
-        }
-
-        playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    }
-
-    /* NOTE: The device was started outside of this function, in the worker thread. */
-
-    while (ma_device_get_status(pDevice) == ma_device_status_started && !exitLoop) {
-        switch (pDevice->type) {
-            case ma_device_type_duplex:
-            {
-                /* The process is: onDeviceRead() -> convert -> callback -> convert -> onDeviceWrite() */
-                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
-                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalPeriodSizeInFrames, pDevice->playback.internalPeriodSizeInFrames);
-
-                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
-                    ma_uint32 capturedDeviceFramesRemaining;
-                    ma_uint32 capturedDeviceFramesProcessed;
-                    ma_uint32 capturedDeviceFramesToProcess;
-                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
-                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
-                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
-                    }
-
-                    result = pDevice->pContext->pVTable->onDeviceRead(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
-                    capturedDeviceFramesProcessed = 0;
-
-                    /* At this point we have our captured data in device format and we now need to convert it to client format. */
-                    for (;;) {
-                        ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                        ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                        ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format,  pDevice->capture.channels);
-                        ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
-                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels));
-
-                        /* Convert capture data from device format to client format. */
-                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
-                        if (result != MA_SUCCESS) {
-                            break;
-                        }
-
-                        /*
-                        If we weren't able to generate any output frames it must mean we've exhausted all of our input. The only time this would not be the case is if capturedClientData was too small
-                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
-                        */
-                        if (capturedClientFramesToProcessThisIteration == 0) {
-                            break;
-                        }
-
-                        ma_device__handle_data_callback(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
-
-                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
-                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
-
-                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
-                        for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
-                            ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
-                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
-                            if (result != MA_SUCCESS) {
-                                break;
-                            }
-
-                            result = pDevice->pContext->pVTable->onDeviceWrite(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
-                            if (result != MA_SUCCESS) {
-                                exitLoop = MA_TRUE;
-                                break;
-                            }
-
-                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcessThisIteration == 0) {
-                                break;
-                            }
-                        }
-
-                        /* In case an error happened from ma_device_write__null()... */
-                        if (result != MA_SUCCESS) {
-                            exitLoop = MA_TRUE;
-                            break;
-                        }
-                    }
-
-                    /* Make sure we don't get stuck in the inner loop. */
-                    if (capturedDeviceFramesProcessed == 0) {
-                        break;
-                    }
-
-                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
-                }
-            } break;
-
-            case ma_device_type_capture:
-            case ma_device_type_loopback:
-            {
-                ma_uint32 periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
-                ma_uint32 framesReadThisPeriod = 0;
-                while (framesReadThisPeriod < periodSizeInFrames) {
-                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesReadThisPeriod;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToReadThisIteration = framesRemainingInPeriod;
-                    if (framesToReadThisIteration > capturedDeviceDataCapInFrames) {
-                        framesToReadThisIteration = capturedDeviceDataCapInFrames;
-                    }
-
-                    result = pDevice->pContext->pVTable->onDeviceRead(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    /* Make sure we don't get stuck in the inner loop. */
-                    if (framesProcessed == 0) {
-                        break;
-                    }
-
-                    ma_device__send_frames_to_client(pDevice, framesProcessed, capturedDeviceData);
-
-                    framesReadThisPeriod += framesProcessed;
-                }
-            } break;
-
-            case ma_device_type_playback:
-            {
-                /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
-                ma_uint32 periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
-                ma_uint32 framesWrittenThisPeriod = 0;
-                while (framesWrittenThisPeriod < periodSizeInFrames) {
-                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesWrittenThisPeriod;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToWriteThisIteration = framesRemainingInPeriod;
-                    if (framesToWriteThisIteration > playbackDeviceDataCapInFrames) {
-                        framesToWriteThisIteration = playbackDeviceDataCapInFrames;
-                    }
-
-                    ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, playbackDeviceData);
-
-                    result = pDevice->pContext->pVTable->onDeviceWrite(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    /* Make sure we don't get stuck in the inner loop. */
-                    if (framesProcessed == 0) {
-                        break;
-                    }
-
-                    framesWrittenThisPeriod += framesProcessed;
-                }
-            } break;
-
-            /* Should never get here. */
-            default: break;
-        }
-    }
-
-    return result;
-}
-#endif
-
-
-
 /*******************************************************************************
 
 Null Backend
@@ -21209,16 +21013,6 @@ static ma_result ma_device_step__null(ma_device* pDevice, ma_blocking_mode block
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__null(ma_device* pDevice)
-{
-    for (;;) {
-        ma_result result = ma_device_step__null(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
 {
     ma_backend_info__null,
@@ -21229,9 +21023,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
     ma_device_uninit__null,
     ma_device_start__null,
     ma_device_stop__null,
-    NULL,
-    NULL,
-    ma_device_loop__null,
+    ma_device_step__null,
     NULL    /* onDeviceWakeup */
 };
 
@@ -25059,16 +24851,6 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__wasapi(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__wasapi(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static void ma_device_wakeup__wasapi(ma_device* pDevice)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
@@ -25095,9 +24877,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WASAPI =
     ma_device_uninit__wasapi,
     ma_device_start__wasapi,
     ma_device_stop__wasapi,
-    NULL,
-    NULL,
-    ma_device_loop__wasapi,
+    ma_device_step__wasapi,
     ma_device_wakeup__wasapi
 };
 
@@ -26713,16 +26493,6 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__dsound(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__dsound(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_DSound =
 {
     ma_backend_info__dsound,
@@ -26733,9 +26503,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_DSound =
     ma_device_uninit__dsound,
     ma_device_start__dsound,
     ma_device_stop__dsound,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__dsound,
+    ma_device_step__dsound,
     NULL    /* onDeviceWakeup */
 };
 
@@ -27784,16 +27552,6 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__winmm(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__winmm(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
 {
     ma_backend_info__winmm,
@@ -27804,9 +27562,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
     ma_device_uninit__winmm,
     ma_device_start__winmm,
     ma_device_stop__winmm,
-    NULL,
-    NULL,
-    ma_device_loop__winmm,
+    ma_device_step__winmm,
     NULL    /* onDeviceWakeup */
 };
 
@@ -30158,16 +29914,6 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__alsa(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__alsa(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static void ma_device_wakeup__alsa(ma_device* pDevice)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
@@ -30204,9 +29950,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_ALSA =
     ma_device_uninit__alsa,
     ma_device_start__alsa,
     ma_device_stop__alsa,
-    NULL,
-    NULL,
-    ma_device_loop__alsa,
+    ma_device_step__alsa,
     ma_device_wakeup__alsa
 };
 
@@ -32726,16 +32470,6 @@ static ma_result ma_device_step__pulseaudio(ma_device* pDevice, ma_blocking_mode
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__pulseaudio(ma_device* pDevice)
-{
-    while (ma_device_get_status(pDevice) == ma_device_status_started) {
-        ma_result result = ma_device_step__pulseaudio(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static void ma_device_wakeup__pulseaudio(ma_device* pDevice)
 {
     ma_device_state_pulseaudio* pDeviceStatePulseAudio = ma_device_get_backend_state__pulseaudio(pDevice);
@@ -32754,9 +32488,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PulseAudio =
     ma_device_uninit__pulseaudio,
     ma_device_start__pulseaudio,
     ma_device_stop__pulseaudio,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__pulseaudio,
+    ma_device_step__pulseaudio,
     ma_device_wakeup__pulseaudio
 };
 
@@ -33523,23 +33255,11 @@ static ma_result ma_device_stop__jack(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-
 static ma_result ma_device_step__jack(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
     return ma_device_state_async_step(&pDeviceStateJACK->async, pDevice, blockingMode, NULL);
 }
-
-static void ma_device_loop__jack(ma_device* pDevice)
-{
-    for (;;) {
-        ma_result result = ma_device_step__jack(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
 {
@@ -33551,9 +33271,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
     ma_device_uninit__jack,
     ma_device_start__jack,
     ma_device_stop__jack,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__jack,
+    ma_device_step__jack,
     NULL    /* onDeviceWakeup */
 };
 
@@ -37016,16 +36734,6 @@ static ma_result ma_device_step__coreaudio(ma_device* pDevice, ma_blocking_mode 
     return ma_device_state_async_step(&pDeviceStateCoreAudio->async, pDevice, blockingMode, ma_device_step_extra__coreaudio);
 }
 
-static void ma_device_loop__coreaudio(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__coreaudio(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
 {
     ma_backend_info__coreaudio,
@@ -37036,9 +36744,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
     ma_device_uninit__coreaudio,
     ma_device_start__coreaudio,
     ma_device_stop__coreaudio,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__coreaudio,
+    ma_device_step__coreaudio,
     NULL    /* onDeviceWakeup */
 };
 
@@ -38138,16 +37844,6 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__sndio(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__sndio(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
 {
     ma_backend_info__sndio,
@@ -38158,9 +37854,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
     ma_device_uninit__sndio,
     ma_device_start__sndio,
     ma_device_stop__sndio,
-    NULL,
-    NULL,
-    ma_device_loop__sndio,
+    ma_device_step__sndio,
     NULL    /* onDeviceWakeup */
 };
 
@@ -39136,16 +38830,6 @@ static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blo
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__audio4(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__audio4(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_Audio4 =
 {
     ma_backend_info__audio4,
@@ -39156,9 +38840,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Audio4 =
     ma_device_uninit__audio4,
     ma_device_start__audio4,
     ma_device_stop__audio4,
-    NULL,
-    NULL,
-    ma_device_loop__audio4,
+    ma_device_step__audio4,
     NULL    /* onDeviceWakeup */
 };
 
@@ -40105,16 +39787,6 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
     return MA_SUCCESS;
 }
 
-static void ma_device_loop__oss(ma_device* pDevice)
-{
-    while (ma_device_is_started(pDevice)) {
-        ma_result result = ma_device_step__oss(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_OSS =
 {
     ma_backend_info__oss,
@@ -40125,9 +39797,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OSS =
     ma_device_uninit__oss,
     ma_device_start__oss,
     ma_device_stop__oss,
-    NULL,
-    NULL,
-    ma_device_loop__oss,
+    ma_device_step__oss,
     NULL    /* onDeviceWakeup */
 };
 
@@ -41367,18 +41037,6 @@ static ma_result ma_device_step__aaudio(ma_device* pDevice, ma_blocking_mode blo
     return ma_device_state_async_step(&pDeviceStateAAudio->async, pDevice, blockingMode, ma_device_step_extra__aaudio);
 }
 
-static void ma_device_loop__aaudio(ma_device* pDevice)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    for (;;) {
-        ma_result result = ma_device_step__aaudio(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
 {
     ma_backend_info__aaudio,
@@ -41389,9 +41047,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_AAudio =
     ma_device_uninit__aaudio,
     ma_device_start__aaudio,
     ma_device_stop__aaudio,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__aaudio,
+    ma_device_step__aaudio,
     NULL    /* onDeviceWakeup */
 };
 
@@ -42630,18 +42286,6 @@ static ma_result ma_device_step__opensl(ma_device* pDevice, ma_blocking_mode blo
     return ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice, blockingMode, NULL);
 }
 
-static void ma_device_loop__opensl(ma_device* pDevice)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    for (;;) {
-        ma_result result = ma_device_step__opensl(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
-}
-
 static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
 {
     ma_backend_info__opensl,
@@ -42652,9 +42296,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
     ma_device_uninit__opensl,
     ma_device_start__opensl,
     ma_device_stop__opensl,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__opensl,
+    ma_device_step__opensl,
     NULL    /* onDeviceWakeup */
 };
 
@@ -43672,9 +43314,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WebAudio =
     ma_device_uninit__webaudio,
     ma_device_start__webaudio,
     ma_device_stop__webaudio,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    NULL,   /* onDeviceLoop */
+    NULL,   /* onDeviceStep */
     NULL    /* onDeviceWakeup */
 };
 
@@ -43723,21 +43363,11 @@ static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint
 
 static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
 {
-    ma_bool32 hasRead;
-    ma_bool32 hasWrite;
-
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->pVTable != NULL);
 
-    hasRead  = pContext->pVTable->onDeviceRead  != NULL;
-    hasWrite = pContext->pVTable->onDeviceWrite != NULL;
-
-    if (hasRead == MA_FALSE && hasWrite == MA_FALSE) {
-        if (pContext->pVTable->onDeviceLoop == NULL) {
-            return MA_TRUE;
-        } else {
-            return MA_FALSE;
-        }
+    if (pContext->pVTable->onDeviceStep == NULL) {
+        return MA_TRUE;
     } else {
         return MA_FALSE;
     }
@@ -44406,12 +44036,13 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
                 if (ma_context_is_backend_asynchronous(ma_device_get_context(pDevice))) {
                     continue;   /* <-- This just makes the audio thread wait for a new operation to arrive, like an uninit or stop. */
                 } else {
-                    /* Getting here means we need to manage the loop ourselves. */
-                    if (pDevice->pContext->pVTable->onDeviceLoop != NULL) {
-                        pDevice->pContext->pVTable->onDeviceLoop(pDevice);
-                    } else {
-                        /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
-                        ma_device_audio_thread__default_read_write(pDevice);
+                    MA_ASSERT(pDevice->pContext->pVTable->onDeviceStep != NULL);
+
+                    while (ma_device_is_started(pDevice)) {
+                        result = pDevice->pContext->pVTable->onDeviceStep(pDevice, MA_BLOCKING_MODE_BLOCKING);
+                        if (result != MA_SUCCESS) {
+                            break;
+                        }
                     }
 
                     /* The only op allowed at this point is a stop or uninit. We need to check the queue in case ma_device_stop() or ma_device_uninit() posted an item. */

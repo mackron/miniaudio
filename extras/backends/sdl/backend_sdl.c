@@ -592,21 +592,10 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-
 static ma_result ma_device_step__sdl(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
     return ma_device_state_async_step(&pDeviceStateSDL->async, pDevice, blockingMode, NULL);
-}
-
-static void ma_device_loop__sdl(ma_device* pDevice)
-{
-    for (;;) {
-        ma_result result = ma_device_step__sdl(pDevice, MA_BLOCKING_MODE_BLOCKING);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-    }
 }
 
 static void ma_device_wake__sdl(ma_device* pDevice)
@@ -614,7 +603,6 @@ static void ma_device_wake__sdl(ma_device* pDevice)
     ma_device_state_sdl* pDeviceStateSDL = ma_device_get_backend_state__sdl(pDevice);
     ma_device_state_async_release(&pDeviceStateSDL->async);
 }
-
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
 {
@@ -626,9 +614,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     ma_device_uninit__sdl,
     ma_device_start__sdl,
     ma_device_stop__sdl,
-    NULL,   /* onDeviceRead */
-    NULL,   /* onDeviceWrite */
-    ma_device_loop__sdl,
+    ma_device_step__sdl,
     ma_device_wake__sdl
 };
 
