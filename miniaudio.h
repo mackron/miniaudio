@@ -22083,6 +22083,33 @@ typedef HANDLE (WINAPI * MA_PFN_AvSetMmThreadCharacteristicsA)(const char* TaskN
 typedef BOOL   (WINAPI * MA_PFN_AvRevertMmThreadCharacteristics)(HANDLE AvrtHandle);
 
 
+typedef enum
+{
+    ma_client_notification_type_wasapi_deactivate,
+    ma_client_notification_type_wasapi_activate,
+    ma_client_notification_type_wasapi_default_changed,
+    ma_client_notification_type_wasapi_stop
+} ma_client_notification_type_wasapi;
+
+typedef struct
+{
+    ma_client_notification_type_wasapi type;
+    ma_device_type deviceType;  /* Either playback, capture or loopback. Should never be duplex. */
+} ma_client_notification_wasapi;
+
+static MA_INLINE ma_client_notification_wasapi ma_client_notification_wasapi_init(ma_client_notification_type_wasapi notificationType, ma_device_type deviceType)
+{
+    ma_client_notification_wasapi notification;
+
+    MA_ASSERT(deviceType != ma_device_type_duplex);
+
+    MA_ZERO_OBJECT(&notification);
+    notification.type = notificationType;
+    notification.deviceType = deviceType;
+
+    return notification;
+}
+
 
 /* WASAPI specific structure for some commands which must run on a common thread due to bugs in WASAPI. */
 typedef struct
@@ -22158,7 +22185,10 @@ typedef struct ma_device_state_wasapi
     ma_bool8 isDetachedCapture;
     ma_wasapi_usage usage;
     void* hAvrtHandle;
-    ma_mutex rerouteLock;
+    ma_client_notification_wasapi pNotifications[16];
+    ma_uint32 notificationIndex;
+    ma_uint32 notificationCount;
+    ma_spinlock notificationLock;
 } ma_device_state_wasapi;
 
 
@@ -22170,6 +22200,57 @@ static ma_context_state_wasapi* ma_context_get_backend_state__wasapi(ma_context*
 static ma_device_state_wasapi* ma_device_get_backend_state__wasapi(ma_device* pDevice)
 {
     return (ma_device_state_wasapi*)ma_device_get_backend_state(pDevice);
+}
+
+
+static ma_result ma_device_push_client_notification__wasapi(ma_device* pDevice, ma_client_notification_wasapi notification)
+{
+    ma_device_state_wasapi* pDeviceStateWASAPI = (ma_device_state_wasapi*)ma_device_get_backend_state(pDevice);
+
+    ma_spinlock_lock(&pDeviceStateWASAPI->notificationLock);
+    {
+        if (pDeviceStateWASAPI->notificationCount >= ma_countof(pDeviceStateWASAPI->pNotifications)) {
+            ma_spinlock_unlock(&pDeviceStateWASAPI->notificationLock);
+            return MA_NO_SPACE;
+        }
+
+        pDeviceStateWASAPI->pNotifications[pDeviceStateWASAPI->notificationCount] = notification;
+        pDeviceStateWASAPI->notificationCount += 1;
+    }
+    ma_spinlock_unlock(&pDeviceStateWASAPI->notificationLock);
+
+    /* We need to wakeup so we can process events in the step function. */
+    if (notification.deviceType == ma_device_type_playback) {
+        SetEvent(pDeviceStateWASAPI->hEventPlayback);
+    } else {
+        SetEvent(pDeviceStateWASAPI->hEventCapture);
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_next_client_notification__wasapi(ma_device* pDevice, ma_client_notification_wasapi* pNotification)
+{
+    ma_device_state_wasapi* pDeviceStateWASAPI = (ma_device_state_wasapi*)ma_device_get_backend_state(pDevice);
+
+    MA_ASSERT(pNotification != NULL);
+
+    ma_spinlock_lock(&pDeviceStateWASAPI->notificationLock);
+    {
+        if (pDeviceStateWASAPI->notificationCount == 0) {
+            ma_spinlock_unlock(&pDeviceStateWASAPI->notificationLock);
+            return MA_AT_END;
+        }
+
+        *pNotification = pDeviceStateWASAPI->pNotifications[0];
+        pDeviceStateWASAPI->notificationCount -= 1;
+
+        /* Move everything down. */
+        MA_MOVE_MEMORY(pDeviceStateWASAPI->pNotifications, pDeviceStateWASAPI->pNotifications + 1, sizeof(*pDeviceStateWASAPI->pNotifications) * pDeviceStateWASAPI->notificationCount);
+    }
+    ma_spinlock_unlock(&pDeviceStateWASAPI->notificationLock);
+
+    return MA_SUCCESS;
 }
 
 
@@ -22318,7 +22399,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
     There have been reports of a hang when a playback device is disconnected. The idea with this code is to explicitly stop the device if we detect
     that the device is disabled or has been unplugged.
     */
-    if (pDeviceStateWASAPI->allowCaptureAutoStreamRouting && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex ||deviceType == ma_device_type_loopback)) {
+    if (pDeviceStateWASAPI->allowCaptureAutoStreamRouting && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback)) {
         isCapture = MA_TRUE;
         if (ma_strcmp_WCHAR(pThis->pDevice->capture.id.wasapi, pDeviceID) == 0) {
             isThisDevice = MA_TRUE;
@@ -22345,42 +22426,21 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
             use this to determine whether or not we need to automatically start the device when it's
             plugged back in again.
             */
-            if (ma_device_get_status(pThis->pDevice) == ma_device_status_started) {
-                if (isPlayback) {
-                    pDeviceStateWASAPI->isDetachedPlayback = MA_TRUE;
-                }
-                if (isCapture) {
-                    pDeviceStateWASAPI->isDetachedCapture = MA_TRUE;
-                }
-
-                ma_device_stop(pThis->pDevice);
+            if (isPlayback) {
+                ma_device_push_client_notification__wasapi(pThis->pDevice, ma_client_notification_wasapi_init(ma_client_notification_type_wasapi_deactivate, ma_device_type_playback));
+            }
+            if (isCapture) {
+                ma_device_push_client_notification__wasapi(pThis->pDevice, ma_client_notification_wasapi_init(ma_client_notification_type_wasapi_deactivate, ma_device_type_capture));
             }
         }
 
         if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) != 0) {
             /* The device was activated. If we were detached, we need to start it again. */
-            ma_bool8 tryRestartingDevice = MA_FALSE;
-
             if (isPlayback) {
-                if (pDeviceStateWASAPI->isDetachedPlayback) {
-                    pDeviceStateWASAPI->isDetachedPlayback = MA_FALSE;
-                    ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
-                    tryRestartingDevice = MA_TRUE;
-                }
+                ma_device_push_client_notification__wasapi(pThis->pDevice, ma_client_notification_wasapi_init(ma_client_notification_type_wasapi_activate, ma_device_type_playback));
             }
-
             if (isCapture) {
-                if (pDeviceStateWASAPI->isDetachedCapture) {
-                    pDeviceStateWASAPI->isDetachedCapture = MA_FALSE;
-                    ma_device_reroute__wasapi(pThis->pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
-                    tryRestartingDevice = MA_TRUE;
-                }
-            }
-
-            if (tryRestartingDevice) {
-                if (pDeviceStateWASAPI->isDetachedPlayback == MA_FALSE && pDeviceStateWASAPI->isDetachedCapture == MA_FALSE) {
-                    ma_device_start(pThis->pDevice);
-                }
+                ma_device_push_client_notification__wasapi(pThis->pDevice, ma_client_notification_wasapi_init(ma_client_notification_type_wasapi_activate, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture));
             }
         }
     }
@@ -22454,64 +22514,38 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
         return S_OK;
     }
 
+    /* Don't do anything if we're in the process of starting the device. */
+    if (ma_device_get_status(pThis->pDevice) == ma_device_status_uninitialized || ma_device_get_status(pThis->pDevice) == ma_device_status_starting) {
+        ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting abandoned because the device is in the process of starting.");
+        return S_OK;
+    }
 
 
     /*
-    Second attempt at device rerouting. We're going to retrieve the device's state at the time of
-    the route change. We're then going to stop the device, reinitialize the device, and then start
-    it again if the state before stopping was ma_device_status_started.
+    Third attempt at rerouting (we'll get this eventually!). Doing the rerouting straight from this
+    callback has caused issues:
+
+      1) WASAPI requires that you first initialize COM, which needs to be done on a per-thread basis
+         which means it would need to be initialized here. This is messy.
+
+      2) I've had some lingering reports of crashing and suspected race conditions when rerouting.
+
+    Instead of doing the rerouting right here, I'm going to instead do it from our step function. By
+    doing it this way we should be able to avoid these issues.
     */
     {
-        ma_uint32 previousState = ma_device_get_status(pThis->pDevice);
-        ma_bool8 restartDevice = MA_FALSE;
-
-        if (previousState == ma_device_status_uninitialized || previousState == ma_device_status_starting) {
-            ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting abandoned because the device is in the process of starting.");
-            return S_OK;
+        ma_device_type specificDeviceType;
+        if (dataFlow == ma_eRender) {
+            specificDeviceType = ma_device_type_playback;
+        } else {
+            specificDeviceType = (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture;
         }
 
-        if (previousState == ma_device_status_started) {
-            ma_device_stop(pThis->pDevice);
-            restartDevice = MA_TRUE;
-        }
-
-        if (pDefaultDeviceID != NULL) { /* <-- The input device ID will be null if there's no other device available. */
-            ma_mutex_lock(&pDeviceStateWASAPI->rerouteLock);
-            {
-                if (dataFlow == ma_eRender) {
-                    ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
-
-                    if (pDeviceStateWASAPI->isDetachedPlayback) {
-                        pDeviceStateWASAPI->isDetachedPlayback = MA_FALSE;
-
-                        if (deviceType == ma_device_type_duplex && pDeviceStateWASAPI->isDetachedCapture) {
-                            restartDevice = MA_FALSE;   /* It's a duplex device and the capture side is detached. We cannot be restarting the device just yet. */
-                        }
-                        else {
-                            restartDevice = MA_TRUE;    /* It's not a duplex device, or the capture side is also attached so we can go ahead and restart the device. */
-                        }
-                    }
-                }
-                else {
-                    ma_device_reroute__wasapi(pThis->pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
-
-                    if (pDeviceStateWASAPI->isDetachedCapture) {
-                        pDeviceStateWASAPI->isDetachedCapture = MA_FALSE;
-
-                        if (deviceType == ma_device_type_duplex && pDeviceStateWASAPI->isDetachedPlayback) {
-                            restartDevice = MA_FALSE;   /* It's a duplex device and the playback side is detached. We cannot be restarting the device just yet. */
-                        }
-                        else {
-                            restartDevice = MA_TRUE;    /* It's not a duplex device, or the playback side is also attached so we can go ahead and restart the device. */
-                        }
-                    }
-                }
-            }
-            ma_mutex_unlock(&pDeviceStateWASAPI->rerouteLock);
-
-            if (restartDevice) {
-                ma_device_start(pThis->pDevice);
-            }
+        /* If pDefaultDeviceID is NULL, it means there is no other device available. In this case we just want to stop the device. */
+        if (pDefaultDeviceID != NULL) {
+            ma_device_push_client_notification__wasapi(pThis->pDevice, ma_client_notification_wasapi_init(ma_client_notification_type_wasapi_default_changed, specificDeviceType));
+        } else {
+            ma_device_push_client_notification__wasapi(pThis->pDevice, ma_client_notification_wasapi_init(ma_client_notification_type_wasapi_stop, specificDeviceType));
         }
     }
 
@@ -24501,8 +24535,6 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
         }
     }
 
-    ma_mutex_init(&pDeviceStateWASAPI->rerouteLock);
-
     hr = ma_CoCreateInstance(pDevice->pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_device_uninit__wasapi(pDevice);
@@ -24540,8 +24572,6 @@ static void ma_device_uninit__wasapi(ma_device* pDevice)
             pDeviceStateWASAPI->pDeviceEnumerator->lpVtbl->UnregisterEndpointNotificationCallback(pDeviceStateWASAPI->pDeviceEnumerator, &pDeviceStateWASAPI->notificationClient);
             ma_IMMDeviceEnumerator_Release((ma_IMMDeviceEnumerator*)pDeviceStateWASAPI->pDeviceEnumerator);
         }
-
-        ma_mutex_uninit(&pDeviceStateWASAPI->rerouteLock);
     }
     #endif
 
@@ -24650,7 +24680,7 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
+static ma_result ma_device_start__wasapi(ma_device* pDevice)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
@@ -24683,38 +24713,17 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_start__wasapi(ma_device* pDevice)
-{
-    ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
-    ma_result result;
-
-    MA_ASSERT(pDevice != NULL);
-
-    /* Wait for any rerouting to finish before attempting to start the device. */
-    ma_mutex_lock(&pDeviceStateWASAPI->rerouteLock);
-    {
-        result = ma_device_start__wasapi_nolock(pDevice);
-    }
-    ma_mutex_unlock(&pDeviceStateWASAPI->rerouteLock);
-
-    return result;
-}
-
-static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
+static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     ma_result result;
     HRESULT hr;
 
-    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);
+    MA_ASSERT(deviceType != ma_device_type_loopback);
 
-    if (pDeviceStateWASAPI->hAvrtHandle) {
-        pContextStateWASAPI->AvRevertMmThreadcharacteristics(pDeviceStateWASAPI->hAvrtHandle);
-        pDeviceStateWASAPI->hAvrtHandle = NULL;
-    }
-
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+    if (deviceType == ma_device_type_capture) {
         hr = ma_IAudioClient_Stop(pDeviceStateWASAPI->pAudioClientCapture);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.");
@@ -24729,7 +24738,7 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
         }
     }
 
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_playback) {
         /*
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
@@ -24795,18 +24804,31 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
 static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
+    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     ma_result result;
 
     MA_ASSERT(pDevice != NULL);
 
-    /* Wait for any rerouting to finish before attempting to stop the device. */
-    ma_mutex_lock(&pDeviceStateWASAPI->rerouteLock);
-    {
-        result = ma_device_stop__wasapi_nolock(pDevice);
+    if (pDeviceStateWASAPI->hAvrtHandle) {
+        pContextStateWASAPI->AvRevertMmThreadcharacteristics(pDeviceStateWASAPI->hAvrtHandle);
+        pDeviceStateWASAPI->hAvrtHandle = NULL;
     }
-    ma_mutex_unlock(&pDeviceStateWASAPI->rerouteLock);
 
-    return result;
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        result = ma_device_stop_client_by_type__wasapi(pDevice, ma_device_type_capture);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        result = ma_device_stop_client_by_type__wasapi(pDevice, ma_device_type_playback);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 
@@ -24814,10 +24836,109 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 #define MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS 5000
 #endif
 
+static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevice)
+{
+    ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_client_notification_wasapi notification;
+
+    while (ma_device_next_client_notification__wasapi(pDevice, &notification) == MA_SUCCESS) {
+        switch (notification.type)
+        {
+            case ma_client_notification_type_wasapi_deactivate:
+            {
+                if (ma_device_get_status(pDevice) == ma_device_status_started) {
+                    if (notification.deviceType == ma_device_type_playback) {
+                        pDeviceStateWASAPI->isDetachedPlayback = MA_TRUE;
+                    } else {
+                        pDeviceStateWASAPI->isDetachedCapture = MA_TRUE;
+                    }
+
+                    ma_device_stop__wasapi(pDevice);
+                }
+            } break;
+
+            case ma_client_notification_type_wasapi_activate:
+            {
+                ma_bool32 tryRestartingDevice = MA_FALSE;
+
+                if (notification.deviceType == ma_device_type_playback) {
+                    if (pDeviceStateWASAPI->isDetachedPlayback) {
+                        pDeviceStateWASAPI->isDetachedPlayback = MA_FALSE;
+                        ma_device_reroute__wasapi(pDevice, notification.deviceType);
+                        tryRestartingDevice = MA_TRUE;
+                    }
+                } else {
+                    if (pDeviceStateWASAPI->isDetachedCapture) {
+                        pDeviceStateWASAPI->isDetachedCapture = MA_FALSE;
+                        ma_device_reroute__wasapi(pDevice, notification.deviceType);
+                        tryRestartingDevice = MA_TRUE;
+                    }
+                }
+
+                if (tryRestartingDevice) {
+                    if (pDeviceStateWASAPI->isDetachedPlayback == MA_FALSE && pDeviceStateWASAPI->isDetachedCapture == MA_FALSE) {
+                        ma_device_start__wasapi(pDevice);
+                    }
+                }
+            } break;
+
+            case ma_client_notification_type_wasapi_default_changed:
+            {
+                ma_uint32 previousStatus = ma_device_get_status(pDevice);
+                ma_bool32 restartDevice = MA_FALSE;
+
+                if (previousStatus == ma_device_status_started) {
+                    ma_device_stop__wasapi(pDevice);
+                    restartDevice = MA_TRUE;
+                }
+
+                ma_device_reroute__wasapi(pDevice, notification.deviceType);
+
+                if (notification.deviceType == ma_device_type_playback) {
+                    if (pDeviceStateWASAPI->isDetachedPlayback) {
+                        pDeviceStateWASAPI->isDetachedPlayback = MA_FALSE;
+
+                        if (deviceType == ma_device_type_duplex && pDeviceStateWASAPI->isDetachedCapture) {
+                            restartDevice = MA_FALSE;   /* It's a duplex device and the capture side is detached. We cannot be restarting the device just yet. */
+                        }
+                        else {
+                            restartDevice = MA_TRUE;    /* It's not a duplex device, or the capture side is also attached so we can go ahead and restart the device. */
+                        }
+                    }
+                } else {
+                    if (pDeviceStateWASAPI->isDetachedCapture) {
+                        pDeviceStateWASAPI->isDetachedCapture = MA_FALSE;
+
+                        if (deviceType == ma_device_type_duplex && pDeviceStateWASAPI->isDetachedPlayback) {
+                            restartDevice = MA_FALSE;   /* It's a duplex device and the playback side is detached. We cannot be restarting the device just yet. */
+                        }
+                        else {
+                            restartDevice = MA_TRUE;    /* It's not a duplex device, or the playback side is also attached so we can go ahead and restart the device. */
+                        }
+                    }
+                }
+
+                if (restartDevice) {
+                    ma_device_start__wasapi(pDevice);
+                }
+            } break;
+
+            case ma_client_notification_type_wasapi_stop:
+            {
+                ma_device_stop(pDevice);
+            } break;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
     HRESULT hr;
     HANDLE hEvents[2];
     DWORD eventCount;
@@ -24850,7 +24971,12 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
             return MA_DEVICE_NOT_STARTED;
         }
 
-        /* TODO: Do rerouting here. */
+        /* Client notifications are where rerouting takes place. */
+        result = ma_device_handle_client_notifications__wasapi(pDevice);
+        if (result != MA_SUCCESS) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Reroute failed: %s", ma_result_description(result));
+            return result;
+        }
 
         /* Capture. */
         if (hEvent == pDeviceStateWASAPI->hEventCapture) {
