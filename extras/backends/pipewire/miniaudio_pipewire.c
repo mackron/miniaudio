@@ -46,12 +46,231 @@
 /*#include <pipewire/pipewire.h>*/
 
 #include <spa/param/audio/format-utils.h>   /* For spa_format_audio_raw_build() */
-#include <spa/param/audio/raw.h>
+/*#include <spa/param/audio/raw.h>*/
 /*#include <spa/utils/dict.h>*/
-#include <spa/pod/command.h>
-#include <spa/buffer/buffer.h>
+/*#include <spa/pod/command.h>*/
+/*#include <spa/buffer/buffer.h>*/
 
 
+/* SPA enums. */
+enum ma_spa_direction
+{
+    MA_SPA_DIRECTION_INPUT  = 0,
+    MA_SPA_DIRECTION_OUTPUT = 1
+};
+
+enum ma_spa_audio_format
+{
+    MA_SPA_AUDIO_FORMAT_UNKNOWN = 0,
+    MA_SPA_AUDIO_FORMAT_ENCODED,
+
+    MA_SPA_AUDIO_FORMAT_START_Interleaved = 0x100,
+    MA_SPA_AUDIO_FORMAT_S8,
+    MA_SPA_AUDIO_FORMAT_U8,
+    MA_SPA_AUDIO_FORMAT_S16_LE,
+    MA_SPA_AUDIO_FORMAT_S16_BE,
+    MA_SPA_AUDIO_FORMAT_U16_LE,
+    MA_SPA_AUDIO_FORMAT_U16_BE,
+    MA_SPA_AUDIO_FORMAT_S24_32_LE,
+    MA_SPA_AUDIO_FORMAT_S24_32_BE,
+    MA_SPA_AUDIO_FORMAT_U24_32_LE,
+    MA_SPA_AUDIO_FORMAT_U24_32_BE,
+    MA_SPA_AUDIO_FORMAT_S32_LE,
+    MA_SPA_AUDIO_FORMAT_S32_BE,
+    MA_SPA_AUDIO_FORMAT_U32_LE,
+    MA_SPA_AUDIO_FORMAT_U32_BE,
+    MA_SPA_AUDIO_FORMAT_S24_LE,
+    MA_SPA_AUDIO_FORMAT_S24_BE,
+    MA_SPA_AUDIO_FORMAT_U24_LE,
+    MA_SPA_AUDIO_FORMAT_U24_BE,
+    MA_SPA_AUDIO_FORMAT_S20_LE,
+    MA_SPA_AUDIO_FORMAT_S20_BE,
+    MA_SPA_AUDIO_FORMAT_U20_LE,
+    MA_SPA_AUDIO_FORMAT_U20_BE,
+    MA_SPA_AUDIO_FORMAT_S18_LE,
+    MA_SPA_AUDIO_FORMAT_S18_BE,
+    MA_SPA_AUDIO_FORMAT_U18_LE,
+    MA_SPA_AUDIO_FORMAT_U18_BE,
+    MA_SPA_AUDIO_FORMAT_F32_LE,
+    MA_SPA_AUDIO_FORMAT_F32_BE,
+    MA_SPA_AUDIO_FORMAT_F64_LE,
+    MA_SPA_AUDIO_FORMAT_F64_BE,
+    MA_SPA_AUDIO_FORMAT_ULAW,
+    MA_SPA_AUDIO_FORMAT_ALAW,
+
+#if __BYTE_ORDER == __BIG_ENDIAN
+    MA_SPA_AUDIO_FORMAT_S16       = MA_SPA_AUDIO_FORMAT_S16_BE,
+    MA_SPA_AUDIO_FORMAT_U16       = MA_SPA_AUDIO_FORMAT_U16_BE,
+    MA_SPA_AUDIO_FORMAT_S24_32    = MA_SPA_AUDIO_FORMAT_S24_32_BE,
+    MA_SPA_AUDIO_FORMAT_U24_32    = MA_SPA_AUDIO_FORMAT_U24_32_BE,
+    MA_SPA_AUDIO_FORMAT_S32       = MA_SPA_AUDIO_FORMAT_S32_BE,
+    MA_SPA_AUDIO_FORMAT_U32       = MA_SPA_AUDIO_FORMAT_U32_BE,
+    MA_SPA_AUDIO_FORMAT_S24       = MA_SPA_AUDIO_FORMAT_S24_BE,
+    MA_SPA_AUDIO_FORMAT_U24       = MA_SPA_AUDIO_FORMAT_U24_BE,
+    MA_SPA_AUDIO_FORMAT_S20       = MA_SPA_AUDIO_FORMAT_S20_BE,
+    MA_SPA_AUDIO_FORMAT_U20       = MA_SPA_AUDIO_FORMAT_U20_BE,
+    MA_SPA_AUDIO_FORMAT_S18       = MA_SPA_AUDIO_FORMAT_S18_BE,
+    MA_SPA_AUDIO_FORMAT_U18       = MA_SPA_AUDIO_FORMAT_U18_BE,
+    MA_SPA_AUDIO_FORMAT_F32       = MA_SPA_AUDIO_FORMAT_F32_BE,
+    MA_SPA_AUDIO_FORMAT_F64       = MA_SPA_AUDIO_FORMAT_F64_BE,
+    MA_SPA_AUDIO_FORMAT_S16_OE    = MA_SPA_AUDIO_FORMAT_S16_LE,
+    MA_SPA_AUDIO_FORMAT_U16_OE    = MA_SPA_AUDIO_FORMAT_U16_LE,
+    MA_SPA_AUDIO_FORMAT_S24_32_OE = MA_SPA_AUDIO_FORMAT_S24_32_LE,
+    MA_SPA_AUDIO_FORMAT_U24_32_OE = MA_SPA_AUDIO_FORMAT_U24_32_LE,
+    MA_SPA_AUDIO_FORMAT_S32_OE    = MA_SPA_AUDIO_FORMAT_S32_LE,
+    MA_SPA_AUDIO_FORMAT_U32_OE    = MA_SPA_AUDIO_FORMAT_U32_LE,
+    MA_SPA_AUDIO_FORMAT_S24_OE    = MA_SPA_AUDIO_FORMAT_S24_LE,
+    MA_SPA_AUDIO_FORMAT_U24_OE    = MA_SPA_AUDIO_FORMAT_U24_LE,
+    MA_SPA_AUDIO_FORMAT_S20_OE    = MA_SPA_AUDIO_FORMAT_S20_LE,
+    MA_SPA_AUDIO_FORMAT_U20_OE    = MA_SPA_AUDIO_FORMAT_U20_LE,
+    MA_SPA_AUDIO_FORMAT_S18_OE    = MA_SPA_AUDIO_FORMAT_S18_LE,
+    MA_SPA_AUDIO_FORMAT_U18_OE    = MA_SPA_AUDIO_FORMAT_U18_LE,
+    MA_SPA_AUDIO_FORMAT_F32_OE    = MA_SPA_AUDIO_FORMAT_F32_LE,
+    MA_SPA_AUDIO_FORMAT_F64_OE    = MA_SPA_AUDIO_FORMAT_F64_LE
+#elif __BYTE_ORDER == __LITTLE_ENDIAN
+    MA_SPA_AUDIO_FORMAT_S16       = MA_SPA_AUDIO_FORMAT_S16_LE,
+    MA_SPA_AUDIO_FORMAT_U16       = MA_SPA_AUDIO_FORMAT_U16_LE,
+    MA_SPA_AUDIO_FORMAT_S24_32    = MA_SPA_AUDIO_FORMAT_S24_32_LE,
+    MA_SPA_AUDIO_FORMAT_U24_32    = MA_SPA_AUDIO_FORMAT_U24_32_LE,
+    MA_SPA_AUDIO_FORMAT_S32       = MA_SPA_AUDIO_FORMAT_S32_LE,
+    MA_SPA_AUDIO_FORMAT_U32       = MA_SPA_AUDIO_FORMAT_U32_LE,
+    MA_SPA_AUDIO_FORMAT_S24       = MA_SPA_AUDIO_FORMAT_S24_LE,
+    MA_SPA_AUDIO_FORMAT_U24       = MA_SPA_AUDIO_FORMAT_U24_LE,
+    MA_SPA_AUDIO_FORMAT_S20       = MA_SPA_AUDIO_FORMAT_S20_LE,
+    MA_SPA_AUDIO_FORMAT_U20       = MA_SPA_AUDIO_FORMAT_U20_LE,
+    MA_SPA_AUDIO_FORMAT_S18       = MA_SPA_AUDIO_FORMAT_S18_LE,
+    MA_SPA_AUDIO_FORMAT_U18       = MA_SPA_AUDIO_FORMAT_U18_LE,
+    MA_SPA_AUDIO_FORMAT_F32       = MA_SPA_AUDIO_FORMAT_F32_LE,
+    MA_SPA_AUDIO_FORMAT_F64       = MA_SPA_AUDIO_FORMAT_F64_LE,
+    MA_SPA_AUDIO_FORMAT_S16_OE    = MA_SPA_AUDIO_FORMAT_S16_BE,
+    MA_SPA_AUDIO_FORMAT_U16_OE    = MA_SPA_AUDIO_FORMAT_U16_BE,
+    MA_SPA_AUDIO_FORMAT_S24_32_OE = MA_SPA_AUDIO_FORMAT_S24_32_BE,
+    MA_SPA_AUDIO_FORMAT_U24_32_OE = MA_SPA_AUDIO_FORMAT_U24_32_BE,
+    MA_SPA_AUDIO_FORMAT_S32_OE    = MA_SPA_AUDIO_FORMAT_S32_BE,
+    MA_SPA_AUDIO_FORMAT_U32_OE    = MA_SPA_AUDIO_FORMAT_U32_BE,
+    MA_SPA_AUDIO_FORMAT_S24_OE    = MA_SPA_AUDIO_FORMAT_S24_BE,
+    MA_SPA_AUDIO_FORMAT_U24_OE    = MA_SPA_AUDIO_FORMAT_U24_BE,
+    MA_SPA_AUDIO_FORMAT_S20_OE    = MA_SPA_AUDIO_FORMAT_S20_BE,
+    MA_SPA_AUDIO_FORMAT_U20_OE    = MA_SPA_AUDIO_FORMAT_U20_BE,
+    MA_SPA_AUDIO_FORMAT_S18_OE    = MA_SPA_AUDIO_FORMAT_S18_BE,
+    MA_SPA_AUDIO_FORMAT_U18_OE    = MA_SPA_AUDIO_FORMAT_U18_BE,
+    MA_SPA_AUDIO_FORMAT_F32_OE    = MA_SPA_AUDIO_FORMAT_F32_BE,
+    MA_SPA_AUDIO_FORMAT_F64_OE    = MA_SPA_AUDIO_FORMAT_F64_BE
+#endif
+};
+
+enum ma_spa_audio_channel
+{
+    MA_SPA_AUDIO_CHANNEL_UNKNOWN,
+    MA_SPA_AUDIO_CHANNEL_NA,
+
+    MA_SPA_AUDIO_CHANNEL_MONO,
+    MA_SPA_AUDIO_CHANNEL_FL,
+    MA_SPA_AUDIO_CHANNEL_FR,
+    MA_SPA_AUDIO_CHANNEL_FC,
+    MA_SPA_AUDIO_CHANNEL_LFE,
+    MA_SPA_AUDIO_CHANNEL_SL,
+    MA_SPA_AUDIO_CHANNEL_SR,
+    MA_SPA_AUDIO_CHANNEL_FLC,
+    MA_SPA_AUDIO_CHANNEL_FRC,
+    MA_SPA_AUDIO_CHANNEL_RC,
+    MA_SPA_AUDIO_CHANNEL_RL,
+    MA_SPA_AUDIO_CHANNEL_RR,
+    MA_SPA_AUDIO_CHANNEL_TC,
+    MA_SPA_AUDIO_CHANNEL_TFL,
+    MA_SPA_AUDIO_CHANNEL_TFC,
+    MA_SPA_AUDIO_CHANNEL_TFR,
+    MA_SPA_AUDIO_CHANNEL_TRL,
+    MA_SPA_AUDIO_CHANNEL_TRC,
+    MA_SPA_AUDIO_CHANNEL_TRR,
+    MA_SPA_AUDIO_CHANNEL_RLC,
+    MA_SPA_AUDIO_CHANNEL_RRC,
+    MA_SPA_AUDIO_CHANNEL_FLW,
+    MA_SPA_AUDIO_CHANNEL_FRW,
+    MA_SPA_AUDIO_CHANNEL_LFE2,
+    MA_SPA_AUDIO_CHANNEL_FLH,
+    MA_SPA_AUDIO_CHANNEL_FCH,
+    MA_SPA_AUDIO_CHANNEL_FRH,
+    MA_SPA_AUDIO_CHANNEL_TFLC,
+    MA_SPA_AUDIO_CHANNEL_TFRC,
+    MA_SPA_AUDIO_CHANNEL_TSL,
+    MA_SPA_AUDIO_CHANNEL_TSR,
+    MA_SPA_AUDIO_CHANNEL_LLFE,
+    MA_SPA_AUDIO_CHANNEL_RLFE,
+    MA_SPA_AUDIO_CHANNEL_BC,
+    MA_SPA_AUDIO_CHANNEL_BLC,
+    MA_SPA_AUDIO_CHANNEL_BRC,
+
+    MA_SPA_AUDIO_CHANNEL_START_Aux = 0x1000,
+    MA_SPA_AUDIO_CHANNEL_AUX0 = MA_SPA_AUDIO_CHANNEL_START_Aux,
+    MA_SPA_AUDIO_CHANNEL_AUX1,
+    MA_SPA_AUDIO_CHANNEL_AUX2,
+    MA_SPA_AUDIO_CHANNEL_AUX3,
+    MA_SPA_AUDIO_CHANNEL_AUX4,
+    MA_SPA_AUDIO_CHANNEL_AUX5,
+    MA_SPA_AUDIO_CHANNEL_AUX6,
+    MA_SPA_AUDIO_CHANNEL_AUX7,
+    MA_SPA_AUDIO_CHANNEL_AUX8,
+    MA_SPA_AUDIO_CHANNEL_AUX9,
+    MA_SPA_AUDIO_CHANNEL_AUX10,
+    MA_SPA_AUDIO_CHANNEL_AUX11,
+    MA_SPA_AUDIO_CHANNEL_AUX12,
+    MA_SPA_AUDIO_CHANNEL_AUX13,
+    MA_SPA_AUDIO_CHANNEL_AUX14,
+    MA_SPA_AUDIO_CHANNEL_AUX15,
+    MA_SPA_AUDIO_CHANNEL_AUX16,
+    MA_SPA_AUDIO_CHANNEL_AUX17,
+    MA_SPA_AUDIO_CHANNEL_AUX18,
+    MA_SPA_AUDIO_CHANNEL_AUX19,
+    MA_SPA_AUDIO_CHANNEL_AUX20,
+    MA_SPA_AUDIO_CHANNEL_AUX21,
+    MA_SPA_AUDIO_CHANNEL_AUX22,
+    MA_SPA_AUDIO_CHANNEL_AUX23,
+    MA_SPA_AUDIO_CHANNEL_AUX24,
+    MA_SPA_AUDIO_CHANNEL_AUX25,
+    MA_SPA_AUDIO_CHANNEL_AUX26,
+    MA_SPA_AUDIO_CHANNEL_AUX27,
+    MA_SPA_AUDIO_CHANNEL_AUX28,
+    MA_SPA_AUDIO_CHANNEL_AUX29,
+    MA_SPA_AUDIO_CHANNEL_AUX30,
+    MA_SPA_AUDIO_CHANNEL_AUX31,
+    MA_SPA_AUDIO_CHANNEL_AUX32,
+    MA_SPA_AUDIO_CHANNEL_AUX33,
+    MA_SPA_AUDIO_CHANNEL_AUX34,
+    MA_SPA_AUDIO_CHANNEL_AUX35,
+    MA_SPA_AUDIO_CHANNEL_AUX36,
+    MA_SPA_AUDIO_CHANNEL_AUX37,
+    MA_SPA_AUDIO_CHANNEL_AUX38,
+    MA_SPA_AUDIO_CHANNEL_AUX39,
+    MA_SPA_AUDIO_CHANNEL_AUX40,
+    MA_SPA_AUDIO_CHANNEL_AUX41,
+    MA_SPA_AUDIO_CHANNEL_AUX42,
+    MA_SPA_AUDIO_CHANNEL_AUX43,
+    MA_SPA_AUDIO_CHANNEL_AUX44,
+    MA_SPA_AUDIO_CHANNEL_AUX45,
+    MA_SPA_AUDIO_CHANNEL_AUX46,
+    MA_SPA_AUDIO_CHANNEL_AUX47,
+    MA_SPA_AUDIO_CHANNEL_AUX48,
+    MA_SPA_AUDIO_CHANNEL_AUX49,
+    MA_SPA_AUDIO_CHANNEL_AUX50,
+    MA_SPA_AUDIO_CHANNEL_AUX51,
+    MA_SPA_AUDIO_CHANNEL_AUX52,
+    MA_SPA_AUDIO_CHANNEL_AUX53,
+    MA_SPA_AUDIO_CHANNEL_AUX54,
+    MA_SPA_AUDIO_CHANNEL_AUX55,
+    MA_SPA_AUDIO_CHANNEL_AUX56,
+    MA_SPA_AUDIO_CHANNEL_AUX57,
+    MA_SPA_AUDIO_CHANNEL_AUX58,
+    MA_SPA_AUDIO_CHANNEL_AUX59,
+    MA_SPA_AUDIO_CHANNEL_AUX60,
+    MA_SPA_AUDIO_CHANNEL_AUX61,
+    MA_SPA_AUDIO_CHANNEL_AUX62,
+    MA_SPA_AUDIO_CHANNEL_AUX63
+};
+
+
+
+/* The spa_interface thing is only used by one thing here, and only because the function we want is not exported by the SO. */
 struct ma_spa_callbacks
 {
     const void* funcs;
@@ -121,6 +340,71 @@ static MA_INLINE const char* ma_spa_dict_lookup(const struct ma_spa_dict* dict, 
 }
 
 
+/*
+spa_buffer is just a few trivial structs.
+*/
+struct ma_spa_chunk
+{
+    ma_uint32 offset;
+    ma_uint32 size;
+    ma_int32 stride;
+    ma_int32 flags;
+};
+
+struct ma_spa_data
+{
+    ma_uint32 type;
+    ma_uint32 flags;
+    ma_int64 fd;
+    ma_uint32 mapoffset;
+    ma_uint32 maxsize;
+    void* data;
+    struct ma_spa_chunk* chunk;
+};
+
+struct ma_spa_meta
+{
+    ma_uint32 type;
+    ma_uint32 size;
+    void* data;
+};
+
+struct ma_spa_buffer
+{
+    ma_uint32 n_metas;
+    ma_uint32 n_datas;
+    struct ma_spa_meta* metas;
+    struct ma_spa_data* datas;
+};
+
+
+/* spa_hook */
+struct ma_spa_list
+{
+    struct ma_spa_list* next;
+    struct ma_spa_list* prev;
+};
+
+struct ma_spa_hook
+{
+    struct ma_spa_list link;
+    struct ma_spa_callbacks cb;
+    void (* removed)(struct ma_spa_hook* hook);
+    void* priv;
+};
+
+
+/* Miscellaneous SPA references that we don't actively use but are required by structs or function parameters. */
+typedef struct ma_spa_command ma_spa_command;
+
+struct ma_spa_fraction
+{
+    ma_uint32 num;
+    ma_uint32 denom;
+};
+
+
+
 #define MA_PW_KEY_MEDIA_TYPE            "media.type"
 #define MA_PW_KEY_MEDIA_CATEGORY        "media.category"
 #define MA_PW_KEY_MEDIA_ROLE            "media.role"
@@ -175,7 +459,7 @@ enum ma_pw_stream_flags
 
 struct ma_pw_buffer
 {
-    struct spa_buffer* buffer;
+    struct ma_spa_buffer* buffer;
     void* user_data;
     ma_uint64 size;
     ma_uint64 requested;
@@ -184,7 +468,7 @@ struct ma_pw_buffer
 struct ma_pw_time
 {
     ma_int64 now;
-    struct spa_fraction rate;
+    struct ma_spa_fraction rate;
     ma_uint64 ticks;
     ma_int64 delay;
     ma_uint64 queued;
@@ -199,15 +483,15 @@ struct ma_pw_time
 struct ma_pw_core_events
 {
     ma_uint32 version;
-    void (* info       )(void *data, const struct ma_pw_core_info *info);
-    void (* done       )(void *data, uint32_t id, int seq);
-    void (* ping       )(void *data, uint32_t id, int seq);
-    void (* error      )(void *data, uint32_t id, int seq, int res, const char *message);
-    void (* remove_id  )(void *data, uint32_t id);
-    void (* bound_id   )(void *data, uint32_t id, uint32_t global_id);
-    void (* add_mem    )(void *data, uint32_t id, uint32_t type, int fd, uint32_t flags);
-    void (* remove_mem )(void *data, uint32_t id);
-    void (* bound_props)(void *data, uint32_t id, uint32_t global_id, const struct ma_spa_dict *props);
+    void (* info       )(void* data, const struct ma_pw_core_info* info);
+    void (* done       )(void* data, ma_uint32 id, int seq);
+    void (* ping       )(void* data, ma_uint32 id, int seq);
+    void (* error      )(void* data, ma_uint32 id, int seq, int res, const char* message);
+    void (* remove_id  )(void* data, ma_uint32 id);
+    void (* bound_id   )(void* data, ma_uint32 id, ma_uint32 global_id);
+    void (* add_mem    )(void* data, ma_uint32 id, ma_uint32 type, int fd, ma_uint32 flags);
+    void (* remove_mem )(void* data, ma_uint32 id);
+    void (* bound_props)(void* data, ma_uint32 id, ma_uint32 global_id, const struct ma_spa_dict* props);
 };
 
 
@@ -226,7 +510,7 @@ struct ma_pw_registry_events
 struct ma_pw_metadata_methods
 {
     ma_uint32 version;
-    int (* add_listener)(void* object, struct spa_hook* listener, const struct ma_pw_metadata_events* events, void* data);
+    int (* add_listener)(void* object, struct ma_spa_hook* listener, const struct ma_pw_metadata_events* events, void* data);
     int (* set_property)(void* object, ma_uint32 subject, const char* key, const char* type, const char* value);
     int (* clear       )(void* object);
 };
@@ -253,7 +537,7 @@ struct ma_pw_stream_events
     void (* remove_buffer)(void* data, struct ma_pw_buffer* buffer);
     void (* process      )(void* data);
     void (* drained      )(void* data);
-    void (* command      )(void* data, const struct spa_command* command);
+    void (* command      )(void* data, const struct ma_spa_command* command);
     void (* trigger_done )(void* data);
 };
 
@@ -277,10 +561,10 @@ typedef struct ma_pw_context*     (* ma_pw_context_new_proc             )(struct
 typedef void                      (* ma_pw_context_destroy_proc         )(struct ma_pw_context* context);
 typedef struct ma_pw_core*        (* ma_pw_context_connect_proc         )(struct ma_pw_context* context, struct ma_pw_properties* properties, size_t user_data_size);
 typedef void                      (* ma_pw_core_disconnect_proc         )(struct ma_pw_core* core);
-typedef int                       (* ma_pw_core_add_listener_proc       )(struct ma_pw_core* core, struct spa_hook* listener, const struct ma_pw_core_events* events, void* data);
+typedef int                       (* ma_pw_core_add_listener_proc       )(struct ma_pw_core* core, struct ma_spa_hook* listener, const struct ma_pw_core_events* events, void* data);
 typedef struct ma_pw_registry*    (* ma_pw_core_get_registry_proc       )(struct ma_pw_core* core, ma_uint32 version, size_t user_data_size);
 typedef int                       (* ma_pw_core_sync_proc               )(struct ma_pw_core* core, ma_uint32 id, int seq);
-typedef int                       (* ma_pw_registry_add_listener_proc   )(struct ma_pw_registry* registry, struct spa_hook* listener, const struct ma_pw_registry_events* events, void* data);
+typedef int                       (* ma_pw_registry_add_listener_proc   )(struct ma_pw_registry* registry, struct ma_spa_hook* listener, const struct ma_pw_registry_events* events, void* data);
 typedef void*                     (* ma_pw_registry_bind_proc           )(struct ma_pw_registry* registry, ma_uint32 id, const char* type, ma_uint32 version, ma_uint32 flags);
 typedef void                      (* ma_pw_proxy_destroy_proc           )(struct ma_pw_proxy* proxy);
 typedef struct ma_pw_properties*  (* ma_pw_properties_new_proc          )(const char* key, ...);
@@ -288,9 +572,9 @@ typedef void                      (* ma_pw_properties_free_proc         )(struct
 typedef int                       (* ma_pw_properties_set_proc          )(struct ma_pw_properties* properties, const char* key, const char* value);
 typedef struct ma_pw_stream*      (* ma_pw_stream_new_proc              )(struct ma_pw_core* core, const char* name, struct ma_pw_properties* props);
 typedef void                      (* ma_pw_stream_destroy_proc          )(struct ma_pw_stream* stream);
-typedef void                      (* ma_pw_stream_add_listener_proc     )(struct ma_pw_stream* stream, struct spa_hook* listener, const struct ma_pw_stream_events* events, void* data);
-typedef int                       (* ma_pw_stream_connect_proc          )(struct ma_pw_stream* stream, enum spa_direction direction, ma_uint32 target_id, enum ma_pw_stream_flags flags, const struct spa_pod** params, ma_uint32 paramCount);
-typedef int                       (* ma_pw_stream_set_active_proc       )(struct ma_pw_stream* stream, bool active);
+typedef void                      (* ma_pw_stream_add_listener_proc     )(struct ma_pw_stream* stream, struct ma_spa_hook* listener, const struct ma_pw_stream_events* events, void* data);
+typedef int                       (* ma_pw_stream_connect_proc          )(struct ma_pw_stream* stream, enum ma_spa_direction direction, ma_uint32 target_id, enum ma_pw_stream_flags flags, const struct spa_pod** params, ma_uint32 paramCount);
+typedef int                       (* ma_pw_stream_set_active_proc       )(struct ma_pw_stream* stream, ma_bool8 active);
 typedef struct ma_pw_buffer*      (* ma_pw_stream_dequeue_buffer_proc   )(struct ma_pw_stream* stream);
 typedef int                       (* ma_pw_stream_queue_buffer_proc     )(struct ma_pw_stream* stream, struct ma_pw_buffer* buffer);
 typedef int                       (* ma_pw_stream_update_params_proc    )(struct ma_pw_stream* stream, const struct spa_pod** params, ma_uint32 paramCount);
@@ -350,7 +634,7 @@ typedef struct
 typedef struct
 {
     struct ma_pw_stream* pStream;
-    struct spa_hook eventListener;
+    struct ma_spa_hook eventListener;
     ma_uint32 initStatus;
     ma_format format;
     ma_uint32 channels;
@@ -382,28 +666,28 @@ typedef struct
 } ma_device_state_pipewire;
 
 
-static enum spa_audio_format ma_format_to_pipewire(ma_format format)
+static enum ma_spa_audio_format ma_format_to_pipewire(ma_format format)
 {
     switch (format)
     {
-        case ma_format_u8:  return SPA_AUDIO_FORMAT_U8;
-        case ma_format_s16: return SPA_AUDIO_FORMAT_S16;
-        case ma_format_s24: return SPA_AUDIO_FORMAT_S24;
-        case ma_format_s32: return SPA_AUDIO_FORMAT_S32;
-        case ma_format_f32: return SPA_AUDIO_FORMAT_F32;
-        default: return SPA_AUDIO_FORMAT_UNKNOWN;
+        case ma_format_u8:  return MA_SPA_AUDIO_FORMAT_U8;
+        case ma_format_s16: return MA_SPA_AUDIO_FORMAT_S16;
+        case ma_format_s24: return MA_SPA_AUDIO_FORMAT_S24;
+        case ma_format_s32: return MA_SPA_AUDIO_FORMAT_S32;
+        case ma_format_f32: return MA_SPA_AUDIO_FORMAT_F32;
+        default: return MA_SPA_AUDIO_FORMAT_UNKNOWN;
     }
 }
 
-static ma_format ma_format_from_pipewire(enum spa_audio_format format)
+static ma_format ma_format_from_pipewire(enum ma_spa_audio_format format)
 {
     switch (format)
     {
-        case SPA_AUDIO_FORMAT_U8:  return ma_format_u8;
-        case SPA_AUDIO_FORMAT_S16: return ma_format_s16;
-        case SPA_AUDIO_FORMAT_S24: return ma_format_s24;
-        case SPA_AUDIO_FORMAT_S32: return ma_format_s32;
-        case SPA_AUDIO_FORMAT_F32: return ma_format_f32;
+        case MA_SPA_AUDIO_FORMAT_U8:  return ma_format_u8;
+        case MA_SPA_AUDIO_FORMAT_S16: return ma_format_s16;
+        case MA_SPA_AUDIO_FORMAT_S24: return ma_format_s24;
+        case MA_SPA_AUDIO_FORMAT_S32: return ma_format_s32;
+        case MA_SPA_AUDIO_FORMAT_F32: return ma_format_f32;
         default: return ma_format_unknown;
     }
 }
@@ -412,114 +696,114 @@ static ma_channel ma_channel_from_pipewire(ma_uint32 channel)
 {
     switch (channel)
     {
-        case SPA_AUDIO_CHANNEL_MONO:  return MA_CHANNEL_MONO;
-        case SPA_AUDIO_CHANNEL_FL:    return MA_CHANNEL_FRONT_LEFT;
-        case SPA_AUDIO_CHANNEL_FR:    return MA_CHANNEL_FRONT_RIGHT;
-        case SPA_AUDIO_CHANNEL_FC:    return MA_CHANNEL_FRONT_CENTER;
-        case SPA_AUDIO_CHANNEL_LFE:   return MA_CHANNEL_LFE;
-        case SPA_AUDIO_CHANNEL_SL:    return MA_CHANNEL_SIDE_LEFT;
-        case SPA_AUDIO_CHANNEL_SR:    return MA_CHANNEL_SIDE_RIGHT;
-        case SPA_AUDIO_CHANNEL_FLC:   return MA_CHANNEL_FRONT_LEFT_CENTER;
-        case SPA_AUDIO_CHANNEL_FRC:   return MA_CHANNEL_FRONT_RIGHT_CENTER;
-        case SPA_AUDIO_CHANNEL_RC:    return MA_CHANNEL_BACK_CENTER;
-        case SPA_AUDIO_CHANNEL_RL:    return MA_CHANNEL_BACK_LEFT;
-        case SPA_AUDIO_CHANNEL_RR:    return MA_CHANNEL_BACK_RIGHT;
-        case SPA_AUDIO_CHANNEL_TC:    return MA_CHANNEL_TOP_CENTER;
-        case SPA_AUDIO_CHANNEL_TFL:   return MA_CHANNEL_TOP_FRONT_LEFT;
-        case SPA_AUDIO_CHANNEL_TFC:   return MA_CHANNEL_TOP_FRONT_CENTER;
-        case SPA_AUDIO_CHANNEL_TFR:   return MA_CHANNEL_TOP_FRONT_RIGHT;
-        case SPA_AUDIO_CHANNEL_TRL:   return MA_CHANNEL_TOP_BACK_LEFT;
-        case SPA_AUDIO_CHANNEL_TRC:   return MA_CHANNEL_TOP_BACK_CENTER;
-        case SPA_AUDIO_CHANNEL_TRR:   return MA_CHANNEL_TOP_BACK_RIGHT;
+        case MA_SPA_AUDIO_CHANNEL_MONO:  return MA_CHANNEL_MONO;
+        case MA_SPA_AUDIO_CHANNEL_FL:    return MA_CHANNEL_FRONT_LEFT;
+        case MA_SPA_AUDIO_CHANNEL_FR:    return MA_CHANNEL_FRONT_RIGHT;
+        case MA_SPA_AUDIO_CHANNEL_FC:    return MA_CHANNEL_FRONT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_LFE:   return MA_CHANNEL_LFE;
+        case MA_SPA_AUDIO_CHANNEL_SL:    return MA_CHANNEL_SIDE_LEFT;
+        case MA_SPA_AUDIO_CHANNEL_SR:    return MA_CHANNEL_SIDE_RIGHT;
+        case MA_SPA_AUDIO_CHANNEL_FLC:   return MA_CHANNEL_FRONT_LEFT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_FRC:   return MA_CHANNEL_FRONT_RIGHT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_RC:    return MA_CHANNEL_BACK_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_RL:    return MA_CHANNEL_BACK_LEFT;
+        case MA_SPA_AUDIO_CHANNEL_RR:    return MA_CHANNEL_BACK_RIGHT;
+        case MA_SPA_AUDIO_CHANNEL_TC:    return MA_CHANNEL_TOP_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_TFL:   return MA_CHANNEL_TOP_FRONT_LEFT;
+        case MA_SPA_AUDIO_CHANNEL_TFC:   return MA_CHANNEL_TOP_FRONT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_TFR:   return MA_CHANNEL_TOP_FRONT_RIGHT;
+        case MA_SPA_AUDIO_CHANNEL_TRL:   return MA_CHANNEL_TOP_BACK_LEFT;
+        case MA_SPA_AUDIO_CHANNEL_TRC:   return MA_CHANNEL_TOP_BACK_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_TRR:   return MA_CHANNEL_TOP_BACK_RIGHT;
 
         /* These need to be added to miniaudio. */
         #if 0
-        case SPA_AUDIO_CHANNEL_RLC:   return MA_CHANNEL_BACK_LEFT_CENTER;
-        case SPA_AUDIO_CHANNEL_RRC:   return MA_CHANNEL_BACK_RIGHT_CENTER;
-        case SPA_AUDIO_CHANNEL_FLW:   return MA_CHANNEL_FRONT_LEFT_WIDE;
-        case SPA_AUDIO_CHANNEL_FRW:   return MA_CHANNEL_FRONT_RIGHT_WIDE;
-        case SPA_AUDIO_CHANNEL_LFE2:  return MA_CHANNEL_LFE2;
-        case SPA_AUDIO_CHANNEL_FLH:   return MA_CHANNEL_FRONT_LEFT_HIGH;
-        case SPA_AUDIO_CHANNEL_FCH:   return MA_CHANNEL_FRONT_CENTER_HIGH;
-        case SPA_AUDIO_CHANNEL_FRH:   return MA_CHANNEL_FRONT_RIGHT_HIGH;
-        case SPA_AUDIO_CHANNEL_TFLC:  return MA_CHANNEL_TOP_FRONT_LEFT_CENTER;
-        case SPA_AUDIO_CHANNEL_TFRC:  return MA_CHANNEL_TOP_FRONT_RIGHT_CENTER;
-        case SPA_AUDIO_CHANNEL_TSL:   return MA_CHANNEL_TOP_SIDE_LEFT;
-        case SPA_AUDIO_CHANNEL_TSR:   return MA_CHANNEL_TOP_SIDE_RIGHT;
-        case SPA_AUDIO_CHANNEL_LLFE:  return MA_CHANNEL_LEFT_LFE;
-        case SPA_AUDIO_CHANNEL_RLFE:  return MA_CHANNEL_RIGHT_LFE;
-        case SPA_AUDIO_CHANNEL_BC:    return MA_CHANNEL_BOTTOM_CENTER;
-        case SPA_AUDIO_CHANNEL_BLC:   return MA_CHANNEL_BOTTOM_LEFT_CENTER;
-        case SPA_AUDIO_CHANNEL_BRC:   return MA_CHANNEL_BOTTOM_RIGHT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_RLC:   return MA_CHANNEL_BACK_LEFT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_RRC:   return MA_CHANNEL_BACK_RIGHT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_FLW:   return MA_CHANNEL_FRONT_LEFT_WIDE;
+        case MA_SPA_AUDIO_CHANNEL_FRW:   return MA_CHANNEL_FRONT_RIGHT_WIDE;
+        case MA_SPA_AUDIO_CHANNEL_LFE2:  return MA_CHANNEL_LFE2;
+        case MA_SPA_AUDIO_CHANNEL_FLH:   return MA_CHANNEL_FRONT_LEFT_HIGH;
+        case MA_SPA_AUDIO_CHANNEL_FCH:   return MA_CHANNEL_FRONT_CENTER_HIGH;
+        case MA_SPA_AUDIO_CHANNEL_FRH:   return MA_CHANNEL_FRONT_RIGHT_HIGH;
+        case MA_SPA_AUDIO_CHANNEL_TFLC:  return MA_CHANNEL_TOP_FRONT_LEFT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_TFRC:  return MA_CHANNEL_TOP_FRONT_RIGHT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_TSL:   return MA_CHANNEL_TOP_SIDE_LEFT;
+        case MA_SPA_AUDIO_CHANNEL_TSR:   return MA_CHANNEL_TOP_SIDE_RIGHT;
+        case MA_SPA_AUDIO_CHANNEL_LLFE:  return MA_CHANNEL_LEFT_LFE;
+        case MA_SPA_AUDIO_CHANNEL_RLFE:  return MA_CHANNEL_RIGHT_LFE;
+        case MA_SPA_AUDIO_CHANNEL_BC:    return MA_CHANNEL_BOTTOM_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_BLC:   return MA_CHANNEL_BOTTOM_LEFT_CENTER;
+        case MA_SPA_AUDIO_CHANNEL_BRC:   return MA_CHANNEL_BOTTOM_RIGHT_CENTER;
         #endif
 
-        case SPA_AUDIO_CHANNEL_AUX0:  return MA_CHANNEL_AUX_0;
-        case SPA_AUDIO_CHANNEL_AUX1:  return MA_CHANNEL_AUX_1;
-        case SPA_AUDIO_CHANNEL_AUX2:  return MA_CHANNEL_AUX_2;
-        case SPA_AUDIO_CHANNEL_AUX3:  return MA_CHANNEL_AUX_3;
-        case SPA_AUDIO_CHANNEL_AUX4:  return MA_CHANNEL_AUX_4;
-        case SPA_AUDIO_CHANNEL_AUX5:  return MA_CHANNEL_AUX_5;
-        case SPA_AUDIO_CHANNEL_AUX6:  return MA_CHANNEL_AUX_6;
-        case SPA_AUDIO_CHANNEL_AUX7:  return MA_CHANNEL_AUX_7;
-        case SPA_AUDIO_CHANNEL_AUX8:  return MA_CHANNEL_AUX_8;
-        case SPA_AUDIO_CHANNEL_AUX9:  return MA_CHANNEL_AUX_9;
-        case SPA_AUDIO_CHANNEL_AUX10: return MA_CHANNEL_AUX_10;
-        case SPA_AUDIO_CHANNEL_AUX11: return MA_CHANNEL_AUX_11;
-        case SPA_AUDIO_CHANNEL_AUX12: return MA_CHANNEL_AUX_12;
-        case SPA_AUDIO_CHANNEL_AUX13: return MA_CHANNEL_AUX_13;
-        case SPA_AUDIO_CHANNEL_AUX14: return MA_CHANNEL_AUX_14;
-        case SPA_AUDIO_CHANNEL_AUX15: return MA_CHANNEL_AUX_15;
-        case SPA_AUDIO_CHANNEL_AUX16: return MA_CHANNEL_AUX_16;
-        case SPA_AUDIO_CHANNEL_AUX17: return MA_CHANNEL_AUX_17;
-        case SPA_AUDIO_CHANNEL_AUX18: return MA_CHANNEL_AUX_18;
-        case SPA_AUDIO_CHANNEL_AUX19: return MA_CHANNEL_AUX_19;
-        case SPA_AUDIO_CHANNEL_AUX20: return MA_CHANNEL_AUX_20;
-        case SPA_AUDIO_CHANNEL_AUX21: return MA_CHANNEL_AUX_21;
-        case SPA_AUDIO_CHANNEL_AUX22: return MA_CHANNEL_AUX_22;
-        case SPA_AUDIO_CHANNEL_AUX23: return MA_CHANNEL_AUX_23;
-        case SPA_AUDIO_CHANNEL_AUX24: return MA_CHANNEL_AUX_24;
-        case SPA_AUDIO_CHANNEL_AUX25: return MA_CHANNEL_AUX_25;
-        case SPA_AUDIO_CHANNEL_AUX26: return MA_CHANNEL_AUX_26;
-        case SPA_AUDIO_CHANNEL_AUX27: return MA_CHANNEL_AUX_27;
-        case SPA_AUDIO_CHANNEL_AUX28: return MA_CHANNEL_AUX_28;
-        case SPA_AUDIO_CHANNEL_AUX29: return MA_CHANNEL_AUX_29;
-        case SPA_AUDIO_CHANNEL_AUX30: return MA_CHANNEL_AUX_30;
-        case SPA_AUDIO_CHANNEL_AUX31: return MA_CHANNEL_AUX_31;
+        case MA_SPA_AUDIO_CHANNEL_AUX0:  return MA_CHANNEL_AUX_0;
+        case MA_SPA_AUDIO_CHANNEL_AUX1:  return MA_CHANNEL_AUX_1;
+        case MA_SPA_AUDIO_CHANNEL_AUX2:  return MA_CHANNEL_AUX_2;
+        case MA_SPA_AUDIO_CHANNEL_AUX3:  return MA_CHANNEL_AUX_3;
+        case MA_SPA_AUDIO_CHANNEL_AUX4:  return MA_CHANNEL_AUX_4;
+        case MA_SPA_AUDIO_CHANNEL_AUX5:  return MA_CHANNEL_AUX_5;
+        case MA_SPA_AUDIO_CHANNEL_AUX6:  return MA_CHANNEL_AUX_6;
+        case MA_SPA_AUDIO_CHANNEL_AUX7:  return MA_CHANNEL_AUX_7;
+        case MA_SPA_AUDIO_CHANNEL_AUX8:  return MA_CHANNEL_AUX_8;
+        case MA_SPA_AUDIO_CHANNEL_AUX9:  return MA_CHANNEL_AUX_9;
+        case MA_SPA_AUDIO_CHANNEL_AUX10: return MA_CHANNEL_AUX_10;
+        case MA_SPA_AUDIO_CHANNEL_AUX11: return MA_CHANNEL_AUX_11;
+        case MA_SPA_AUDIO_CHANNEL_AUX12: return MA_CHANNEL_AUX_12;
+        case MA_SPA_AUDIO_CHANNEL_AUX13: return MA_CHANNEL_AUX_13;
+        case MA_SPA_AUDIO_CHANNEL_AUX14: return MA_CHANNEL_AUX_14;
+        case MA_SPA_AUDIO_CHANNEL_AUX15: return MA_CHANNEL_AUX_15;
+        case MA_SPA_AUDIO_CHANNEL_AUX16: return MA_CHANNEL_AUX_16;
+        case MA_SPA_AUDIO_CHANNEL_AUX17: return MA_CHANNEL_AUX_17;
+        case MA_SPA_AUDIO_CHANNEL_AUX18: return MA_CHANNEL_AUX_18;
+        case MA_SPA_AUDIO_CHANNEL_AUX19: return MA_CHANNEL_AUX_19;
+        case MA_SPA_AUDIO_CHANNEL_AUX20: return MA_CHANNEL_AUX_20;
+        case MA_SPA_AUDIO_CHANNEL_AUX21: return MA_CHANNEL_AUX_21;
+        case MA_SPA_AUDIO_CHANNEL_AUX22: return MA_CHANNEL_AUX_22;
+        case MA_SPA_AUDIO_CHANNEL_AUX23: return MA_CHANNEL_AUX_23;
+        case MA_SPA_AUDIO_CHANNEL_AUX24: return MA_CHANNEL_AUX_24;
+        case MA_SPA_AUDIO_CHANNEL_AUX25: return MA_CHANNEL_AUX_25;
+        case MA_SPA_AUDIO_CHANNEL_AUX26: return MA_CHANNEL_AUX_26;
+        case MA_SPA_AUDIO_CHANNEL_AUX27: return MA_CHANNEL_AUX_27;
+        case MA_SPA_AUDIO_CHANNEL_AUX28: return MA_CHANNEL_AUX_28;
+        case MA_SPA_AUDIO_CHANNEL_AUX29: return MA_CHANNEL_AUX_29;
+        case MA_SPA_AUDIO_CHANNEL_AUX30: return MA_CHANNEL_AUX_30;
+        case MA_SPA_AUDIO_CHANNEL_AUX31: return MA_CHANNEL_AUX_31;
 
         /* These need to be added to miniaudio. */
         #if 0
-        case SPA_AUDIO_CHANNEL_AUX32: return MA_CHANNEL_AUX_32;
-        case SPA_AUDIO_CHANNEL_AUX33: return MA_CHANNEL_AUX_33;
-        case SPA_AUDIO_CHANNEL_AUX34: return MA_CHANNEL_AUX_34;
-        case SPA_AUDIO_CHANNEL_AUX35: return MA_CHANNEL_AUX_35;
-        case SPA_AUDIO_CHANNEL_AUX36: return MA_CHANNEL_AUX_36;
-        case SPA_AUDIO_CHANNEL_AUX37: return MA_CHANNEL_AUX_37;
-        case SPA_AUDIO_CHANNEL_AUX38: return MA_CHANNEL_AUX_38;
-        case SPA_AUDIO_CHANNEL_AUX39: return MA_CHANNEL_AUX_39;
-        case SPA_AUDIO_CHANNEL_AUX40: return MA_CHANNEL_AUX_40;
-        case SPA_AUDIO_CHANNEL_AUX41: return MA_CHANNEL_AUX_41;
-        case SPA_AUDIO_CHANNEL_AUX42: return MA_CHANNEL_AUX_42;
-        case SPA_AUDIO_CHANNEL_AUX43: return MA_CHANNEL_AUX_43;
-        case SPA_AUDIO_CHANNEL_AUX44: return MA_CHANNEL_AUX_44;
-        case SPA_AUDIO_CHANNEL_AUX45: return MA_CHANNEL_AUX_45;
-        case SPA_AUDIO_CHANNEL_AUX46: return MA_CHANNEL_AUX_46;
-        case SPA_AUDIO_CHANNEL_AUX47: return MA_CHANNEL_AUX_47;
-        case SPA_AUDIO_CHANNEL_AUX48: return MA_CHANNEL_AUX_48;
-        case SPA_AUDIO_CHANNEL_AUX49: return MA_CHANNEL_AUX_49;
-        case SPA_AUDIO_CHANNEL_AUX50: return MA_CHANNEL_AUX_50;
-        case SPA_AUDIO_CHANNEL_AUX51: return MA_CHANNEL_AUX_51;
-        case SPA_AUDIO_CHANNEL_AUX52: return MA_CHANNEL_AUX_52;
-        case SPA_AUDIO_CHANNEL_AUX53: return MA_CHANNEL_AUX_53;
-        case SPA_AUDIO_CHANNEL_AUX54: return MA_CHANNEL_AUX_54;
-        case SPA_AUDIO_CHANNEL_AUX55: return MA_CHANNEL_AUX_55;
-        case SPA_AUDIO_CHANNEL_AUX56: return MA_CHANNEL_AUX_56;
-        case SPA_AUDIO_CHANNEL_AUX57: return MA_CHANNEL_AUX_57;
-        case SPA_AUDIO_CHANNEL_AUX58: return MA_CHANNEL_AUX_58;
-        case SPA_AUDIO_CHANNEL_AUX59: return MA_CHANNEL_AUX_59;
-        case SPA_AUDIO_CHANNEL_AUX60: return MA_CHANNEL_AUX_60;
-        case SPA_AUDIO_CHANNEL_AUX61: return MA_CHANNEL_AUX_61;
-        case SPA_AUDIO_CHANNEL_AUX62: return MA_CHANNEL_AUX_62;
-        case SPA_AUDIO_CHANNEL_AUX63: return MA_CHANNEL_AUX_63;
+        case MA_SPA_AUDIO_CHANNEL_AUX32: return MA_CHANNEL_AUX_32;
+        case MA_SPA_AUDIO_CHANNEL_AUX33: return MA_CHANNEL_AUX_33;
+        case MA_SPA_AUDIO_CHANNEL_AUX34: return MA_CHANNEL_AUX_34;
+        case MA_SPA_AUDIO_CHANNEL_AUX35: return MA_CHANNEL_AUX_35;
+        case MA_SPA_AUDIO_CHANNEL_AUX36: return MA_CHANNEL_AUX_36;
+        case MA_SPA_AUDIO_CHANNEL_AUX37: return MA_CHANNEL_AUX_37;
+        case MA_SPA_AUDIO_CHANNEL_AUX38: return MA_CHANNEL_AUX_38;
+        case MA_SPA_AUDIO_CHANNEL_AUX39: return MA_CHANNEL_AUX_39;
+        case MA_SPA_AUDIO_CHANNEL_AUX40: return MA_CHANNEL_AUX_40;
+        case MA_SPA_AUDIO_CHANNEL_AUX41: return MA_CHANNEL_AUX_41;
+        case MA_SPA_AUDIO_CHANNEL_AUX42: return MA_CHANNEL_AUX_42;
+        case MA_SPA_AUDIO_CHANNEL_AUX43: return MA_CHANNEL_AUX_43;
+        case MA_SPA_AUDIO_CHANNEL_AUX44: return MA_CHANNEL_AUX_44;
+        case MA_SPA_AUDIO_CHANNEL_AUX45: return MA_CHANNEL_AUX_45;
+        case MA_SPA_AUDIO_CHANNEL_AUX46: return MA_CHANNEL_AUX_46;
+        case MA_SPA_AUDIO_CHANNEL_AUX47: return MA_CHANNEL_AUX_47;
+        case MA_SPA_AUDIO_CHANNEL_AUX48: return MA_CHANNEL_AUX_48;
+        case MA_SPA_AUDIO_CHANNEL_AUX49: return MA_CHANNEL_AUX_49;
+        case MA_SPA_AUDIO_CHANNEL_AUX50: return MA_CHANNEL_AUX_50;
+        case MA_SPA_AUDIO_CHANNEL_AUX51: return MA_CHANNEL_AUX_51;
+        case MA_SPA_AUDIO_CHANNEL_AUX52: return MA_CHANNEL_AUX_52;
+        case MA_SPA_AUDIO_CHANNEL_AUX53: return MA_CHANNEL_AUX_53;
+        case MA_SPA_AUDIO_CHANNEL_AUX54: return MA_CHANNEL_AUX_54;
+        case MA_SPA_AUDIO_CHANNEL_AUX55: return MA_CHANNEL_AUX_55;
+        case MA_SPA_AUDIO_CHANNEL_AUX56: return MA_CHANNEL_AUX_56;
+        case MA_SPA_AUDIO_CHANNEL_AUX57: return MA_CHANNEL_AUX_57;
+        case MA_SPA_AUDIO_CHANNEL_AUX58: return MA_CHANNEL_AUX_58;
+        case MA_SPA_AUDIO_CHANNEL_AUX59: return MA_CHANNEL_AUX_59;
+        case MA_SPA_AUDIO_CHANNEL_AUX60: return MA_CHANNEL_AUX_60;
+        case MA_SPA_AUDIO_CHANNEL_AUX61: return MA_CHANNEL_AUX_61;
+        case MA_SPA_AUDIO_CHANNEL_AUX62: return MA_CHANNEL_AUX_62;
+        case MA_SPA_AUDIO_CHANNEL_AUX63: return MA_CHANNEL_AUX_63;
         #endif
 
         default: return MA_CHANNEL_NONE;
@@ -694,7 +978,7 @@ typedef struct
     struct ma_pw_core* pCore;
     struct ma_pw_registry* pRegistry;
     struct ma_pw_metadata* pMetadata;
-    struct spa_hook metadataListener;
+    struct ma_spa_hook metadataListener;
     int seqDefaults;
     int seqEnumeration;
     ma_uint32 syncFlags;
@@ -961,8 +1245,8 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     struct ma_pw_context* pPipeWireContext;
     struct ma_pw_core* pCore;
     struct ma_pw_registry* pRegistry;
-    struct spa_hook coreListener;
-    struct spa_hook registeryListener;
+    struct ma_spa_hook coreListener;
+    struct ma_spa_hook registeryListener;
     ma_enumerate_devices_data_pipewire enumData;
 
     MA_PIPEWIRE_ASSERT(pContextStatePipeWire != NULL);
@@ -1141,7 +1425,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
             pStreamState->bufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pStreamState->pDescriptor, (ma_uint32)audioInfo.rate);
         }
 
-        pStreamState->format     = ma_format_from_pipewire(audioInfo.format);
+        pStreamState->format     = ma_format_from_pipewire((enum ma_spa_audio_format)audioInfo.format);
         pStreamState->channels   = audioInfo.channels;
         pStreamState->sampleRate = audioInfo.rate;
 
@@ -1445,13 +1729,13 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     podBuilder = SPA_POD_BUILDER_INIT(podBuilderBuffer, sizeof(podBuilderBuffer));
 
     memset(&audioInfo, 0, sizeof(audioInfo));
-    audioInfo.format   = ma_format_to_pipewire(pDescriptor->format);
+    audioInfo.format   = (enum spa_audio_format)ma_format_to_pipewire(pDescriptor->format);
     audioInfo.channels = pDescriptor->channels;
     audioInfo.rate     = pDescriptor->sampleRate;
 
     /* If the format is SPA_AUDIO_FORMAT_UNKNOWN, PipeWire can pick a planar data layout (de-interleaved) which breaks things for us. Just force interleaved F32 in this case. */
-    if (audioInfo.format == SPA_AUDIO_FORMAT_UNKNOWN) {
-        audioInfo.format =  SPA_AUDIO_FORMAT_F32;
+    if (audioInfo.format == (enum spa_audio_format)MA_SPA_AUDIO_FORMAT_UNKNOWN) {
+        audioInfo.format =  (enum spa_audio_format)MA_SPA_AUDIO_FORMAT_F32;
     }
 
     /* We're going to leave the channel map alone and just do a conversion ourselves if it differs from the native map. */
@@ -1467,7 +1751,7 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     */
     streamFlags = (enum ma_pw_stream_flags)(MA_PW_STREAM_FLAG_AUTOCONNECT | /*MA_PW_STREAM_FLAG_INACTIVE |*/ MA_PW_STREAM_FLAG_MAP_BUFFERS);
 
-    connectResult = pContextStatePipeWire->pw_stream_connect(pStreamState->pStream, (deviceType == ma_device_type_playback) ? SPA_DIRECTION_OUTPUT : SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
+    connectResult = pContextStatePipeWire->pw_stream_connect(pStreamState->pStream, (deviceType == ma_device_type_playback) ? MA_SPA_DIRECTION_OUTPUT : MA_SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
     if (connectResult < 0) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream.");
         pContextStatePipeWire->pw_stream_destroy(pStreamState->pStream);
