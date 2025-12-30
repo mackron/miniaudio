@@ -44,13 +44,82 @@
     #endif
 #endif
 /*#include <pipewire/pipewire.h>*/
+
 #include <spa/param/audio/format-utils.h>   /* For spa_format_audio_raw_build() */
 #include <spa/param/audio/raw.h>
-/*#include <spa/param/latency.h>*/
-/*#include <spa/param/latency-utils.h>*/
-#include <spa/utils/dict.h>
+/*#include <spa/utils/dict.h>*/
 #include <spa/pod/command.h>
 #include <spa/buffer/buffer.h>
+
+
+struct ma_spa_callbacks
+{
+    const void* funcs;
+    void* data;
+};
+
+struct ma_spa_interface
+{
+    const char* type;
+    ma_uint32 version;
+    struct ma_spa_callbacks cb;
+};
+
+
+/*
+spa_dict is just a list of key/value pairs as a string. We can easily write our own version of this to remove
+the dependency on the SPA headers.
+
+We'll keep the naming consistent here with the actual SPA library, with just the "ma_" prefix added.
+*/
+struct ma_spa_dict_item
+{
+    const char* key;
+    const char* value;
+};
+
+static MA_INLINE struct ma_spa_dict_item MA_SPA_DICT_ITEM_INIT(const char* key, const char* value)
+{
+    struct ma_spa_dict_item item;
+
+    item.key   = key;
+    item.value = value;
+
+    return item;
+}
+
+
+struct ma_spa_dict
+{
+    ma_uint32 flags;
+    ma_uint32 n_items;
+    const struct ma_spa_dict_item* items;
+};
+
+static MA_INLINE struct ma_spa_dict MA_SPA_DICT_INIT(const struct ma_spa_dict_item* items, ma_uint32 n_items)
+{
+    struct ma_spa_dict dict;
+
+    dict.flags   = 0;
+    dict.n_items = n_items;
+    dict.items   = items;
+
+    return dict;
+}
+
+static MA_INLINE const char* ma_spa_dict_lookup(const struct ma_spa_dict* dict, const char* key)
+{
+    ma_uint32 i;
+
+    for (i = 0; i < dict->n_items; i += 1) {
+        if (strcmp(dict->items[i].key, key) == 0) {
+            return dict->items[i].value;
+        }
+    }
+
+    return NULL;
+}
+
 
 #define MA_PW_KEY_MEDIA_TYPE            "media.type"
 #define MA_PW_KEY_MEDIA_CATEGORY        "media.category"
@@ -127,7 +196,6 @@ struct ma_pw_time
 
 
 #define MA_PW_VERSION_CORE_EVENTS       1
-
 struct ma_pw_core_events
 {
     ma_uint32 version;
@@ -139,7 +207,7 @@ struct ma_pw_core_events
     void (* bound_id   )(void *data, uint32_t id, uint32_t global_id);
     void (* add_mem    )(void *data, uint32_t id, uint32_t type, int fd, uint32_t flags);
     void (* remove_mem )(void *data, uint32_t id);
-    void (* bound_props)(void *data, uint32_t id, uint32_t global_id, const struct spa_dict *props);
+    void (* bound_props)(void *data, uint32_t id, uint32_t global_id, const struct ma_spa_dict *props);
 };
 
 
@@ -148,7 +216,7 @@ struct ma_pw_core_events
 struct ma_pw_registry_events
 {
     ma_uint32 version;
-    void (* global_add   )(void* data, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct spa_dict* props);
+    void (* global_add   )(void* data, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props);
     void (* global_remove)(void* data, ma_uint32 id);
 };
 
@@ -191,7 +259,7 @@ struct ma_pw_stream_events
 
 typedef void                      (* ma_pw_init_proc                    )(int* argc, char*** argv);
 typedef void                      (* ma_pw_deinit_proc                  )(void);
-typedef struct ma_pw_loop*        (* ma_pw_loop_new_proc                )(const struct spa_dict* props);
+typedef struct ma_pw_loop*        (* ma_pw_loop_new_proc                )(const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_loop_destroy_proc            )(struct ma_pw_loop* loop);
 typedef int                       (* ma_pw_loop_set_name_proc           )(struct ma_pw_loop* loop, const char* name);
 typedef void                      (* ma_pw_loop_enter_proc              )(struct ma_pw_loop* loop);
@@ -199,13 +267,13 @@ typedef void                      (* ma_pw_loop_leave_proc              )(struct
 typedef int                       (* ma_pw_loop_iterate_proc            )(struct ma_pw_loop* loop, int timeout);
 typedef struct spa_source*        (* ma_pw_loop_add_event_proc          )(struct ma_pw_loop* loop, void (* func)(void* data, ma_uint64 count), void* data);
 typedef int                       (* ma_pw_loop_signal_event_proc       )(struct ma_pw_loop* loop, struct spa_source* source);
-typedef struct ma_pw_thread_loop* (* ma_pw_thread_loop_new_proc         )(const char* name, const struct spa_dict* props);
+typedef struct ma_pw_thread_loop* (* ma_pw_thread_loop_new_proc         )(const char* name, const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_thread_loop_destroy_proc     )(struct ma_pw_thread_loop* loop);
 typedef struct ma_pw_loop*        (* ma_pw_thread_loop_get_loop_proc    )(struct ma_pw_thread_loop* loop);
 typedef int                       (* ma_pw_thread_loop_start_proc       )(struct ma_pw_thread_loop* loop);
 typedef void                      (* ma_pw_thread_loop_lock_proc        )(struct ma_pw_thread_loop* loop);
 typedef void                      (* ma_pw_thread_loop_unlock_proc      )(struct ma_pw_thread_loop* loop);
-typedef struct ma_pw_context*     (* ma_pw_context_new_proc             )(struct ma_pw_loop* loop, const char* name, const struct spa_dict* props);
+typedef struct ma_pw_context*     (* ma_pw_context_new_proc             )(struct ma_pw_loop* loop, const char* name, const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_context_destroy_proc         )(struct ma_pw_context* context);
 typedef struct ma_pw_core*        (* ma_pw_context_connect_proc         )(struct ma_pw_context* context, struct ma_pw_properties* properties, size_t user_data_size);
 typedef void                      (* ma_pw_core_disconnect_proc         )(struct ma_pw_core* core);
@@ -226,7 +294,7 @@ typedef int                       (* ma_pw_stream_set_active_proc       )(struct
 typedef struct ma_pw_buffer*      (* ma_pw_stream_dequeue_buffer_proc   )(struct ma_pw_stream* stream);
 typedef int                       (* ma_pw_stream_queue_buffer_proc     )(struct ma_pw_stream* stream, struct ma_pw_buffer* buffer);
 typedef int                       (* ma_pw_stream_update_params_proc    )(struct ma_pw_stream* stream, const struct spa_pod** params, ma_uint32 paramCount);
-typedef int                       (* ma_pw_stream_update_properties_proc)(struct ma_pw_stream* stream, const struct spa_dict* dict);
+typedef int                       (* ma_pw_stream_update_properties_proc)(struct ma_pw_stream* stream, const struct ma_spa_dict* dict);
 typedef int                       (* ma_pw_stream_get_time_n_proc       )(struct ma_pw_stream* stream, struct ma_pw_time* time, ma_uint32 size);
 
 typedef struct
@@ -780,7 +848,7 @@ static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire =
 };
 
 
-static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props, ma_device_type deviceType)
+static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct ma_spa_dict* props, ma_device_type deviceType)
 {
     ma_device_info deviceInfo;
     const char* pNodeName;  /* <-- This is the ID. */
@@ -792,12 +860,12 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
     (void)type;
 
     /* The node name is the ID. */
-    pNodeName = spa_dict_lookup(props, "node.name");
+    pNodeName = ma_spa_dict_lookup(props, "node.name");
 
     /* Name. */
-    pNiceName = spa_dict_lookup(props, "node.description");
-    if (pNiceName == NULL) { pNiceName = spa_dict_lookup(props, "device.description"); }
-    if (pNiceName == NULL) { pNiceName = spa_dict_lookup(props, "device.nick"); }
+    pNiceName = ma_spa_dict_lookup(props, "node.description");
+    if (pNiceName == NULL) { pNiceName = ma_spa_dict_lookup(props, "device.description"); }
+    if (pNiceName == NULL) { pNiceName = ma_spa_dict_lookup(props, "device.nick"); }
     if (pNiceName == NULL) { pNiceName = pNodeName; }
     if (pNiceName == NULL) { pNiceName = "Unknown"; }
 
@@ -824,7 +892,7 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
     /*printf("Registry Global Added By Type: ID=%u, Type=%s, DeviceType=%d, NiceName=%s\n", id, type, deviceType, pNiceName);*/
 }
 
-static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct spa_dict* props)
+static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct ma_spa_dict* props)
 {
     ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)pUserData;
     const char* pMediaClass;
@@ -838,14 +906,16 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
     if (strcmp(type, MA_PW_TYPE_INTERFACE_Metadata) == 0) {
         const char* pName;
 
-        pName = spa_dict_lookup(props, MA_PW_KEY_METADATA_NAME);
+        pName = ma_spa_dict_lookup(props, MA_PW_KEY_METADATA_NAME);
         if (pName != NULL && strcmp(pName, "default") == 0) {
             pEnumData->pMetadata = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
             if (pEnumData->pMetadata != NULL) {
                 spa_zero(pEnumData->metadataListener);
 
-                /* Using spa_api_method_r() instead of pw_metadata_add_listener() because it appears the latter is an inline function and thus not exported by libpipewire. */
-                spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);
+                /* Not using pw_metadata_add_listener() because it appears to be an inline function and thus not exported by libpipewire. */
+                ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadata)->cb.funcs)->add_listener(pEnumData->pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);
+
+                /*spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);*/
                 /*pEnumData->pContextStatePipeWire->pw_metadata_add_listener(pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, NULL);*/
 
                 pEnumData->seqDefaults = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
@@ -860,7 +930,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
         return;
     }
 
-    pMediaClass = spa_dict_lookup(props, MA_PW_KEY_MEDIA_CLASS);
+    pMediaClass = ma_spa_dict_lookup(props, MA_PW_KEY_MEDIA_CLASS);
     if (pMediaClass == NULL) {
         return;
     }
@@ -1082,14 +1152,14 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
 
         /* Now that we know both the buffer size and sample rate we can update the latency on the PipeWire side. */
         {
-            struct spa_dict_item items[1];
-            struct spa_dict dict;
+            struct ma_spa_dict_item items[1];
+            struct ma_spa_dict dict;
             char latencyStr[32];
 
             snprintf(latencyStr, sizeof(latencyStr), "%u/%u", (unsigned int)pStreamState->bufferSizeInFrames, pStreamState->sampleRate);
-            items[0] = SPA_DICT_ITEM_INIT(MA_PW_KEY_NODE_LATENCY, latencyStr);
+            items[0] = MA_SPA_DICT_ITEM_INIT(MA_PW_KEY_NODE_LATENCY, latencyStr);
 
-            dict = SPA_DICT_INIT(items, 1);
+            dict = MA_SPA_DICT_INIT(items, 1);
 
             pContextStatePipeWire->pw_stream_update_properties(pStreamState->pStream, &dict);
         }
