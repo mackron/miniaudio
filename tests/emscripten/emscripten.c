@@ -9,13 +9,20 @@
 #define DEVICE_CHANNELS     2
 #define DEVICE_SAMPLE_RATE  48000
 
+ma_threading_mode threadingMode = MA_THREADING_MODE_MULTITHREADED;
+/*ma_threading_mode threadingMode = MA_THREADING_MODE_SINGLE_THREADED;*/
+
 ma_bool32 isRunning = MA_FALSE;
 ma_device device;
 ma_waveform sineWave;   /* For playback example. */
 
 
-void main_loop__em()
+void main_loop__em(void* pUserData)
 {
+    ma_device* pDevice = (ma_device*)pUserData;
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_step(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
+    }
 }
 
 
@@ -35,6 +42,7 @@ static void do_playback()
     ma_waveform_config sineWaveConfig;
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.threadingMode     = threadingMode;
     deviceConfig.playback.format   = DEVICE_FORMAT;
     deviceConfig.playback.channels = DEVICE_CHANNELS;
     deviceConfig.sampleRate        = DEVICE_SAMPLE_RATE;
@@ -72,6 +80,7 @@ static void do_duplex()
     ma_device_config deviceConfig;
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
+    deviceConfig.threadingMode      = threadingMode;
     deviceConfig.capture.pDeviceID  = NULL;
     deviceConfig.capture.format     = DEVICE_FORMAT;
     deviceConfig.capture.channels   = 2;
@@ -129,7 +138,7 @@ int main(int argc, char** argv)
     /* The device must be started in response to an input event. */
     emscripten_set_mouseup_callback("canvas", &device, 0, on_canvas_click);
     
-    emscripten_set_main_loop(main_loop__em, 0, 1);
+    emscripten_set_main_loop_arg(main_loop__em, &device, 0, 1);
     
     (void)argc;
     (void)argv;

@@ -42375,6 +42375,7 @@ typedef struct ma_context_state_webaudio
 
 typedef struct ma_device_state_webaudio
 {
+    ma_device_state_async async;    /* Only used in single-threaded mode. Multi-threaded mode does everything straight from the Web Audio processing callback. */
     #if defined(MA_USE_AUDIO_WORKLETS)
     EMSCRIPTEN_WEBAUDIO_T audioContext;
     EMSCRIPTEN_WEBAUDIO_T audioWorklet;
@@ -42431,12 +42432,24 @@ void EMSCRIPTEN_KEEPALIVE ma_free_emscripten(void* p, const ma_allocation_callba
 
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_capture__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
-    ma_device_handle_backend_data_callback(pDevice, NULL, pFrames, (ma_uint32)frameCount);
+    ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
+
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_process(&pDeviceStateWebAudio->async, pDevice, NULL, pFrames, (ma_uint32)frameCount);
+    } else {
+        ma_device_handle_backend_data_callback(pDevice, NULL, pFrames, (ma_uint32)frameCount);
+    }
 }
 
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_playback__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
-    ma_device_handle_backend_data_callback(pDevice, pFrames, NULL, (ma_uint32)frameCount);
+    ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
+
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_process(&pDeviceStateWebAudio->async, pDevice, pFrames, NULL, (ma_uint32)frameCount);
+    } else {
+        ma_device_handle_backend_data_callback(pDevice, pFrames, NULL, (ma_uint32)frameCount);
+    }
 }
 #ifdef __cplusplus
 }
@@ -42732,11 +42745,15 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
 
     Unfortunately the audio data is not interleaved so we'll need to convert it before we give the data to miniaudio
     for further processing.
+
+    NOTE: Do not use the internal period size for this. A value of 128 is way too small for web and as such miniaudio
+    uses a larger (approximate) value for that. The frame count here must be exactly what Web Audio expects (128 as
+    of now).
     */
     if (deviceType == ma_device_type_playback) {
-        frameCount = pDevice->playback.internalPeriodSizeInFrames;
+        frameCount = 128;
     } else {
-        frameCount = pDevice->capture.internalPeriodSizeInFrames;
+        frameCount = 128;
     }
 
     if (ma_device_get_status(pDevice) != ma_device_status_started) {
@@ -42787,6 +42804,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     int channels = 0;
     size_t intermediaryBufferSizeInFrames;
     int sampleRate;
+    ma_uint32 chosenPeriodSizeInFrames;
 
     if (success == EM_FALSE) {
         pParameters->pDeviceStateWebAudio->initResult = MA_ERROR;
@@ -42895,12 +42913,33 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     /* We need to update the descriptors so that they reflect the internal data format. Both capture and playback should be the same. */
     sampleRate = EM_ASM_INT({ return emscriptenGetAudioObject($0).sampleRate; }, audioContext);
 
+    /*
+    We're now going to choose a period size. The quantum size reported by Web Audio is too small for us to use so
+    we'll need to use something bigger for our internal bufferring.
+    */
+    chosenPeriodSizeInFrames = intermediaryBufferSizeInFrames;
+    if (pParameters->pDescriptorCapture != NULL) {
+        if (chosenPeriodSizeInFrames < pParameters->pDescriptorCapture->periodSizeInFrames) {
+            chosenPeriodSizeInFrames = pParameters->pDescriptorCapture->periodSizeInFrames;
+        }
+    }
+    if (pParameters->pDescriptorPlayback != NULL) {
+        if (chosenPeriodSizeInFrames < pParameters->pDescriptorPlayback->periodSizeInFrames) {
+            chosenPeriodSizeInFrames = pParameters->pDescriptorPlayback->periodSizeInFrames;
+        }
+    }
+
+    /* I'd like to keep this a power of two. In my testing, 512 was too small and results in glitching so going with 1024. */
+    if (chosenPeriodSizeInFrames < 1024) {
+        chosenPeriodSizeInFrames = 1024;
+    }
+
     if (pParameters->pDescriptorCapture != NULL) {
         pParameters->pDescriptorCapture->format              = ma_format_f32;
         pParameters->pDescriptorCapture->channels            = (ma_uint32)channels;
         pParameters->pDescriptorCapture->sampleRate          = (ma_uint32)sampleRate;
         ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pParameters->pDescriptorCapture->channelMap, ma_countof(pParameters->pDescriptorCapture->channelMap), pParameters->pDescriptorCapture->channels);
-        pParameters->pDescriptorCapture->periodSizeInFrames  = intermediaryBufferSizeInFrames;
+        pParameters->pDescriptorCapture->periodSizeInFrames  = chosenPeriodSizeInFrames;
         pParameters->pDescriptorCapture->periodCount         = 1;
     }
 
@@ -42909,8 +42948,12 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
         pParameters->pDescriptorPlayback->channels           = (ma_uint32)channels;
         pParameters->pDescriptorPlayback->sampleRate         = (ma_uint32)sampleRate;
         ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pParameters->pDescriptorPlayback->channelMap, ma_countof(pParameters->pDescriptorPlayback->channelMap), pParameters->pDescriptorPlayback->channels);
-        pParameters->pDescriptorPlayback->periodSizeInFrames = intermediaryBufferSizeInFrames;
+        pParameters->pDescriptorPlayback->periodSizeInFrames = chosenPeriodSizeInFrames;
         pParameters->pDescriptorPlayback->periodCount        = 1;
+    }
+
+    if (ma_device_get_threading_mode(pParameters->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_init(deviceType, pParameters->pDescriptorPlayback, pParameters->pDescriptorCapture, ma_device_get_allocation_callbacks(pParameters->pDevice), &pParameters->pDeviceStateWebAudio->async);
     }
 
     /* At this point we're done and we can return. */
@@ -43221,6 +43264,10 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
             pDescriptorPlayback->periodCount        = 1;
         }
+
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateWebAudio->async);
+        }
     }
     #endif
 
@@ -43283,6 +43330,10 @@ static void ma_device_uninit__webaudio(ma_device* pDevice)
         window.miniaudio.untrack_device_by_index($0);
     }, pDeviceStateWebAudio->deviceIndex);
 
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_uninit(&pDeviceStateWebAudio->async, ma_device_get_allocation_callbacks(pDevice));
+    }
+
     ma_free(pDeviceStateWebAudio->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
 }
@@ -43324,6 +43375,29 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_step__webaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
+{
+    ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
+
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
+    }
+
+    /*
+    A bit of a special case for the Web Audio backend. We only do something here for single-threaded mode. In multi-threaded
+    mode we just do data processing straight from the Web Audio callback. In single-threaded mode we need to make sure data
+    processing is done from the step function, which is where this comes in.
+    */
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTITHREADED) {
+        MA_ASSERT(!"[Web Audio] Incorrectly calling step() in multi-threaded mode.");
+        return MA_ERROR;
+    }
+
+    /* It doesn't feel like a good idea to block on web page... I'm going to force non-blocking mode here. */
+    (void)blockingMode;
+    return ma_device_state_async_step(&pDeviceStateWebAudio->async, pDevice, MA_BLOCKING_MODE_NON_BLOCKING, NULL);
+}
+
 #pragma GCC diagnostic pop  /* -Wvariadic-macro-arguments-omitted, -Wdollar-in-identifier-extension */
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_WebAudio =
@@ -43336,7 +43410,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WebAudio =
     ma_device_uninit__webaudio,
     ma_device_start__webaudio,
     ma_device_stop__webaudio,
-    NULL,   /* onDeviceStep */
+    ma_device_step__webaudio,
     NULL    /* onDeviceWakeup */
 };
 
