@@ -7186,6 +7186,7 @@ typedef struct ma_device_backend_info
 {
     const char* pName;
     ma_bool32 isLoopbackSupported;
+    ma_bool32 noAudioThread;    /* When set to true, the backend does not create a miniaudio-managed audio thread. Will be used for backends like Web Audio, or those that run on platforms that do not support multithreading. Depending on the backend, this may force single-threaded mode. Single-threaded mode will not be enforced for the Web Audio backend. */
 } ma_device_backend_info;
 
 
@@ -7751,6 +7752,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_threading_mode threadingMode;
+    ma_bool32 hasAudioThread;
     ma_uint32 sampleRate;
     ma_atomic_device_status state;                  /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;                     /* Set once at initialization time and should not be changed after. */
@@ -42444,6 +42446,7 @@ static void ma_backend_info__webaudio(ma_device_backend_info* pBackendInfo)
 {
     MA_ASSERT(pBackendInfo != NULL);
     pBackendInfo->pName = "Web Audio";
+    pBackendInfo->noAudioThread = MA_TRUE;  /* We don't want to be creating a miniaudio-managed audio thread with Web Audio. */
 }
 
 static ma_result ma_context_init__webaudio(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
@@ -44985,6 +44988,7 @@ static const void* ma_device_config_find_backend_config(const ma_device_config* 
 MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result;
+    ma_device_backend_info backendInfo;
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
     ma_threading_mode threadingMode;
@@ -45014,6 +45018,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
     #endif
 
+    /* We'll need the backend info to determine whether or not an audio thread can be created. */
+    ma_context_get_backend_info(pContext, &backendInfo);
+
     /* Check that we have our callbacks defined. */
     if (pContext->pVTable->onDeviceInit == NULL) {
         return MA_INVALID_OPERATION;
@@ -45042,6 +45049,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     pDevice->pContext       = pContext;
     pDevice->threadingMode  = threadingMode;
+    pDevice->hasAudioThread = !(threadingMode == MA_THREADING_MODE_SINGLE_THREADED || backendInfo.noAudioThread);
     pDevice->pUserData      = pConfig->pUserData;
     pDevice->onData         = pConfig->dataCallback;
     pDevice->onNotification = pConfig->notificationCallback;
@@ -45119,7 +45127,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         descriptorCapture.periodCount = MA_DEFAULT_PERIODS;
     }
 
-
     /* Starting and stopping must be mutually exclusive. We just use a mutex for this. */
     #ifndef MA_NO_THREADING
     {
@@ -45130,7 +45137,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
     #endif
 
-
     initParams.init.pDeviceBackendConfig = ma_device_config_find_backend_config(pConfig, pContext->pVTable);
     initParams.init.pDescriptorPlayback  = &descriptorPlayback;
     initParams.init.pDescriptorCapture   = &descriptorCapture;
@@ -45140,7 +45146,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     be initialized. It won't be doing anything at first because no operation will be put onto the queue.
     */
     #ifndef MA_NO_THREADING
-    if (threadingMode == MA_THREADING_MODE_MULTITHREADED) {
+    if (pDevice->hasAudioThread) {
         /* We need an operation queue before starting the audio thread. */
         result = ma_device_op_queue_init(&pDevice->opQueue);
         if (result != MA_SUCCESS) {
@@ -45188,9 +45194,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     } else
     #endif
     {
-        /* Getting here means we're running in single-threaded mode. We want to run the init operation immediately. */
-        MA_ASSERT(threadingMode == MA_THREADING_MODE_SINGLE_THREADED);
-
+        /* Getting here means we're running in single-threaded mode or we weren't allowed to create an audio thread. We want to run the init operation immediately. */
         result = ma_device_op_do_init(pDevice, initParams, NULL);
         if (result != MA_SUCCESS) {
             return result;  /* Failed to initialize backend. */
@@ -45686,7 +45690,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         ma_device_set_status(pDevice, ma_device_status_starting);
 
         #ifndef MA_NO_THREADING
-        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTITHREADED) {
+        if (pDevice->hasAudioThread) {
             result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_START, NULL, &pDevice->opCompletionEvent);
             if (result == MA_SUCCESS) {
                 result = ma_device_op_completion_event_result(&pDevice->opCompletionEvent); /* <-- This will wait for the operation to complete. */
@@ -45738,7 +45742,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         ma_device_set_status(pDevice, ma_device_status_stopping);
 
         #ifndef MA_NO_THREADING
-        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTITHREADED) {
+        if (pDevice->hasAudioThread) {
             result = ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_STOP, NULL, &pDevice->opCompletionEvent);
             if (result == MA_SUCCESS) {
                 /*
