@@ -43383,19 +43383,6 @@ static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint
 }
 
 
-static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pContext->pVTable != NULL);
-
-    if (pContext->pVTable->onDeviceStep == NULL) {
-        return MA_TRUE;
-    } else {
-        return MA_FALSE;
-    }
-}
-
-
 static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_result result;
@@ -44055,7 +44042,7 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
             result = ma_device_op_do_start(pDevice, pOp->pCompletionEvent);
             if (result == MA_SUCCESS) {
                 /* If the backend is asynchronous, it'll be running it's own loop. No need for us to do it here. */
-                if (ma_context_is_backend_asynchronous(ma_device_get_context(pDevice))) {
+                if (pDevice->pContext->pVTable->onDeviceStep == NULL) {
                     continue;   /* <-- This just makes the audio thread wait for a new operation to arrive, like an uninit or stop. */
                 } else {
                     MA_ASSERT(pDevice->pContext->pVTable->onDeviceStep != NULL);
@@ -44090,13 +44077,14 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
         } else if (pOp->type == MA_DEVICE_OP_STOP) {
             /*
             In the `MA_DEVICE_OP_START` case above, we are calling `ma_device_op_do_stop()` directly, but that only applies
-            to synchronous backends. We don't want to be calling that a second time, but there is a very small chance that
-            the application can call `ma_device_stop()` at the same time as the backend itself terminated from its own loop.
-            In this case we're just going to signal the op.
+            to backends with a step callback. We don't want to be calling that a second time, but there is a very small chance
+            that the application can call `ma_device_stop()` at the same time as the backend itself terminated from its own
+            loop. In this case we're just going to signal the op.
 
-            For asynchronous backends, by this point `ma_device_op_do_stop()` has not been called, so we need to do that here.
+            For backends without a stop callback, by this point `ma_device_op_do_stop()` has not been called, so we need to do
+            that here.
             */
-            if (ma_context_is_backend_asynchronous(ma_device_get_context(pDevice))) {
+            if (pDevice->pContext->pVTable->onDeviceStep == NULL) {
                 ma_device_op_do_stop(pDevice, pOp->pCompletionEvent);
             } else {
                 ma_device_op_completion_event_signal(pOp->pCompletionEvent, MA_SUCCESS);
@@ -45469,10 +45457,8 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     }
     #endif
 
-    if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-        if (pDevice->type == ma_device_type_duplex) {
-            ma_duplex_rb_uninit(&pDevice->duplexRB);
-        }
+    if (pDevice->type == ma_device_type_duplex) {
+        ma_duplex_rb_uninit(&pDevice->duplexRB);
     }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
