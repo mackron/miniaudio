@@ -394,6 +394,216 @@ struct ma_spa_hook
 };
 
 
+/* spa_pod is the most complicated part of SPA that we use. We're only implementing specifically what we need. */
+struct ma_spa_pod
+{
+    ma_uint32 size;
+    ma_uint32 type;
+};
+
+
+struct ma_spa_pod_id
+{
+    struct ma_spa_pod pod;
+    ma_uint32 value;
+    ma_int32 _padding;
+};
+
+static MA_INLINE struct ma_spa_pod_id ma_spa_pod_id_init(ma_uint32 value)
+{
+    struct ma_spa_pod_id pod;
+
+    MA_PIPEWIRE_ZERO_OBJECT(&pod);
+    pod.pod.size = 4; /* Does not include the header or padding. */
+    pod.pod.type = SPA_TYPE_Id;
+    pod.value    = value;
+
+    return pod;
+}
+
+
+struct ma_spa_pod_int
+{
+    struct ma_spa_pod pod;
+    ma_int32 value;
+    ma_int32 _padding;
+};
+
+static MA_INLINE struct ma_spa_pod_int ma_spa_pod_int_init(ma_int32 value)
+{
+    struct ma_spa_pod_int pod;
+
+    MA_PIPEWIRE_ZERO_OBJECT(&pod);
+    pod.pod.size = 4; /* Does not include the header or padding. */
+    pod.pod.type = SPA_TYPE_Int;
+    pod.value    = value;
+
+    return pod;
+}
+
+
+struct ma_spa_pod_object_body
+{
+    ma_uint32 type;
+    ma_uint32 id;
+};
+
+struct ma_spa_pod_object
+{
+    struct ma_spa_pod pod;
+    struct ma_spa_pod_object_body body;
+};
+
+struct ma_spa_pod_prop
+{
+    ma_uint32 key;
+    ma_uint32 flags;
+    struct ma_spa_pod value;
+};
+
+struct ma_spa_pod_prop_id
+{
+    ma_uint32 key;
+    ma_uint32 flags;
+    struct ma_spa_pod_id value;
+};
+
+static MA_INLINE struct ma_spa_pod_prop_id ma_spa_pod_prop_id_init(ma_uint32 key, ma_uint32 value)
+{
+    struct ma_spa_pod_prop_id prop;
+
+    prop.key   = key;
+    prop.flags = 0;
+    prop.value = ma_spa_pod_id_init(value);
+
+    return prop;
+}
+
+
+struct ma_spa_pod_prop_int
+{
+    ma_uint32 key;
+    ma_uint32 flags;
+    struct ma_spa_pod_int value;
+};
+
+static MA_INLINE struct ma_spa_pod_prop_int ma_spa_pod_prop_int_init(ma_uint32 key, ma_int32 value)
+{
+    struct ma_spa_pod_prop_int prop;
+
+    prop.key   = key;
+    prop.flags = 0;
+    prop.value = ma_spa_pod_int_init(value);
+
+    return prop;
+}
+
+
+/* This is a custom pod for our buffer parameters. */
+struct ma_spa_pod_buffer_params
+{
+    struct ma_spa_pod_object object;
+    struct ma_spa_pod_prop_int buffers;
+    struct ma_spa_pod_prop_int blocks;
+    struct ma_spa_pod_prop_int stride;
+    struct ma_spa_pod_prop_int size;
+};
+
+static MA_INLINE struct ma_spa_pod_buffer_params ma_spa_pod_buffer_params_init(ma_uint32 strideInBytes, ma_uint32 bufferSizeInFrames)
+{
+    struct ma_spa_pod_buffer_params pod;
+
+    /*
+    spa_pod_builder_add_object(&podBuilder,
+        SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+        SPA_PARAM_BUFFERS_buffers, SPA_POD_Int(2),
+        SPA_PARAM_BUFFERS_blocks,  SPA_POD_Int(1),
+        SPA_PARAM_BUFFERS_stride,  SPA_POD_Int(bytesPerFrame),
+        SPA_PARAM_BUFFERS_size,    SPA_POD_Int(bytesPerFrame * pStreamState->bufferSizeInFrames));
+    */
+
+    MA_PIPEWIRE_ZERO_OBJECT(&pod);
+
+    pod.object.pod.size  = sizeof(struct ma_spa_pod_buffer_params) - sizeof(struct ma_spa_pod); /* Don't include the header in the size. */
+    pod.object.pod.type  = SPA_TYPE_Object;
+    pod.object.body.type = SPA_TYPE_OBJECT_ParamBuffers;
+    pod.object.body.id   = SPA_PARAM_Buffers;
+
+    pod.buffers = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_buffers, 2);
+    pod.blocks  = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_blocks,  1);
+    pod.stride  = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_stride,  (ma_int32)strideInBytes);
+    pod.size    = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_size,    (ma_int32)(strideInBytes * bufferSizeInFrames));
+
+    return pod;
+}
+
+
+/* A custom pod for audio info. */
+struct ma_spa_pod_audio_info_raw
+{
+    struct ma_spa_pod_object object;
+    struct ma_spa_pod_prop_id mediaType;
+    struct ma_spa_pod_prop_id mediaSubtype;
+    struct ma_spa_pod_prop_id format;
+    struct ma_spa_pod_prop_int extra[2];    /* Channels and sample rate. Both are optional. */
+};
+
+static MA_INLINE struct ma_spa_pod_audio_info_raw ma_spa_pod_audio_info_raw_init(enum ma_spa_audio_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    struct ma_spa_pod_audio_info_raw pod;
+    int extraIndex = 0;
+
+    /*
+    struct spa_audio_info_raw audioInfo;
+    char podBuilderBuffer[1024];
+    struct spa_pod_builder podBuilder;
+
+    podBuilder = SPA_POD_BUILDER_INIT(podBuilderBuffer, sizeof(podBuilderBuffer));
+
+    memset(&audioInfo, 0, sizeof(audioInfo));
+    audioInfo.flags    = SPA_AUDIO_FLAG_UNPOSITIONED;
+    audioInfo.format   = (enum spa_audio_format)formatPA;
+    audioInfo.channels = pDescriptor->channels;
+    audioInfo.rate     = pDescriptor->sampleRate;
+
+    pConnectionParameters[0] = spa_format_audio_raw_build(&podBuilder, SPA_PARAM_EnumFormat, &audioInfo);
+    */
+
+    MA_PIPEWIRE_ZERO_OBJECT(&pod);
+
+    pod.object.pod.size  = sizeof(struct ma_spa_pod_object) - sizeof(struct ma_spa_pod); /* Don't include the header in the size. */
+    pod.object.pod.type  = SPA_TYPE_Object;
+    pod.object.body.type = SPA_TYPE_OBJECT_Format;
+    pod.object.body.id   = SPA_PARAM_EnumFormat;
+
+    pod.mediaType = ma_spa_pod_prop_id_init(SPA_FORMAT_mediaType, SPA_MEDIA_TYPE_audio);
+    pod.object.pod.size += sizeof(struct ma_spa_pod_prop_id);
+
+    pod.mediaSubtype = ma_spa_pod_prop_id_init(SPA_FORMAT_mediaSubtype, SPA_MEDIA_SUBTYPE_raw);
+    pod.object.pod.size += sizeof(struct ma_spa_pod_prop_id);
+
+    pod.format = ma_spa_pod_prop_id_init(SPA_FORMAT_AUDIO_format, (ma_uint32)format);
+    pod.object.pod.size += sizeof(struct ma_spa_pod_prop_id);
+
+    if (channels > 0) {
+        pod.extra[extraIndex] = ma_spa_pod_prop_int_init(SPA_FORMAT_AUDIO_channels, (ma_int32)channels);
+        pod.object.pod.size += sizeof(struct ma_spa_pod_prop_int);
+        extraIndex += 1;
+    }
+
+    if (sampleRate > 0) {
+        pod.extra[extraIndex] = ma_spa_pod_prop_int_init(SPA_FORMAT_AUDIO_rate, (ma_int32)sampleRate);
+        pod.object.pod.size += sizeof(struct ma_spa_pod_prop_int);
+        extraIndex += 1;
+    }
+
+    /* We're going to leave the channel map alone and just do a conversion ourselves if it differs from the native map. */
+
+    return pod;
+}
+
+
+
 /* Miscellaneous SPA references that we don't actively use but are required by structs or function parameters. */
 typedef struct ma_spa_command ma_spa_command;
 
@@ -573,11 +783,11 @@ typedef int                       (* ma_pw_properties_set_proc          )(struct
 typedef struct ma_pw_stream*      (* ma_pw_stream_new_proc              )(struct ma_pw_core* core, const char* name, struct ma_pw_properties* props);
 typedef void                      (* ma_pw_stream_destroy_proc          )(struct ma_pw_stream* stream);
 typedef void                      (* ma_pw_stream_add_listener_proc     )(struct ma_pw_stream* stream, struct ma_spa_hook* listener, const struct ma_pw_stream_events* events, void* data);
-typedef int                       (* ma_pw_stream_connect_proc          )(struct ma_pw_stream* stream, enum ma_spa_direction direction, ma_uint32 target_id, enum ma_pw_stream_flags flags, const struct spa_pod** params, ma_uint32 paramCount);
+typedef int                       (* ma_pw_stream_connect_proc          )(struct ma_pw_stream* stream, enum ma_spa_direction direction, ma_uint32 target_id, enum ma_pw_stream_flags flags, const struct ma_spa_pod** params, ma_uint32 paramCount);
 typedef int                       (* ma_pw_stream_set_active_proc       )(struct ma_pw_stream* stream, ma_bool8 active);
 typedef struct ma_pw_buffer*      (* ma_pw_stream_dequeue_buffer_proc   )(struct ma_pw_stream* stream);
 typedef int                       (* ma_pw_stream_queue_buffer_proc     )(struct ma_pw_stream* stream, struct ma_pw_buffer* buffer);
-typedef int                       (* ma_pw_stream_update_params_proc    )(struct ma_pw_stream* stream, const struct spa_pod** params, ma_uint32 paramCount);
+typedef int                       (* ma_pw_stream_update_params_proc    )(struct ma_pw_stream* stream, const struct ma_spa_pod** params, ma_uint32 paramCount);
 typedef int                       (* ma_pw_stream_update_properties_proc)(struct ma_pw_stream* stream, const struct ma_spa_dict* dict);
 typedef int                       (* ma_pw_stream_get_time_n_proc       )(struct ma_pw_stream* stream, struct ma_pw_time* time, ma_uint32 size);
 
@@ -1375,9 +1585,8 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
     if (id == SPA_PARAM_Format) {
         ma_pipewire_stream_state* pStreamState;
         struct spa_audio_info_raw audioInfo;
-        char podBuilderBuffer[1024];
-        struct spa_pod_builder podBuilder;
-        const struct spa_pod* pBufferParameters[1];
+        struct ma_spa_pod_buffer_params bufferParams;
+        const struct ma_spa_pod* pBufferParameters[1];
         ma_uint32 bytesPerFrame;
         ma_uint32 iChannel;
 
@@ -1451,15 +1660,12 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
 
         bytesPerFrame = ma_get_bytes_per_frame(pStreamState->format, pStreamState->channels);
         
-        /* Now update the PipeWire buffer properties. */
-        podBuilder = SPA_POD_BUILDER_INIT(podBuilderBuffer, sizeof(podBuilderBuffer));
-
-        pBufferParameters[0] = (const struct spa_pod*)spa_pod_builder_add_object(&podBuilder,
-            SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
-            SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(2, 2, 8),
-            SPA_PARAM_BUFFERS_blocks,  SPA_POD_Int(1),
-            SPA_PARAM_BUFFERS_stride,  SPA_POD_Int(bytesPerFrame),
-            SPA_PARAM_BUFFERS_size,    SPA_POD_Int(bytesPerFrame * pStreamState->bufferSizeInFrames));
+        /*
+        Now update the PipeWire buffer properties. Note that spa_pod_buffer_params_init() is not a standard SPA function. It's a
+        custom function to eliminate the dependency on libspa for building miniaudio.
+        */
+        bufferParams = ma_spa_pod_buffer_params_init(bytesPerFrame, pStreamState->bufferSizeInFrames);
+        pBufferParameters[0] = (struct ma_spa_pod*)&bufferParams;
 
         pContextStatePipeWire->pw_stream_update_params(pStreamState->pStream, pBufferParameters, sizeof(pBufferParameters) / sizeof(pBufferParameters[0]));
 
@@ -1679,12 +1885,11 @@ static const struct ma_pw_stream_events ma_gStreamEventsPipeWire_Capture =
 static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_context_state_pipewire* pContextStatePipeWire, ma_device_state_pipewire* pDeviceStatePipeWire, const ma_device_config_pipewire* pDeviceConfigPipeWire, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
 {
     ma_pipewire_stream_state* pStreamState;
-    struct spa_audio_info_raw audioInfo;
     struct ma_pw_properties* pProperties;
     const struct ma_pw_stream_events* pStreamEvents;
-    char podBuilderBuffer[1024];    /* A random buffer for use by the POD builder. I have no idea what the purpose of this is and what an appropriate size it should be set to. Why is this even a thing? */
-    struct spa_pod_builder podBuilder;
-    const struct spa_pod* pConnectionParameters[1];
+    enum ma_spa_audio_format formatPA;
+    struct ma_spa_pod_audio_info_raw podAudioInfo;
+    const struct ma_spa_pod* pConnectionParameters[1];
     enum ma_pw_stream_flags streamFlags;
     int connectResult;
 
@@ -1725,22 +1930,15 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     /* This installs callbacks for process and param_changed. "process" is for queuing audio data, and "param_changed" is for getting the internal format/channels/rate. */
     pContextStatePipeWire->pw_stream_add_listener(pStreamState->pStream, &pStreamState->eventListener, pStreamEvents, pDeviceStatePipeWire);
 
-    
-    podBuilder = SPA_POD_BUILDER_INIT(podBuilderBuffer, sizeof(podBuilderBuffer));
-
-    memset(&audioInfo, 0, sizeof(audioInfo));
-    audioInfo.format   = (enum spa_audio_format)ma_format_to_pipewire(pDescriptor->format);
-    audioInfo.channels = pDescriptor->channels;
-    audioInfo.rate     = pDescriptor->sampleRate;
-
     /* If the format is SPA_AUDIO_FORMAT_UNKNOWN, PipeWire can pick a planar data layout (de-interleaved) which breaks things for us. Just force interleaved F32 in this case. */
-    if (audioInfo.format == (enum spa_audio_format)MA_SPA_AUDIO_FORMAT_UNKNOWN) {
-        audioInfo.format =  (enum spa_audio_format)MA_SPA_AUDIO_FORMAT_F32;
+    formatPA = ma_format_to_pipewire(pDescriptor->format);
+    if (formatPA == MA_SPA_AUDIO_FORMAT_UNKNOWN) {
+        formatPA =  MA_SPA_AUDIO_FORMAT_F32;
     }
 
-    /* We're going to leave the channel map alone and just do a conversion ourselves if it differs from the native map. */
-
-    pConnectionParameters[0] = spa_format_audio_raw_build(&podBuilder, SPA_PARAM_EnumFormat, &audioInfo);
+    podAudioInfo = ma_spa_pod_audio_info_raw_init(formatPA, pDescriptor->channels, pDescriptor->sampleRate);
+    pConnectionParameters[0] = (struct ma_spa_pod*)&podAudioInfo;
+    
 
     /*
     I'm just using MAP_BUFFERS because it's what the PipeWire examples do. I don't know what this does. Also, what's the
