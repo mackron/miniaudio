@@ -72,10 +72,12 @@ struct ma_pw_context;
 struct ma_pw_core;
 struct ma_pw_registry;
 struct ma_pw_metadata;
+struct ma_pw_metadata_events;
 struct ma_pw_proxy;
 struct ma_pw_properties;
 struct ma_pw_stream;
 struct ma_pw_stream_control;
+struct ma_pw_core_info;
 
 enum ma_pw_stream_state
 {
@@ -129,7 +131,7 @@ struct ma_pw_time
 struct ma_pw_core_events
 {
     ma_uint32 version;
-    void (* info       )(void *data, const struct pw_core_info *info);
+    void (* info       )(void *data, const struct ma_pw_core_info *info);
     void (* done       )(void *data, uint32_t id, int seq);
     void (* ping       )(void *data, uint32_t id, int seq);
     void (* error      )(void *data, uint32_t id, int seq, int res, const char *message);
