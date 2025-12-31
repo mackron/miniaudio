@@ -546,7 +546,7 @@ target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
 # Extra Backends
 is_backend_enabled(PIPEWIRE)
-if(PIPEWIRE_ENABLED)
+if(PIPEWIRE_ENABLED AND NOT MINIAUDIO_NO_DEVICEIO)
     add_library(miniaudio_pipewire STATIC
         extras/backends/pipewire/miniaudio_pipewire.c
         extras/backends/pipewire/miniaudio_pipewire.h
