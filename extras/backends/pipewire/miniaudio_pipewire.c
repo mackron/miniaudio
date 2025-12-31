@@ -137,7 +137,7 @@ MA_API MA_NO_INLINE int ma_pipewire_strcat_s(char* dst, size_t dstSizeInBytes, c
 
 
 #if defined(MA_LINUX)
-    #if defined(__STDC_VERSION__) || defined(__cplusplus)   /* <-- PipeWire cannot be used with C89 mode (__STDC_VERSION__ is only defined starting with C90). */
+    #if !defined(MA_NO_RUNTIME_LINKING) || (defined(__STDC_VERSION__) || defined(__cplusplus))   /* <-- PipeWire cannot be used with C89 mode (__STDC_VERSION__ is only defined starting with C90). */
         #define MA_SUPPORT_PIPEWIRE
     #endif
 #endif
@@ -147,7 +147,7 @@ MA_API MA_NO_INLINE int ma_pipewire_strcat_s(char* dst, size_t dstSizeInBytes, c
 #endif
 
 #if defined(MA_HAS_PIPEWIRE)
-#if 0
+#if defined(MA_NO_RUNTIME_LINKING)
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic"
@@ -157,15 +157,258 @@ MA_API MA_NO_INLINE int ma_pipewire_strcat_s(char* dst, size_t dstSizeInBytes, c
         #pragma GCC diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
     #endif
 #endif
-#endif
-/*#include <pipewire/pipewire.h>*/
 
-/*#include <spa/param/audio/format-utils.h>*/
-/*#include <spa/param/audio/raw.h>*/
-/*#include <spa/utils/dict.h>*/
-/*#include <spa/pod/command.h>*/
-/*#include <spa/buffer/buffer.h>*/
+#include <pipewire/pipewire.h>
+#include <pipewire/extensions/metadata.h>
 
+#include <spa/param/audio/format-utils.h>
+#include <spa/param/audio/raw.h>
+#include <spa/utils/dict.h>
+#include <spa/pod/command.h>
+#include <spa/buffer/buffer.h>
+
+#define ma_spa_source_event_func_t          spa_source_event_func_t
+
+#define ma_spa_direction                    spa_direction
+#define ma_spa_audio_format                 spa_audio_format
+#define ma_spa_audio_channel                spa_audio_channel
+#define ma_spa_callbacks                    spa_callbacks
+#define ma_spa_interface                    spa_interface
+#define ma_spa_dict_item                    spa_dict_item
+#define MA_SPA_DICT_ITEM_INIT               SPA_DICT_ITEM_INIT
+#define ma_spa_dict                         spa_dict
+#define MA_SPA_DICT_INIT                    SPA_DICT_INIT
+#define ma_spa_dict_lookup                  spa_dict_lookup
+#define ma_spa_chunk                        spa_chunk
+#define ma_spa_data                         spa_data
+#define ma_spa_meta                         spa_meta
+#define ma_spa_buffer                       spa_buffer
+#define ma_spa_list                         spa_list
+#define ma_spa_hook                         spa_hook
+#define ma_spa_pod                          spa_pod
+#define ma_spa_pod_id                       spa_pod_id
+#define ma_spa_pod_int                      spa_pod_int
+#define ma_spa_choice_type                  spa_choice_type
+#define ma_spa_pod_choice                   spa_pod_choice
+#define ma_spa_pod_choice_body              spa_pod_choice_body
+#define ma_spa_pod_array_body               spa_pod_array_body
+#define ma_spa_pod_array                    spa_pod_array
+#define ma_spa_pod_object_body              spa_pod_object_body
+#define ma_spa_pod_object                   spa_pod_object
+#define ma_spa_pod_prop                     spa_pod_prop
+#define ma_spa_command                      spa_command
+#define ma_spa_fraction                     spa_fraction
+
+#define MA_SPA_DIRECTION_OUTPUT             SPA_DIRECTION_OUTPUT
+#define MA_SPA_DIRECTION_INPUT              SPA_DIRECTION_INPUT
+
+#define MA_SPA_TYPE_Id                      SPA_TYPE_Id
+#define MA_SPA_TYPE_Int                     SPA_TYPE_Int
+#define MA_SPA_TYPE_Array                   SPA_TYPE_Array
+#define MA_SPA_TYPE_Object                  SPA_TYPE_Object
+#define MA_SPA_TYPE_Choice                  SPA_TYPE_Choice
+
+#define MA_SPA_TYPE_OBJECT_Format           SPA_TYPE_OBJECT_Format
+#define MA_SPA_TYPE_OBJECT_ParamBuffers     SPA_TYPE_OBJECT_ParamBuffers
+
+#define MA_SPA_PARAM_EnumFormat             SPA_PARAM_EnumFormat
+#define MA_SPA_PARAM_Format                 SPA_PARAM_Format
+#define MA_SPA_PARAM_Buffers                SPA_PARAM_Buffers
+
+#define MA_SPA_PARAM_BUFFERS_buffers        SPA_PARAM_BUFFERS_buffers
+#define MA_SPA_PARAM_BUFFERS_blocks         SPA_PARAM_BUFFERS_blocks
+#define MA_SPA_PARAM_BUFFERS_size           SPA_PARAM_BUFFERS_size
+#define MA_SPA_PARAM_BUFFERS_stride         SPA_PARAM_BUFFERS_stride
+
+#define MA_SPA_FORMAT_mediaType             SPA_FORMAT_mediaType
+#define MA_SPA_FORMAT_mediaSubtype          SPA_FORMAT_mediaSubtype
+
+#define MA_SPA_MEDIA_TYPE_audio             SPA_MEDIA_TYPE_audio
+#define MA_SPA_MEDIA_SUBTYPE_raw            SPA_MEDIA_SUBTYPE_raw
+
+#define MA_SPA_FORMAT_AUDIO_format          SPA_FORMAT_AUDIO_format
+#define MA_SPA_FORMAT_AUDIO_rate            SPA_FORMAT_AUDIO_rate
+#define MA_SPA_FORMAT_AUDIO_channels        SPA_FORMAT_AUDIO_channels
+#define MA_SPA_FORMAT_AUDIO_position        SPA_FORMAT_AUDIO_position
+
+#define MA_SPA_AUDIO_FORMAT_UNKNOWN         SPA_AUDIO_FORMAT_UNKNOWN
+#define MA_SPA_AUDIO_FORMAT_U8              SPA_AUDIO_FORMAT_U8
+#define MA_SPA_AUDIO_FORMAT_S16             SPA_AUDIO_FORMAT_S16
+#define MA_SPA_AUDIO_FORMAT_S24             SPA_AUDIO_FORMAT_S24
+#define MA_SPA_AUDIO_FORMAT_S32             SPA_AUDIO_FORMAT_S32
+#define MA_SPA_AUDIO_FORMAT_F32             SPA_AUDIO_FORMAT_F32
+
+#define MA_SPA_AUDIO_CHANNEL_MONO           SPA_AUDIO_CHANNEL_MONO
+#define MA_SPA_AUDIO_CHANNEL_FL             SPA_AUDIO_CHANNEL_FL
+#define MA_SPA_AUDIO_CHANNEL_FR             SPA_AUDIO_CHANNEL_FR
+#define MA_SPA_AUDIO_CHANNEL_FC             SPA_AUDIO_CHANNEL_FC
+#define MA_SPA_AUDIO_CHANNEL_LFE            SPA_AUDIO_CHANNEL_LFE
+#define MA_SPA_AUDIO_CHANNEL_SL             SPA_AUDIO_CHANNEL_SL
+#define MA_SPA_AUDIO_CHANNEL_SR             SPA_AUDIO_CHANNEL_SR
+#define MA_SPA_AUDIO_CHANNEL_FLC            SPA_AUDIO_CHANNEL_FLC
+#define MA_SPA_AUDIO_CHANNEL_FRC            SPA_AUDIO_CHANNEL_FRC
+#define MA_SPA_AUDIO_CHANNEL_RC             SPA_AUDIO_CHANNEL_RC
+#define MA_SPA_AUDIO_CHANNEL_RL             SPA_AUDIO_CHANNEL_RL
+#define MA_SPA_AUDIO_CHANNEL_RR             SPA_AUDIO_CHANNEL_RR
+#define MA_SPA_AUDIO_CHANNEL_TC             SPA_AUDIO_CHANNEL_TC
+#define MA_SPA_AUDIO_CHANNEL_TFL            SPA_AUDIO_CHANNEL_TFL
+#define MA_SPA_AUDIO_CHANNEL_TFC            SPA_AUDIO_CHANNEL_TFC
+#define MA_SPA_AUDIO_CHANNEL_TFR            SPA_AUDIO_CHANNEL_TFR
+#define MA_SPA_AUDIO_CHANNEL_TRL            SPA_AUDIO_CHANNEL_TRL
+#define MA_SPA_AUDIO_CHANNEL_TRC            SPA_AUDIO_CHANNEL_TRC
+#define MA_SPA_AUDIO_CHANNEL_TRR            SPA_AUDIO_CHANNEL_TRR
+#define MA_SPA_AUDIO_CHANNEL_RLC            SPA_AUDIO_CHANNEL_RLC
+#define MA_SPA_AUDIO_CHANNEL_RRC            SPA_AUDIO_CHANNEL_RRC
+#define MA_SPA_AUDIO_CHANNEL_FLW            SPA_AUDIO_CHANNEL_FLW
+#define MA_SPA_AUDIO_CHANNEL_FRW            SPA_AUDIO_CHANNEL_FRW
+#define MA_SPA_AUDIO_CHANNEL_LFE2           SPA_AUDIO_CHANNEL_LFE2
+#define MA_SPA_AUDIO_CHANNEL_FLH            SPA_AUDIO_CHANNEL_FLH
+#define MA_SPA_AUDIO_CHANNEL_FCH            SPA_AUDIO_CHANNEL_FCH
+#define MA_SPA_AUDIO_CHANNEL_FRH            SPA_AUDIO_CHANNEL_FRH
+#define MA_SPA_AUDIO_CHANNEL_TFLC           SPA_AUDIO_CHANNEL_TFLC
+#define MA_SPA_AUDIO_CHANNEL_TFRC           SPA_AUDIO_CHANNEL_TFRC
+#define MA_SPA_AUDIO_CHANNEL_TSL            SPA_AUDIO_CHANNEL_TSL
+#define MA_SPA_AUDIO_CHANNEL_TSR            SPA_AUDIO_CHANNEL_TSR
+#define MA_SPA_AUDIO_CHANNEL_LLFE           SPA_AUDIO_CHANNEL_LLFE
+#define MA_SPA_AUDIO_CHANNEL_RLFE           SPA_AUDIO_CHANNEL_RLFE
+#define MA_SPA_AUDIO_CHANNEL_BC             SPA_AUDIO_CHANNEL_BC
+#define MA_SPA_AUDIO_CHANNEL_BLC            SPA_AUDIO_CHANNEL_BLC
+#define MA_SPA_AUDIO_CHANNEL_BRC            SPA_AUDIO_CHANNEL_BRC
+#define MA_SPA_AUDIO_CHANNEL_AUX0           SPA_AUDIO_CHANNEL_AUX0
+#define MA_SPA_AUDIO_CHANNEL_AUX1           SPA_AUDIO_CHANNEL_AUX1
+#define MA_SPA_AUDIO_CHANNEL_AUX2           SPA_AUDIO_CHANNEL_AUX2
+#define MA_SPA_AUDIO_CHANNEL_AUX3           SPA_AUDIO_CHANNEL_AUX3
+#define MA_SPA_AUDIO_CHANNEL_AUX4           SPA_AUDIO_CHANNEL_AUX4
+#define MA_SPA_AUDIO_CHANNEL_AUX5           SPA_AUDIO_CHANNEL_AUX5
+#define MA_SPA_AUDIO_CHANNEL_AUX6           SPA_AUDIO_CHANNEL_AUX6
+#define MA_SPA_AUDIO_CHANNEL_AUX7           SPA_AUDIO_CHANNEL_AUX7
+#define MA_SPA_AUDIO_CHANNEL_AUX8           SPA_AUDIO_CHANNEL_AUX8
+#define MA_SPA_AUDIO_CHANNEL_AUX9           SPA_AUDIO_CHANNEL_AUX9
+#define MA_SPA_AUDIO_CHANNEL_AUX10          SPA_AUDIO_CHANNEL_AUX10
+#define MA_SPA_AUDIO_CHANNEL_AUX11          SPA_AUDIO_CHANNEL_AUX11
+#define MA_SPA_AUDIO_CHANNEL_AUX12          SPA_AUDIO_CHANNEL_AUX12
+#define MA_SPA_AUDIO_CHANNEL_AUX13          SPA_AUDIO_CHANNEL_AUX13
+#define MA_SPA_AUDIO_CHANNEL_AUX14          SPA_AUDIO_CHANNEL_AUX14
+#define MA_SPA_AUDIO_CHANNEL_AUX15          SPA_AUDIO_CHANNEL_AUX15
+#define MA_SPA_AUDIO_CHANNEL_AUX16          SPA_AUDIO_CHANNEL_AUX16
+#define MA_SPA_AUDIO_CHANNEL_AUX17          SPA_AUDIO_CHANNEL_AUX17
+#define MA_SPA_AUDIO_CHANNEL_AUX18          SPA_AUDIO_CHANNEL_AUX18
+#define MA_SPA_AUDIO_CHANNEL_AUX19          SPA_AUDIO_CHANNEL_AUX19
+#define MA_SPA_AUDIO_CHANNEL_AUX20          SPA_AUDIO_CHANNEL_AUX20
+#define MA_SPA_AUDIO_CHANNEL_AUX21          SPA_AUDIO_CHANNEL_AUX21
+#define MA_SPA_AUDIO_CHANNEL_AUX22          SPA_AUDIO_CHANNEL_AUX22
+#define MA_SPA_AUDIO_CHANNEL_AUX23          SPA_AUDIO_CHANNEL_AUX23
+#define MA_SPA_AUDIO_CHANNEL_AUX24          SPA_AUDIO_CHANNEL_AUX24
+#define MA_SPA_AUDIO_CHANNEL_AUX25          SPA_AUDIO_CHANNEL_AUX25
+#define MA_SPA_AUDIO_CHANNEL_AUX26          SPA_AUDIO_CHANNEL_AUX26
+#define MA_SPA_AUDIO_CHANNEL_AUX27          SPA_AUDIO_CHANNEL_AUX27
+#define MA_SPA_AUDIO_CHANNEL_AUX28          SPA_AUDIO_CHANNEL_AUX28
+#define MA_SPA_AUDIO_CHANNEL_AUX29          SPA_AUDIO_CHANNEL_AUX29
+#define MA_SPA_AUDIO_CHANNEL_AUX30          SPA_AUDIO_CHANNEL_AUX30
+#define MA_SPA_AUDIO_CHANNEL_AUX31          SPA_AUDIO_CHANNEL_AUX31
+#define MA_SPA_AUDIO_CHANNEL_AUX32          SPA_AUDIO_CHANNEL_AUX32
+#define MA_SPA_AUDIO_CHANNEL_AUX33          SPA_AUDIO_CHANNEL_AUX33
+#define MA_SPA_AUDIO_CHANNEL_AUX34          SPA_AUDIO_CHANNEL_AUX34
+#define MA_SPA_AUDIO_CHANNEL_AUX35          SPA_AUDIO_CHANNEL_AUX35
+#define MA_SPA_AUDIO_CHANNEL_AUX36          SPA_AUDIO_CHANNEL_AUX36
+#define MA_SPA_AUDIO_CHANNEL_AUX37          SPA_AUDIO_CHANNEL_AUX37
+#define MA_SPA_AUDIO_CHANNEL_AUX38          SPA_AUDIO_CHANNEL_AUX38
+#define MA_SPA_AUDIO_CHANNEL_AUX39          SPA_AUDIO_CHANNEL_AUX39
+#define MA_SPA_AUDIO_CHANNEL_AUX40          SPA_AUDIO_CHANNEL_AUX40
+#define MA_SPA_AUDIO_CHANNEL_AUX41          SPA_AUDIO_CHANNEL_AUX41
+#define MA_SPA_AUDIO_CHANNEL_AUX42          SPA_AUDIO_CHANNEL_AUX42
+#define MA_SPA_AUDIO_CHANNEL_AUX43          SPA_AUDIO_CHANNEL_AUX43
+#define MA_SPA_AUDIO_CHANNEL_AUX44          SPA_AUDIO_CHANNEL_AUX44
+#define MA_SPA_AUDIO_CHANNEL_AUX45          SPA_AUDIO_CHANNEL_AUX45
+#define MA_SPA_AUDIO_CHANNEL_AUX46          SPA_AUDIO_CHANNEL_AUX46
+#define MA_SPA_AUDIO_CHANNEL_AUX47          SPA_AUDIO_CHANNEL_AUX47
+#define MA_SPA_AUDIO_CHANNEL_AUX48          SPA_AUDIO_CHANNEL_AUX48
+#define MA_SPA_AUDIO_CHANNEL_AUX49          SPA_AUDIO_CHANNEL_AUX49
+#define MA_SPA_AUDIO_CHANNEL_AUX50          SPA_AUDIO_CHANNEL_AUX50
+#define MA_SPA_AUDIO_CHANNEL_AUX51          SPA_AUDIO_CHANNEL_AUX51
+#define MA_SPA_AUDIO_CHANNEL_AUX52          SPA_AUDIO_CHANNEL_AUX52
+#define MA_SPA_AUDIO_CHANNEL_AUX53          SPA_AUDIO_CHANNEL_AUX53
+#define MA_SPA_AUDIO_CHANNEL_AUX54          SPA_AUDIO_CHANNEL_AUX54
+#define MA_SPA_AUDIO_CHANNEL_AUX55          SPA_AUDIO_CHANNEL_AUX55
+#define MA_SPA_AUDIO_CHANNEL_AUX56          SPA_AUDIO_CHANNEL_AUX56
+#define MA_SPA_AUDIO_CHANNEL_AUX57          SPA_AUDIO_CHANNEL_AUX57
+#define MA_SPA_AUDIO_CHANNEL_AUX58          SPA_AUDIO_CHANNEL_AUX58
+#define MA_SPA_AUDIO_CHANNEL_AUX59          SPA_AUDIO_CHANNEL_AUX59
+#define MA_SPA_AUDIO_CHANNEL_AUX60          SPA_AUDIO_CHANNEL_AUX60
+#define MA_SPA_AUDIO_CHANNEL_AUX61          SPA_AUDIO_CHANNEL_AUX61
+#define MA_SPA_AUDIO_CHANNEL_AUX62          SPA_AUDIO_CHANNEL_AUX62
+#define MA_SPA_AUDIO_CHANNEL_AUX63          SPA_AUDIO_CHANNEL_AUX63
+
+
+#define MA_PW_KEY_MEDIA_TYPE                PW_KEY_MEDIA_TYPE
+#define MA_PW_KEY_MEDIA_CATEGORY            PW_KEY_MEDIA_CATEGORY
+#define MA_PW_KEY_MEDIA_ROLE                PW_KEY_MEDIA_ROLE
+#define MA_PW_KEY_MEDIA_CLASS               PW_KEY_MEDIA_CLASS
+#define MA_PW_KEY_NODE_LATENCY              PW_KEY_NODE_LATENCY
+#define MA_PW_KEY_TARGET_OBJECT             PW_KEY_TARGET_OBJECT
+#define MA_PW_KEY_METADATA_NAME             PW_KEY_METADATA_NAME
+
+#define MA_PW_TYPE_INTERFACE_Node           PW_TYPE_INTERFACE_Node
+#define MA_PW_TYPE_INTERFACE_Metadata       PW_TYPE_INTERFACE_Metadata
+
+#define MA_PW_ID_CORE                       PW_ID_CORE
+#define MA_PW_ID_ANY                        PW_ID_ANY
+
+#define ma_pw_thread_loop                   pw_thread_loop
+#define ma_pw_loop                          pw_loop
+#define ma_pw_context                       pw_context
+#define ma_pw_core                          pw_core
+#define ma_pw_registry                      pw_registry
+#define ma_pw_metadata                      pw_metadata
+#define ma_pw_metadata_events               pw_metadata_events
+#define ma_pw_proxy                         pw_proxy
+#define ma_pw_properties                    pw_properties
+#define ma_pw_stream                        pw_stream
+#define ma_pw_stream_control                pw_stream_control
+#define ma_pw_core_info                     pw_core_info
+
+#define ma_pw_stream_state                  pw_stream_state
+#define MA_PW_STREAM_STATE_ERROR            PW_STREAM_STATE_ERROR
+#define MA_PW_STREAM_STATE_UNCONNECTED      PW_STREAM_STATE_UNCONNECTED
+#define MA_PW_STREAM_STATE_CONNECTING       PW_STREAM_STATE_CONNECTING
+#define MA_PW_STREAM_STATE_PAUSED           PW_STREAM_STATE_PAUSED
+#define MA_PW_STREAM_STATE_STREAMING        PW_STREAM_STATE_STREAMING
+
+#define ma_pw_stream_flags                  pw_stream_flags
+#define MA_PW_STREAM_FLAG_NONE              PW_STREAM_FLAG_NONE
+#define MA_PW_STREAM_FLAG_AUTOCONNECT       PW_STREAM_FLAG_AUTOCONNECT
+#define MA_PW_STREAM_FLAG_INACTIVE          PW_STREAM_FLAG_INACTIVE
+#define MA_PW_STREAM_FLAG_MAP_BUFFERS       PW_STREAM_FLAG_MAP_BUFFERS
+#define MA_PW_STREAM_FLAG_DRIVER            PW_STREAM_FLAG_DRIVER
+#define MA_PW_STREAM_FLAG_RT_PROCESS        PW_STREAM_FLAG_RT_PROCESS
+#define MA_PW_STREAM_FLAG_NO_CONVERT        PW_STREAM_FLAG_NO_CONVERT
+#define MA_PW_STREAM_FLAG_EXCLUSIVE         PW_STREAM_FLAG_EXCLUSIVE
+#define MA_PW_STREAM_FLAG_DONT_RECONNECT    PW_STREAM_FLAG_DONT_RECONNECT
+#define MA_PW_STREAM_FLAG_ALLOC_BUFFERS     PW_STREAM_FLAG_ALLOC_BUFFERS
+#define MA_PW_STREAM_FLAG_TRIGGER           PW_STREAM_FLAG_TRIGGER
+#define MA_PW_STREAM_FLAG_ASYNC             PW_STREAM_FLAG_ASYNC
+
+#define ma_pw_buffer                        pw_buffer
+#define ma_pw_time                          pw_time
+
+#define MA_PW_VERSION_CORE_EVENTS           PW_VERSION_CORE_EVENTS
+#define ma_pw_core_events                   pw_core_events
+
+#define MA_PW_VERSION_REGISTRY              PW_VERSION_REGISTRY
+#define MA_PW_VERSION_REGISTRY_EVENTS       PW_VERSION_REGISTRY_EVENTS
+#define ma_pw_registry_events               pw_registry_events
+
+#define MA_PW_VERSION_METADATA_METHODS      PW_VERSION_METADATA_METHODS
+#define ma_pw_metadata_methods              pw_metadata_methods
+
+#define MA_PW_VERSION_METADATA              PW_VERSION_METADATA
+#define MA_PW_VERSION_METADATA_EVENTS       PW_VERSION_METADATA_EVENTS
+#define ma_pw_metadata_events               pw_metadata_events
+
+#define MA_PW_VERSION_STREAM_EVENTS         PW_VERSION_STREAM_EVENTS
+#define ma_pw_stream_events                 pw_stream_events
+#else
+typedef void (* ma_spa_source_event_func_t)(void* data, ma_uint64 count);
 
 /* SPA enums. */
 enum ma_spa_direction
@@ -554,37 +797,12 @@ struct ma_spa_pod_id
     ma_int32 _padding;
 };
 
-static MA_INLINE struct ma_spa_pod_id ma_spa_pod_id_init(ma_uint32 value)
-{
-    struct ma_spa_pod_id pod;
-
-    MA_PIPEWIRE_ZERO_OBJECT(&pod);
-    pod.pod.size = 4; /* Does not include the header or padding. */
-    pod.pod.type = MA_SPA_TYPE_Id;
-    pod.value    = value;
-
-    return pod;
-}
-
-
 struct ma_spa_pod_int
 {
     struct ma_spa_pod pod;
     ma_int32 value;
     ma_int32 _padding;
 };
-
-static MA_INLINE struct ma_spa_pod_int ma_spa_pod_int_init(ma_int32 value)
-{
-    struct ma_spa_pod_int pod;
-
-    MA_PIPEWIRE_ZERO_OBJECT(&pod);
-    pod.pod.size = 4; /* Does not include the header or padding. */
-    pod.pod.type = MA_SPA_TYPE_Int;
-    pod.value    = value;
-
-    return pod;
-}
 
 
 enum ma_spa_choice_type
@@ -609,12 +827,6 @@ struct ma_spa_pod_choice
     struct ma_spa_pod_choice_body body;
 };
 
-static MA_INLINE void* ma_spa_pod_choice_get_values(const struct ma_spa_pod_choice* choice)
-{
-    /* Values are stored as a flat array after the main struct. */
-    return (void*)ma_offset_ptr(choice, sizeof(struct ma_spa_pod_choice));
-}
-
 
 struct ma_spa_pod_array_body
 {
@@ -626,18 +838,6 @@ struct ma_spa_pod_array
     struct ma_spa_pod pod;
     struct ma_spa_pod_array_body body;
 };
-
-static MA_INLINE ma_uint32 ma_spa_pod_array_get_length(const struct ma_spa_pod_array* array)
-{
-    return (array->pod.size - sizeof(struct ma_spa_pod_array_body)) / array->body.child.size;
-}
-
-static MA_INLINE void* ma_spa_pod_array_get_values(const struct ma_spa_pod_array* array)
-{
-    /* Values are stored as a flat array after the main struct. */
-    return (void*)ma_offset_ptr(array, sizeof(struct ma_spa_pod_array));
-}
-
 
 
 struct ma_spa_pod_object_body
@@ -658,6 +858,197 @@ struct ma_spa_pod_prop
     ma_uint32 flags;
     struct ma_spa_pod value;
 };
+
+
+/* Miscellaneous SPA references that we don't actively use but are required by structs or function parameters. */
+typedef struct ma_spa_command ma_spa_command;
+
+struct ma_spa_fraction
+{
+    ma_uint32 num;
+    ma_uint32 denom;
+};
+
+
+
+#define MA_PW_KEY_MEDIA_TYPE            "media.type"
+#define MA_PW_KEY_MEDIA_CATEGORY        "media.category"
+#define MA_PW_KEY_MEDIA_ROLE            "media.role"
+#define MA_PW_KEY_MEDIA_CLASS           "media.class"
+#define MA_PW_KEY_NODE_LATENCY          "node.latency"
+#define MA_PW_KEY_TARGET_OBJECT         "target.object"
+#define MA_PW_KEY_METADATA_NAME         "metadata.name"
+
+#define MA_PW_TYPE_INTERFACE_Node       "PipeWire:Interface:Node"
+#define MA_PW_TYPE_INTERFACE_Metadata   "PipeWire:Interface:Metadata"
+
+#define MA_PW_ID_CORE                   0
+#define MA_PW_ID_ANY                    0xFFFFFFFF
+
+struct ma_pw_thread_loop;
+struct ma_pw_loop;
+struct ma_pw_context;
+struct ma_pw_core;
+struct ma_pw_registry;
+struct ma_pw_metadata;
+struct ma_pw_metadata_events;
+struct ma_pw_proxy;
+struct ma_pw_properties;
+struct ma_pw_stream;
+struct ma_pw_stream_control;
+struct ma_pw_core_info;
+
+enum ma_pw_stream_state
+{
+    MA_PW_STREAM_STATE_ERROR       = -1,
+    MA_PW_STREAM_STATE_UNCONNECTED =  0,
+    MA_PW_STREAM_STATE_CONNECTING  =  1,
+    MA_PW_STREAM_STATE_PAUSED      =  2,
+    MA_PW_STREAM_STATE_STREAMING   =  3
+};
+
+enum ma_pw_stream_flags
+{
+    MA_PW_STREAM_FLAG_NONE           = 0,
+    MA_PW_STREAM_FLAG_AUTOCONNECT    = (1 << 0),
+    MA_PW_STREAM_FLAG_INACTIVE       = (1 << 1),
+    MA_PW_STREAM_FLAG_MAP_BUFFERS    = (1 << 2),
+    MA_PW_STREAM_FLAG_DRIVER         = (1 << 3),
+    MA_PW_STREAM_FLAG_RT_PROCESS     = (1 << 4),
+    MA_PW_STREAM_FLAG_NO_CONVERT     = (1 << 5),
+    MA_PW_STREAM_FLAG_EXCLUSIVE      = (1 << 6),
+    MA_PW_STREAM_FLAG_DONT_RECONNECT = (1 << 7),
+    MA_PW_STREAM_FLAG_ALLOC_BUFFERS  = (1 << 8),
+    MA_PW_STREAM_FLAG_TRIGGER        = (1 << 9),
+    MA_PW_STREAM_FLAG_ASYNC          = (1 << 10)
+};
+
+struct ma_pw_buffer
+{
+    struct ma_spa_buffer* buffer;
+    void* user_data;
+    ma_uint64 size;
+    ma_uint64 requested;
+};
+
+struct ma_pw_time
+{
+    ma_int64 now;
+    struct ma_spa_fraction rate;
+    ma_uint64 ticks;
+    ma_int64 delay;
+    ma_uint64 queued;
+    ma_uint64 buffered;
+    ma_uint32 queued_buffers;
+    ma_uint32 avail_buffers;
+    ma_uint64 size;
+};
+
+
+#define MA_PW_VERSION_CORE_EVENTS       1
+struct ma_pw_core_events
+{
+    ma_uint32 version;
+    void (* info       )(void* data, const struct ma_pw_core_info* info);
+    void (* done       )(void* data, ma_uint32 id, int seq);
+    void (* ping       )(void* data, ma_uint32 id, int seq);
+    void (* error      )(void* data, ma_uint32 id, int seq, int res, const char* message);
+    void (* remove_id  )(void* data, ma_uint32 id);
+    void (* bound_id   )(void* data, ma_uint32 id, ma_uint32 global_id);
+    void (* add_mem    )(void* data, ma_uint32 id, ma_uint32 type, int fd, ma_uint32 flags);
+    void (* remove_mem )(void* data, ma_uint32 id);
+    void (* bound_props)(void* data, ma_uint32 id, ma_uint32 global_id, const struct ma_spa_dict* props);
+};
+
+
+#define MA_PW_VERSION_REGISTRY          3
+#define MA_PW_VERSION_REGISTRY_EVENTS   0
+struct ma_pw_registry_events
+{
+    ma_uint32 version;
+    void (* global_add   )(void* data, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props);
+    void (* global_remove)(void* data, ma_uint32 id);
+};
+
+
+
+#define PW_VERSION_METADATA_METHODS 0
+struct ma_pw_metadata_methods
+{
+    ma_uint32 version;
+    int (* add_listener)(void* object, struct ma_spa_hook* listener, const struct ma_pw_metadata_events* events, void* data);
+    int (* set_property)(void* object, ma_uint32 subject, const char* key, const char* type, const char* value);
+    int (* clear       )(void* object);
+};
+
+#define MA_PW_VERSION_METADATA          3
+#define MA_PW_VERSION_METADATA_EVENTS   0
+struct ma_pw_metadata_events
+{
+    ma_uint32 version;
+    int (* property)(void* data, ma_uint32 subject, const char* key, const char* type, const char* value);
+};
+
+
+#define MA_PW_VERSION_STREAM_EVENTS     2
+struct ma_pw_stream_events
+{
+    ma_uint32 version;
+    void (* destroy      )(void* data);
+    void (* state_changed)(void* data, enum ma_pw_stream_state oldState, enum ma_pw_stream_state newState, const char* error);
+    void (* control_info )(void* data, ma_uint32 id, const struct ma_pw_stream_control* control);
+    void (* io_changed   )(void* data, ma_uint32 id, void* area, ma_uint32 size);
+    void (* param_changed)(void* data, ma_uint32 id, const struct ma_spa_pod* param);
+    void (* add_buffer   )(void* data, struct ma_pw_buffer* buffer);
+    void (* remove_buffer)(void* data, struct ma_pw_buffer* buffer);
+    void (* process      )(void* data);
+    void (* drained      )(void* data);
+    void (* command      )(void* data, const struct ma_spa_command* command);
+    void (* trigger_done )(void* data);
+};
+#endif
+
+static MA_INLINE struct ma_spa_pod_id ma_spa_pod_id_init(ma_uint32 value)
+{
+    struct ma_spa_pod_id pod;
+
+    MA_PIPEWIRE_ZERO_OBJECT(&pod);
+    pod.pod.size = 4; /* Does not include the header or padding. */
+    pod.pod.type = MA_SPA_TYPE_Id;
+    pod.value    = value;
+
+    return pod;
+}
+
+static MA_INLINE struct ma_spa_pod_int ma_spa_pod_int_init(ma_int32 value)
+{
+    struct ma_spa_pod_int pod;
+
+    MA_PIPEWIRE_ZERO_OBJECT(&pod);
+    pod.pod.size = 4; /* Does not include the header or padding. */
+    pod.pod.type = MA_SPA_TYPE_Int;
+    pod.value    = value;
+
+    return pod;
+}
+
+static MA_INLINE void* ma_spa_pod_choice_get_values(const struct ma_spa_pod_choice* choice)
+{
+    /* Values are stored as a flat array after the main struct. */
+    return (void*)ma_offset_ptr(choice, sizeof(struct ma_spa_pod_choice));
+}
+
+static MA_INLINE ma_uint32 ma_spa_pod_array_get_length(const struct ma_spa_pod_array* array)
+{
+    return (array->pod.size - sizeof(struct ma_spa_pod_array_body)) / array->body.child.size;
+}
+
+static MA_INLINE void* ma_spa_pod_array_get_values(const struct ma_spa_pod_array* array)
+{
+    /* Values are stored as a flat array after the main struct. */
+    return (void*)ma_offset_ptr(array, sizeof(struct ma_spa_pod_array));
+}
+
 
 struct ma_spa_pod_prop_id
 {
@@ -861,152 +1252,6 @@ static MA_INLINE ma_int32 ma_spa_pod_get_int_value(const struct ma_spa_pod* pod)
 }
 
 
-/* Miscellaneous SPA references that we don't actively use but are required by structs or function parameters. */
-typedef struct ma_spa_command ma_spa_command;
-
-struct ma_spa_fraction
-{
-    ma_uint32 num;
-    ma_uint32 denom;
-};
-
-
-
-#define MA_PW_KEY_MEDIA_TYPE            "media.type"
-#define MA_PW_KEY_MEDIA_CATEGORY        "media.category"
-#define MA_PW_KEY_MEDIA_ROLE            "media.role"
-#define MA_PW_KEY_MEDIA_CLASS           "media.class"
-#define MA_PW_KEY_NODE_LATENCY          "node.latency"
-#define MA_PW_KEY_NODE_TARGET           "node.target"
-#define MA_PW_KEY_METADATA_NAME         "metadata.name"
-
-#define MA_PW_TYPE_INTERFACE_Node       "PipeWire:Interface:Node"
-#define MA_PW_TYPE_INTERFACE_Metadata   "PipeWire:Interface:Metadata"
-
-#define MA_PW_ID_CORE                   0
-#define MA_PW_ID_ANY                    0xFFFFFFFF
-
-struct ma_pw_thread_loop;
-struct ma_pw_loop;
-struct ma_pw_context;
-struct ma_pw_core;
-struct ma_pw_registry;
-struct ma_pw_metadata;
-struct ma_pw_metadata_events;
-struct ma_pw_proxy;
-struct ma_pw_properties;
-struct ma_pw_stream;
-struct ma_pw_stream_control;
-struct ma_pw_core_info;
-
-enum ma_pw_stream_state
-{
-    MA_PW_STREAM_STATE_ERROR       = -1,
-    MA_PW_STREAM_STATE_UNCONNECTED =  0,
-    MA_PW_STREAM_STATE_CONNECTING  =  1,
-    MA_PW_STREAM_STATE_PAUSED      =  2,
-    MA_PW_STREAM_STATE_STREAMING   =  3
-};
-
-enum ma_pw_stream_flags
-{
-    MA_PW_STREAM_FLAG_NONE           = 0,
-    MA_PW_STREAM_FLAG_AUTOCONNECT    = (1 << 0),
-    MA_PW_STREAM_FLAG_INACTIVE       = (1 << 1),
-    MA_PW_STREAM_FLAG_MAP_BUFFERS    = (1 << 2),
-    MA_PW_STREAM_FLAG_DRIVER         = (1 << 3),
-    MA_PW_STREAM_FLAG_RT_PROCESS     = (1 << 4),
-    MA_PW_STREAM_FLAG_NO_CONVERT     = (1 << 5),
-    MA_PW_STREAM_FLAG_EXCLUSIVE      = (1 << 6),
-    MA_PW_STREAM_FLAG_DONT_RECONNECT = (1 << 7),
-    MA_PW_STREAM_FLAG_ALLOC_BUFFERS  = (1 << 8),
-    MA_PW_STREAM_FLAG_TRIGGER        = (1 << 9),
-    MA_PW_STREAM_FLAG_ASYNC          = (1 << 10)
-};
-
-struct ma_pw_buffer
-{
-    struct ma_spa_buffer* buffer;
-    void* user_data;
-    ma_uint64 size;
-    ma_uint64 requested;
-};
-
-struct ma_pw_time
-{
-    ma_int64 now;
-    struct ma_spa_fraction rate;
-    ma_uint64 ticks;
-    ma_int64 delay;
-    ma_uint64 queued;
-    ma_uint64 buffered;
-    ma_uint32 queued_buffers;
-    ma_uint32 avail_buffers;
-    ma_uint64 size;
-};
-
-
-#define MA_PW_VERSION_CORE_EVENTS       1
-struct ma_pw_core_events
-{
-    ma_uint32 version;
-    void (* info       )(void* data, const struct ma_pw_core_info* info);
-    void (* done       )(void* data, ma_uint32 id, int seq);
-    void (* ping       )(void* data, ma_uint32 id, int seq);
-    void (* error      )(void* data, ma_uint32 id, int seq, int res, const char* message);
-    void (* remove_id  )(void* data, ma_uint32 id);
-    void (* bound_id   )(void* data, ma_uint32 id, ma_uint32 global_id);
-    void (* add_mem    )(void* data, ma_uint32 id, ma_uint32 type, int fd, ma_uint32 flags);
-    void (* remove_mem )(void* data, ma_uint32 id);
-    void (* bound_props)(void* data, ma_uint32 id, ma_uint32 global_id, const struct ma_spa_dict* props);
-};
-
-
-#define MA_PW_VERSION_REGISTRY          3
-#define MA_PW_VERSION_REGISTRY_EVENTS   0
-struct ma_pw_registry_events
-{
-    ma_uint32 version;
-    void (* global_add   )(void* data, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props);
-    void (* global_remove)(void* data, ma_uint32 id);
-};
-
-
-
-#define PW_VERSION_METADATA_METHODS 0
-struct ma_pw_metadata_methods
-{
-    ma_uint32 version;
-    int (* add_listener)(void* object, struct ma_spa_hook* listener, const struct ma_pw_metadata_events* events, void* data);
-    int (* set_property)(void* object, ma_uint32 subject, const char* key, const char* type, const char* value);
-    int (* clear       )(void* object);
-};
-
-#define MA_PW_VERSION_METADATA          3
-#define MA_PW_VERSION_METADATA_EVENTS   0
-struct ma_pw_metadata_events
-{
-    ma_uint32 version;
-    int (* property)(void* data, ma_uint32 subject, const char* key, const char* type, const char* value);
-};
-
-
-#define MA_PW_VERSION_STREAM_EVENTS     2
-struct ma_pw_stream_events
-{
-    ma_uint32 version;
-    void (* destroy      )(void* data);
-    void (* state_changed)(void* data, enum ma_pw_stream_state oldState, enum ma_pw_stream_state newState, const char* error);
-    void (* control_info )(void* data, ma_uint32 id, const struct ma_pw_stream_control* control);
-    void (* io_changed   )(void* data, ma_uint32 id, void* area, ma_uint32 size);
-    void (* param_changed)(void* data, ma_uint32 id, const struct ma_spa_pod* param);
-    void (* add_buffer   )(void* data, struct ma_pw_buffer* buffer);
-    void (* remove_buffer)(void* data, struct ma_pw_buffer* buffer);
-    void (* process      )(void* data);
-    void (* drained      )(void* data);
-    void (* command      )(void* data, const struct ma_spa_command* command);
-    void (* trigger_done )(void* data);
-};
 
 typedef void                      (* ma_pw_init_proc                    )(int* argc, char*** argv);
 typedef void                      (* ma_pw_deinit_proc                  )(void);
@@ -1016,7 +1261,7 @@ typedef int                       (* ma_pw_loop_set_name_proc           )(struct
 typedef void                      (* ma_pw_loop_enter_proc              )(struct ma_pw_loop* loop);
 typedef void                      (* ma_pw_loop_leave_proc              )(struct ma_pw_loop* loop);
 typedef int                       (* ma_pw_loop_iterate_proc            )(struct ma_pw_loop* loop, int timeout);
-typedef struct spa_source*        (* ma_pw_loop_add_event_proc          )(struct ma_pw_loop* loop, void (* func)(void* data, ma_uint64 count), void* data);
+typedef struct spa_source*        (* ma_pw_loop_add_event_proc          )(struct ma_pw_loop* loop, ma_spa_source_event_func_t func, void* data);
 typedef int                       (* ma_pw_loop_signal_event_proc       )(struct ma_pw_loop* loop, struct spa_source* source);
 typedef struct ma_pw_thread_loop* (* ma_pw_thread_loop_new_proc         )(const char* name, const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_thread_loop_destroy_proc     )(struct ma_pw_thread_loop* loop);
@@ -1024,15 +1269,15 @@ typedef struct ma_pw_loop*        (* ma_pw_thread_loop_get_loop_proc    )(struct
 typedef int                       (* ma_pw_thread_loop_start_proc       )(struct ma_pw_thread_loop* loop);
 typedef void                      (* ma_pw_thread_loop_lock_proc        )(struct ma_pw_thread_loop* loop);
 typedef void                      (* ma_pw_thread_loop_unlock_proc      )(struct ma_pw_thread_loop* loop);
-typedef struct ma_pw_context*     (* ma_pw_context_new_proc             )(struct ma_pw_loop* loop, const char* name, const struct ma_spa_dict* props);
+typedef struct ma_pw_context*     (* ma_pw_context_new_proc             )(struct ma_pw_loop* loop, struct ma_pw_properties *props, size_t user_data_size);
 typedef void                      (* ma_pw_context_destroy_proc         )(struct ma_pw_context* context);
 typedef struct ma_pw_core*        (* ma_pw_context_connect_proc         )(struct ma_pw_context* context, struct ma_pw_properties* properties, size_t user_data_size);
-typedef void                      (* ma_pw_core_disconnect_proc         )(struct ma_pw_core* core);
+typedef int                       (* ma_pw_core_disconnect_proc         )(struct ma_pw_core* core);
 typedef int                       (* ma_pw_core_add_listener_proc       )(struct ma_pw_core* core, struct ma_spa_hook* listener, const struct ma_pw_core_events* events, void* data);
 typedef struct ma_pw_registry*    (* ma_pw_core_get_registry_proc       )(struct ma_pw_core* core, ma_uint32 version, size_t user_data_size);
 typedef int                       (* ma_pw_core_sync_proc               )(struct ma_pw_core* core, ma_uint32 id, int seq);
 typedef int                       (* ma_pw_registry_add_listener_proc   )(struct ma_pw_registry* registry, struct ma_spa_hook* listener, const struct ma_pw_registry_events* events, void* data);
-typedef void*                     (* ma_pw_registry_bind_proc           )(struct ma_pw_registry* registry, ma_uint32 id, const char* type, ma_uint32 version, ma_uint32 flags);
+typedef void*                     (* ma_pw_registry_bind_proc           )(struct ma_pw_registry* registry, ma_uint32 id, const char* type, ma_uint32 version, size_t user_data_size);
 typedef void                      (* ma_pw_proxy_destroy_proc           )(struct ma_pw_proxy* proxy);
 typedef struct ma_pw_properties*  (* ma_pw_properties_new_proc          )(const char* key, ...);
 typedef void                      (* ma_pw_properties_free_proc         )(struct ma_pw_properties* properties);
@@ -1046,7 +1291,7 @@ typedef struct ma_pw_buffer*      (* ma_pw_stream_dequeue_buffer_proc   )(struct
 typedef int                       (* ma_pw_stream_queue_buffer_proc     )(struct ma_pw_stream* stream, struct ma_pw_buffer* buffer);
 typedef int                       (* ma_pw_stream_update_params_proc    )(struct ma_pw_stream* stream, const struct ma_spa_pod** params, ma_uint32 paramCount);
 typedef int                       (* ma_pw_stream_update_properties_proc)(struct ma_pw_stream* stream, const struct ma_spa_dict* dict);
-typedef int                       (* ma_pw_stream_get_time_n_proc       )(struct ma_pw_stream* stream, struct ma_pw_time* time, ma_uint32 size);
+typedef int                       (* ma_pw_stream_get_time_n_proc       )(struct ma_pw_stream* stream, struct ma_pw_time* time, size_t size);
 
 typedef struct
 {
@@ -1304,12 +1549,6 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     ma_context_state_pipewire* pContextStatePipeWire;
     ma_context_config_pipewire* pContextConfigPipeWire = (ma_context_config_pipewire*)pContextBackendConfig;
     ma_log* pLog = ma_context_get_log(pContext);
-    ma_handle hPipeWire;
-    size_t iName;
-    const char* pSONames[] = {
-        "libpipewire-0.3.so.0",
-        "libpipewire.so"
-    };
 
     (void)pContextConfigPipeWire;
 
@@ -1322,59 +1561,111 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
 
 
     /* Check if we have a PipeWire SO. If we can't find this we need to abort. */
-    for (iName = 0; iName < ma_countof(pSONames); iName += 1) {
-        hPipeWire = ma_dlopen(pLog, pSONames[iName]);
-        if (hPipeWire != NULL) {
-            break;
+    #ifndef MA_NO_RUNTIME_LINKING
+    {
+        ma_handle hPipeWire;
+        size_t iName;
+        const char* pSONames[] = {
+            "libpipewire-0.3.so.0",
+            "libpipewire.so"
+        };
+
+        for (iName = 0; iName < ma_countof(pSONames); iName += 1) {
+            hPipeWire = ma_dlopen(pLog, pSONames[iName]);
+            if (hPipeWire != NULL) {
+                break;
+            }
         }
-    }
 
-    if (hPipeWire == NULL) {
-        ma_free(pContextStatePipeWire, ma_context_get_allocation_callbacks(pContext));
-        return MA_NO_BACKEND;   /* PipeWire could not be loaded. */
-    }
+        if (hPipeWire == NULL) {
+            ma_free(pContextStatePipeWire, ma_context_get_allocation_callbacks(pContext));
+            return MA_NO_BACKEND;   /* PipeWire could not be loaded. */
+        }
 
-    /* Now that we have the handle to the shared object we can go ahead and load some function pointers. */
-    pContextStatePipeWire->hPipeWire = hPipeWire;
-    pContextStatePipeWire->pw_init                     = (ma_pw_init_proc                    )ma_dlsym(pLog, hPipeWire, "pw_init");
-    pContextStatePipeWire->pw_deinit                   = (ma_pw_deinit_proc                  )ma_dlsym(pLog, hPipeWire, "pw_deinit");
-    pContextStatePipeWire->pw_loop_new                 = (ma_pw_loop_new_proc                )ma_dlsym(pLog, hPipeWire, "pw_loop_new");
-    pContextStatePipeWire->pw_loop_destroy             = (ma_pw_loop_destroy_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_destroy");
-    pContextStatePipeWire->pw_loop_set_name            = (ma_pw_loop_set_name_proc           )ma_dlsym(pLog, hPipeWire, "pw_loop_set_name");
-    pContextStatePipeWire->pw_loop_enter               = (ma_pw_loop_enter_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_enter");
-    pContextStatePipeWire->pw_loop_leave               = (ma_pw_loop_leave_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_leave");
-    pContextStatePipeWire->pw_loop_iterate             = (ma_pw_loop_iterate_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_iterate");
-    pContextStatePipeWire->pw_loop_add_event           = (ma_pw_loop_add_event_proc          )ma_dlsym(pLog, hPipeWire, "pw_loop_add_event");
-    pContextStatePipeWire->pw_loop_signal_event        = (ma_pw_loop_signal_event_proc       )ma_dlsym(pLog, hPipeWire, "pw_loop_signal_event");
-    pContextStatePipeWire->pw_thread_loop_new          = (ma_pw_thread_loop_new_proc         )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_new");
-    pContextStatePipeWire->pw_thread_loop_destroy      = (ma_pw_thread_loop_destroy_proc     )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_destroy");
-    pContextStatePipeWire->pw_thread_loop_get_loop     = (ma_pw_thread_loop_get_loop_proc    )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_get_loop");
-    pContextStatePipeWire->pw_thread_loop_start        = (ma_pw_thread_loop_start_proc       )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_start");
-    pContextStatePipeWire->pw_thread_loop_lock         = (ma_pw_thread_loop_lock_proc        )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_lock");
-    pContextStatePipeWire->pw_thread_loop_unlock       = (ma_pw_thread_loop_unlock_proc      )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_unlock");
-    pContextStatePipeWire->pw_context_new              = (ma_pw_context_new_proc             )ma_dlsym(pLog, hPipeWire, "pw_context_new");
-    pContextStatePipeWire->pw_context_destroy          = (ma_pw_context_destroy_proc         )ma_dlsym(pLog, hPipeWire, "pw_context_destroy");
-    pContextStatePipeWire->pw_context_connect          = (ma_pw_context_connect_proc         )ma_dlsym(pLog, hPipeWire, "pw_context_connect");
-    pContextStatePipeWire->pw_core_disconnect          = (ma_pw_core_disconnect_proc         )ma_dlsym(pLog, hPipeWire, "pw_core_disconnect");
-    pContextStatePipeWire->pw_core_add_listener        = (ma_pw_core_add_listener_proc       )ma_dlsym(pLog, hPipeWire, "pw_core_add_listener");
-    pContextStatePipeWire->pw_core_get_registry        = (ma_pw_core_get_registry_proc       )ma_dlsym(pLog, hPipeWire, "pw_core_get_registry");
-    pContextStatePipeWire->pw_core_sync                = (ma_pw_core_sync_proc               )ma_dlsym(pLog, hPipeWire, "pw_core_sync");
-    pContextStatePipeWire->pw_registry_add_listener    = (ma_pw_registry_add_listener_proc   )ma_dlsym(pLog, hPipeWire, "pw_registry_add_listener");
-    pContextStatePipeWire->pw_registry_bind            = (ma_pw_registry_bind_proc           )ma_dlsym(pLog, hPipeWire, "pw_registry_bind");
-    pContextStatePipeWire->pw_proxy_destroy            = (ma_pw_proxy_destroy_proc           )ma_dlsym(pLog, hPipeWire, "pw_proxy_destroy");
-    pContextStatePipeWire->pw_properties_new           = (ma_pw_properties_new_proc          )ma_dlsym(pLog, hPipeWire, "pw_properties_new");
-    pContextStatePipeWire->pw_properties_free          = (ma_pw_properties_free_proc         )ma_dlsym(pLog, hPipeWire, "pw_properties_free");
-    pContextStatePipeWire->pw_properties_set           = (ma_pw_properties_set_proc          )ma_dlsym(pLog, hPipeWire, "pw_properties_set");
-    pContextStatePipeWire->pw_stream_new               = (ma_pw_stream_new_proc              )ma_dlsym(pLog, hPipeWire, "pw_stream_new");
-    pContextStatePipeWire->pw_stream_destroy           = (ma_pw_stream_destroy_proc          )ma_dlsym(pLog, hPipeWire, "pw_stream_destroy");
-    pContextStatePipeWire->pw_stream_add_listener      = (ma_pw_stream_add_listener_proc     )ma_dlsym(pLog, hPipeWire, "pw_stream_add_listener");
-    pContextStatePipeWire->pw_stream_connect           = (ma_pw_stream_connect_proc          )ma_dlsym(pLog, hPipeWire, "pw_stream_connect");
-    pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc       )ma_dlsym(pLog, hPipeWire, "pw_stream_set_active");
-    pContextStatePipeWire->pw_stream_dequeue_buffer    = (ma_pw_stream_dequeue_buffer_proc   )ma_dlsym(pLog, hPipeWire, "pw_stream_dequeue_buffer");
-    pContextStatePipeWire->pw_stream_queue_buffer      = (ma_pw_stream_queue_buffer_proc     )ma_dlsym(pLog, hPipeWire, "pw_stream_queue_buffer");
-    pContextStatePipeWire->pw_stream_update_params     = (ma_pw_stream_update_params_proc    )ma_dlsym(pLog, hPipeWire, "pw_stream_update_params");
-    pContextStatePipeWire->pw_stream_update_properties = (ma_pw_stream_update_properties_proc)ma_dlsym(pLog, hPipeWire, "pw_stream_update_properties");
-    pContextStatePipeWire->pw_stream_get_time_n        = (ma_pw_stream_get_time_n_proc       )ma_dlsym(pLog, hPipeWire, "pw_stream_get_time_n");
+        pContextStatePipeWire->hPipeWire = hPipeWire;
+        pContextStatePipeWire->pw_init                     = (ma_pw_init_proc                    )ma_dlsym(pLog, hPipeWire, "pw_init");
+        pContextStatePipeWire->pw_deinit                   = (ma_pw_deinit_proc                  )ma_dlsym(pLog, hPipeWire, "pw_deinit");
+        pContextStatePipeWire->pw_loop_new                 = (ma_pw_loop_new_proc                )ma_dlsym(pLog, hPipeWire, "pw_loop_new");
+        pContextStatePipeWire->pw_loop_destroy             = (ma_pw_loop_destroy_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_destroy");
+        pContextStatePipeWire->pw_loop_set_name            = (ma_pw_loop_set_name_proc           )ma_dlsym(pLog, hPipeWire, "pw_loop_set_name");
+        pContextStatePipeWire->pw_loop_enter               = (ma_pw_loop_enter_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_enter");
+        pContextStatePipeWire->pw_loop_leave               = (ma_pw_loop_leave_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_leave");
+        pContextStatePipeWire->pw_loop_iterate             = (ma_pw_loop_iterate_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_iterate");
+        pContextStatePipeWire->pw_loop_add_event           = (ma_pw_loop_add_event_proc          )ma_dlsym(pLog, hPipeWire, "pw_loop_add_event");
+        pContextStatePipeWire->pw_loop_signal_event        = (ma_pw_loop_signal_event_proc       )ma_dlsym(pLog, hPipeWire, "pw_loop_signal_event");
+        pContextStatePipeWire->pw_thread_loop_new          = (ma_pw_thread_loop_new_proc         )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_new");
+        pContextStatePipeWire->pw_thread_loop_destroy      = (ma_pw_thread_loop_destroy_proc     )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_destroy");
+        pContextStatePipeWire->pw_thread_loop_get_loop     = (ma_pw_thread_loop_get_loop_proc    )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_get_loop");
+        pContextStatePipeWire->pw_thread_loop_start        = (ma_pw_thread_loop_start_proc       )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_start");
+        pContextStatePipeWire->pw_thread_loop_lock         = (ma_pw_thread_loop_lock_proc        )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_lock");
+        pContextStatePipeWire->pw_thread_loop_unlock       = (ma_pw_thread_loop_unlock_proc      )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_unlock");
+        pContextStatePipeWire->pw_context_new              = (ma_pw_context_new_proc             )ma_dlsym(pLog, hPipeWire, "pw_context_new");
+        pContextStatePipeWire->pw_context_destroy          = (ma_pw_context_destroy_proc         )ma_dlsym(pLog, hPipeWire, "pw_context_destroy");
+        pContextStatePipeWire->pw_context_connect          = (ma_pw_context_connect_proc         )ma_dlsym(pLog, hPipeWire, "pw_context_connect");
+        pContextStatePipeWire->pw_core_disconnect          = (ma_pw_core_disconnect_proc         )ma_dlsym(pLog, hPipeWire, "pw_core_disconnect");
+        pContextStatePipeWire->pw_core_add_listener        = (ma_pw_core_add_listener_proc       )ma_dlsym(pLog, hPipeWire, "pw_core_add_listener");
+        pContextStatePipeWire->pw_core_get_registry        = (ma_pw_core_get_registry_proc       )ma_dlsym(pLog, hPipeWire, "pw_core_get_registry");
+        pContextStatePipeWire->pw_core_sync                = (ma_pw_core_sync_proc               )ma_dlsym(pLog, hPipeWire, "pw_core_sync");
+        pContextStatePipeWire->pw_registry_add_listener    = (ma_pw_registry_add_listener_proc   )ma_dlsym(pLog, hPipeWire, "pw_registry_add_listener");
+        pContextStatePipeWire->pw_registry_bind            = (ma_pw_registry_bind_proc           )ma_dlsym(pLog, hPipeWire, "pw_registry_bind");
+        pContextStatePipeWire->pw_proxy_destroy            = (ma_pw_proxy_destroy_proc           )ma_dlsym(pLog, hPipeWire, "pw_proxy_destroy");
+        pContextStatePipeWire->pw_properties_new           = (ma_pw_properties_new_proc          )ma_dlsym(pLog, hPipeWire, "pw_properties_new");
+        pContextStatePipeWire->pw_properties_free          = (ma_pw_properties_free_proc         )ma_dlsym(pLog, hPipeWire, "pw_properties_free");
+        pContextStatePipeWire->pw_properties_set           = (ma_pw_properties_set_proc          )ma_dlsym(pLog, hPipeWire, "pw_properties_set");
+        pContextStatePipeWire->pw_stream_new               = (ma_pw_stream_new_proc              )ma_dlsym(pLog, hPipeWire, "pw_stream_new");
+        pContextStatePipeWire->pw_stream_destroy           = (ma_pw_stream_destroy_proc          )ma_dlsym(pLog, hPipeWire, "pw_stream_destroy");
+        pContextStatePipeWire->pw_stream_add_listener      = (ma_pw_stream_add_listener_proc     )ma_dlsym(pLog, hPipeWire, "pw_stream_add_listener");
+        pContextStatePipeWire->pw_stream_connect           = (ma_pw_stream_connect_proc          )ma_dlsym(pLog, hPipeWire, "pw_stream_connect");
+        pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc       )ma_dlsym(pLog, hPipeWire, "pw_stream_set_active");
+        pContextStatePipeWire->pw_stream_dequeue_buffer    = (ma_pw_stream_dequeue_buffer_proc   )ma_dlsym(pLog, hPipeWire, "pw_stream_dequeue_buffer");
+        pContextStatePipeWire->pw_stream_queue_buffer      = (ma_pw_stream_queue_buffer_proc     )ma_dlsym(pLog, hPipeWire, "pw_stream_queue_buffer");
+        pContextStatePipeWire->pw_stream_update_params     = (ma_pw_stream_update_params_proc    )ma_dlsym(pLog, hPipeWire, "pw_stream_update_params");
+        pContextStatePipeWire->pw_stream_update_properties = (ma_pw_stream_update_properties_proc)ma_dlsym(pLog, hPipeWire, "pw_stream_update_properties");
+        pContextStatePipeWire->pw_stream_get_time_n        = (ma_pw_stream_get_time_n_proc       )ma_dlsym(pLog, hPipeWire, "pw_stream_get_time_n");
+    }
+    #else
+    {
+        pContextStatePipeWire->pw_init                     = pw_init;
+        pContextStatePipeWire->pw_deinit                   = pw_deinit;
+        pContextStatePipeWire->pw_loop_new                 = pw_loop_new;
+        pContextStatePipeWire->pw_loop_destroy             = pw_loop_destroy;
+        pContextStatePipeWire->pw_loop_set_name            = pw_loop_set_name;
+        pContextStatePipeWire->pw_loop_enter               = pw_loop_enter;
+        pContextStatePipeWire->pw_loop_leave               = pw_loop_leave;
+        pContextStatePipeWire->pw_loop_iterate             = pw_loop_iterate;
+        pContextStatePipeWire->pw_loop_add_event           = pw_loop_add_event;
+        pContextStatePipeWire->pw_loop_signal_event        = pw_loop_signal_event;       
+        pContextStatePipeWire->pw_thread_loop_new          = pw_thread_loop_new;
+        pContextStatePipeWire->pw_thread_loop_destroy      = pw_thread_loop_destroy;
+        pContextStatePipeWire->pw_thread_loop_get_loop     = pw_thread_loop_get_loop;
+        pContextStatePipeWire->pw_thread_loop_start        = pw_thread_loop_start;
+        pContextStatePipeWire->pw_thread_loop_lock         = pw_thread_loop_lock;
+        pContextStatePipeWire->pw_thread_loop_unlock       = pw_thread_loop_unlock;
+        pContextStatePipeWire->pw_context_new              = pw_context_new;
+        pContextStatePipeWire->pw_context_destroy          = pw_context_destroy;
+        pContextStatePipeWire->pw_context_connect          = pw_context_connect;
+        pContextStatePipeWire->pw_core_disconnect          = pw_core_disconnect;
+        pContextStatePipeWire->pw_core_add_listener        = pw_core_add_listener;
+        pContextStatePipeWire->pw_core_get_registry        = pw_core_get_registry;
+        pContextStatePipeWire->pw_core_sync                = pw_core_sync;
+        pContextStatePipeWire->pw_registry_add_listener    = pw_registry_add_listener;
+        pContextStatePipeWire->pw_registry_bind            = pw_registry_bind;
+        pContextStatePipeWire->pw_proxy_destroy            = pw_proxy_destroy;
+        pContextStatePipeWire->pw_properties_new           = pw_properties_new;
+        pContextStatePipeWire->pw_properties_free          = pw_properties_free;
+        pContextStatePipeWire->pw_properties_set           = pw_properties_set;
+        pContextStatePipeWire->pw_stream_new               = pw_stream_new;
+        pContextStatePipeWire->pw_stream_destroy           = pw_stream_destroy;
+        pContextStatePipeWire->pw_stream_add_listener      = pw_stream_add_listener;
+        pContextStatePipeWire->pw_stream_connect           = pw_stream_connect;
+        pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc)pw_stream_set_active;    /* This cast is because we use `unsigned char` instead of `bool`. */
+        pContextStatePipeWire->pw_stream_dequeue_buffer    = pw_stream_dequeue_buffer;
+        pContextStatePipeWire->pw_stream_queue_buffer      = pw_stream_queue_buffer;
+        pContextStatePipeWire->pw_stream_update_params     = pw_stream_update_params;
+        pContextStatePipeWire->pw_stream_update_properties = pw_stream_update_properties;
+        pContextStatePipeWire->pw_stream_get_time_n        = pw_stream_get_time_n;
+    }
+    #endif
 
     if (pContextStatePipeWire->pw_init != NULL) {
         pContextStatePipeWire->pw_init(NULL, NULL);
@@ -1724,7 +2015,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
         return MA_ERROR;
     }
 
-    pPipeWireContext = pContextStatePipeWire->pw_context_new(pLoop, NULL, NULL);
+    pPipeWireContext = pContextStatePipeWire->pw_context_new(pLoop, NULL, 0);
     if (pPipeWireContext == NULL) {
         pContextStatePipeWire->pw_loop_destroy(pLoop);
         return MA_ERROR;
@@ -2255,7 +2546,7 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
         NULL);
 
     if (pDescriptor->pDeviceID != NULL) {
-        pContextStatePipeWire->pw_properties_set(pProperties, MA_PW_KEY_NODE_TARGET, pDescriptor->pDeviceID->custom.s);
+        pContextStatePipeWire->pw_properties_set(pProperties, MA_PW_KEY_TARGET_OBJECT, pDescriptor->pDeviceID->custom.s);
     }
 
     pStreamState->pStream = pContextStatePipeWire->pw_stream_new(pDeviceStatePipeWire->pCore, (pDeviceConfigPipeWire->pStreamName != NULL) ? pDeviceConfigPipeWire->pStreamName : "miniaudio", pProperties);
@@ -2412,7 +2703,7 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     }
 
     /* We need an event for waking up the loop. */
-    pDeviceStatePipeWire->pWakeup = pContextStatePipeWire->pw_loop_add_event(pLoop, ma_device_on_wakupe__pipewire, pDeviceStatePipeWire);
+    pDeviceStatePipeWire->pWakeup = pContextStatePipeWire->pw_loop_add_event(pLoop, (ma_spa_source_event_func_t)ma_device_on_wakupe__pipewire, pDeviceStatePipeWire);   /* Cast should be fine here. It's complaining about the difference between ma_uint64 and uint64_t. */
     if (pDeviceStatePipeWire->pWakeup == NULL) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire loop wakeup event.");
         pContextStatePipeWire->pw_core_disconnect(pCore);
@@ -2590,11 +2881,12 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
 
 ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_PipeWire;
 
-#if 0
-#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
-    #pragma GCC diagnostic pop
+#if defined(MA_NO_RUNTIME_LINKING)
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+        #pragma GCC diagnostic pop
+    #endif
 #endif
-#endif
+
 #else
 ma_device_backend_vtable* ma_device_backend_pipewire = NULL;
 #endif  /* MA_HAS_PIPEWIRE */

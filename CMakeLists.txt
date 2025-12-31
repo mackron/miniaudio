@@ -131,6 +131,36 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 
+function(is_backend_enabled NAME)
+    if (NOT MINIAUDIO_NO_${NAME} AND (NOT MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS OR MINIAUDIO_ENABLE_${NAME}))
+        set(${NAME}_ENABLED TRUE PARENT_SCOPE)
+    else()
+        set(${NAME}_ENABLED FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
+
+# External Libraries
+set(LINKED_LIBS)
+
+if(MINIAUDIO_NO_RUNTIME_LINKING)
+    is_backend_enabled(PIPEWIRE)
+    if(PIPEWIRE_ENABLED)
+        find_package(PkgConfig QUIET)
+
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(PipeWire IMPORTED_TARGET libpipewire-0.3)
+            pkg_check_modules(SPA      IMPORTED_TARGET libspa-0.2)
+        endif()
+
+        if(NOT (TARGET PkgConfig::PipeWire AND TARGET PkgConfig::SPA))
+            message(STATUS "PipeWire development files not found. Disabling PipeWire backend.")
+            set(MINIAUDIO_NO_PIPEWIRE ON)
+        endif()
+    endif()
+endif()
+
+
 # Construct compiler defines
 set(COMPILE_DEFINES)
 
@@ -465,20 +495,6 @@ else()
     message(STATUS "SteamAudio not found. miniaudio_engine_steamaudio will be excluded.")
 endif()
 
-# PipeWire. For this we care only about SPA.
-if(NOT MINIAUDIO_NO_PIPEWIRE)
-    find_path(SPA_INCLUDE_DIR NAMES spa/param/audio/format-utils.h HINTS
-        /usr/include/spa-0.2
-    )
-    
-    if(SPA_INCLUDE_DIR)
-        message(STATUS "Found SPA include directory: ${SPA_INCLUDE_DIR}")
-    else()
-        message(STATUS "SPA include directory not found. PipeWire will be excluded.")
-        set(MINIAUDIO_NO_PIPEWIRE ON)
-        list(APPEND COMPILE_DEFINES MA_NO_PIPEWIRE)
-    endif()
-endif()
 
 # Link libraries
 set(COMMON_LINK_LIBRARIES)
@@ -541,7 +557,10 @@ if(NOT MINIAUDIO_NO_PIPEWIRE)
     target_include_directories(miniaudio_pipewire PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/pipewire)
     target_compile_options    (miniaudio_pipewire PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_pipewire PRIVATE ${COMPILE_DEFINES})
-    target_include_directories(miniaudio_pipewire PRIVATE ${SPA_INCLUDE_DIR})
+
+    if(MINIAUDIO_NO_RUNTIME_LINKING)
+        target_link_libraries(miniaudio_pipewire PRIVATE PkgConfig::PipeWire PkgConfig::SPA)
+    endif()
 endif()
 
 
@@ -661,16 +680,6 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
     endif()
 endif()
 
-
-function(is_backend_enabled NAME)
-    if (NOT MINIAUDIO_NO_${NAME} AND (NOT MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS OR MINIAUDIO_ENABLE_${NAME}))
-        set(${NAME}_ENABLED TRUE PARENT_SCOPE)
-    else()
-        set(${NAME}_ENABLED FALSE PARENT_SCOPE)
-    endif()
-endfunction()
-
-set(LINKED_LIBS)
 
 if(MINIAUDIO_NO_RUNTIME_LINKING)
     is_backend_enabled(PULSEAUDIO)
