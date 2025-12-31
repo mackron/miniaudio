@@ -7240,7 +7240,7 @@ MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_
 
 typedef enum ma_threading_mode
 {
-    MA_THREADING_MODE_MULTITHREADED = 0,    /* Default. */
+    MA_THREADING_MODE_MULTI_THREADED = 0,    /* Default. */
     MA_THREADING_MODE_SINGLE_THREADED
 } ma_threading_mode;
 
@@ -43388,7 +43388,7 @@ static ma_result ma_device_step__webaudio(ma_device* pDevice, ma_blocking_mode b
     mode we just do data processing straight from the Web Audio callback. In single-threaded mode we need to make sure data
     processing is done from the step function, which is where this comes in.
     */
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTITHREADED) {
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
         MA_ASSERT(!"[Web Audio] Incorrectly calling step() in multi-threaded mode.");
         return MA_ERROR;
     }
@@ -45597,7 +45597,7 @@ MA_API ma_device_type ma_device_get_type(ma_device* pDevice)
 MA_API ma_threading_mode ma_device_get_threading_mode(ma_device* pDevice)
 {
     if (pDevice == NULL) {
-        return MA_THREADING_MODE_MULTITHREADED;
+        return MA_THREADING_MODE_MULTI_THREADED;
     }
 
     return pDevice->threadingMode;

@@ -9,7 +9,7 @@
 #define DEVICE_CHANNELS     2
 #define DEVICE_SAMPLE_RATE  48000
 
-ma_threading_mode threadingMode = MA_THREADING_MODE_MULTITHREADED;
+ma_threading_mode threadingMode = MA_THREADING_MODE_MULTI_THREADED;
 /*ma_threading_mode threadingMode = MA_THREADING_MODE_SINGLE_THREADED;*/
 
 ma_bool32 isRunning = MA_FALSE;
