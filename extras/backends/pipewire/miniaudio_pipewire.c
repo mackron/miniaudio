@@ -1355,7 +1355,7 @@ typedef struct
     ma_uint32 bufferSizeInFrames;
     ma_uint32 bufferCount;
     ma_uint32 rbSizeInFrames;
-    ma_pcm_rb rb;               /* For playback, PipeWire will read from this ring buffer. For capture, it'll write to it. */
+    ma_pcm_rb rb;                       /* Only used in single-threaded mode. Acts as an intermediary buffer for step(). For playback, PipeWire will read from this ring buffer. For capture, it'll write to it. */
     ma_device_descriptor* pDescriptor;  /* This is only used for setting up internal format. It's needed here because it looks like the only way to get the internal format is via a stupid callback. Will be set to NULL after initialization of the PipeWire stream. */
 } ma_pipewire_stream_state;
 
@@ -2353,11 +2353,16 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
         pContextStatePipeWire->pw_stream_get_time_n(pStreamState->pStream, &time, sizeof(time));
 
         if (pStreamState->rbSizeInFrames > 0) {
-            ma_pcm_rb_uninit(&pStreamState->rb);
+            if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+                ma_pcm_rb_uninit(&pStreamState->rb);
+            }
         }
 
         pStreamState->rbSizeInFrames = (ma_uint32)time.size;
-        ma_pcm_rb_init(pStreamState->format, pStreamState->channels, pStreamState->rbSizeInFrames, NULL, ma_device_get_allocation_callbacks(pDeviceStatePipeWire->pDevice), &pStreamState->rb);
+
+        if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_pcm_rb_init(pStreamState->format, pStreamState->channels, pStreamState->rbSizeInFrames, NULL, ma_device_get_allocation_callbacks(pDeviceStatePipeWire->pDevice), &pStreamState->rb);
+        }
 
         pStreamState->initStatus |= MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY;
         return;
@@ -2383,59 +2388,72 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     MA_PIPEWIRE_ASSERT(pBuffer->buffer->datas[0].data != NULL);
 
     if (frameCount > 0) {
-        ma_uint32 framesRemaining = frameCount;
-
         if (deviceType == ma_device_type_playback) {
-            ma_uint32 framesAvailable = ma_pcm_rb_available_read(&pStreamState->rb);
-
-            /* Copy data in. Read from the ring buffer, output to the PipeWire buffer. */
-            if (framesAvailable < frameCount) {
-                /* Underflow. Just write silence. */
-                MA_PIPEWIRE_ZERO_MEMORY((char*)pBuffer->buffer->datas[0].data + (frameCount - framesRemaining) * bytesPerFrame, framesRemaining * bytesPerFrame);
+            if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
+                ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, pBuffer->buffer->datas[0].data, NULL, frameCount);
             } else {
-                while (framesRemaining > 0) {
-                    ma_uint32 framesToProcess = (ma_uint32)ma_min(framesRemaining, framesAvailable);
-                    void* pMappedBuffer;
+                ma_uint32 framesRemaining = frameCount;
+                ma_uint32 framesAvailable = ma_pcm_rb_available_read(&pStreamState->rb);
 
-                    result = ma_pcm_rb_acquire_read(&pStreamState->rb, &framesToProcess, &pMappedBuffer);
-                    if (result != MA_SUCCESS) {
-                        ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to acquire data from ring buffer.");
-                        break;
-                    }
+                /* Copy data in. Read from the ring buffer, output to the PipeWire buffer. */
+                if (framesAvailable < frameCount) {
+                    /* Underflow. Just write silence. */
+                    MA_PIPEWIRE_ZERO_MEMORY((char*)pBuffer->buffer->datas[0].data + (frameCount - framesRemaining) * bytesPerFrame, framesRemaining * bytesPerFrame);
+                } else {
+                    /*
+                    Two ways of handling this. In multi-threaded mode, it doesn't really matter which thread does the data
+                    processing so we can just do it directly from here and bypass the ring buffer entirely.
+                    */
+                    
+                    while (framesRemaining > 0) {
+                        ma_uint32 framesToProcess = (ma_uint32)ma_min(framesRemaining, framesAvailable);
+                        void* pMappedBuffer;
 
-                    MA_PIPEWIRE_COPY_MEMORY((char*)pBuffer->buffer->datas[0].data + ((frameCount - framesRemaining) * bytesPerFrame), pMappedBuffer, framesToProcess * bytesPerFrame);
-                    framesRemaining -= framesToProcess;
+                        result = ma_pcm_rb_acquire_read(&pStreamState->rb, &framesToProcess, &pMappedBuffer);
+                        if (result != MA_SUCCESS) {
+                            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to acquire data from ring buffer.");
+                            break;
+                        }
 
-                    result = ma_pcm_rb_commit_read(&pStreamState->rb, framesToProcess);
-                    if (result != MA_SUCCESS) {
-                        ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to commit read to ring buffer.");
-                        break;
+                        MA_PIPEWIRE_COPY_MEMORY((char*)pBuffer->buffer->datas[0].data + ((frameCount - framesRemaining) * bytesPerFrame), pMappedBuffer, framesToProcess * bytesPerFrame);
+                        framesRemaining -= framesToProcess;
+
+                        result = ma_pcm_rb_commit_read(&pStreamState->rb, framesToProcess);
+                        if (result != MA_SUCCESS) {
+                            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to commit read to ring buffer.");
+                            break;
+                        }
                     }
                 }
             }
 
             /*printf("(Playback) Processing %d frames... %d %d\n", (int)frameCount, (int)pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);*/
         } else {
-            ma_uint32 framesAvailable = ma_pcm_rb_available_write(&pStreamState->rb);
+            if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
+                ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, NULL, pBuffer->buffer->datas[0].data, frameCount);
+            } else {
+                ma_uint32 framesRemaining = frameCount;
+                ma_uint32 framesAvailable = ma_pcm_rb_available_write(&pStreamState->rb);
 
-            /* Copy data out. Write from the PipeWire buffer to the ring buffer. */
-            while (framesRemaining > 0) {
-                ma_uint32 framesToProcess = (ma_uint32)ma_min(framesRemaining, framesAvailable);
-                void* pMappedBuffer;
+                /* Copy data out. Write from the PipeWire buffer to the ring buffer. */
+                while (framesRemaining > 0) {
+                    ma_uint32 framesToProcess = (ma_uint32)ma_min(framesRemaining, framesAvailable);
+                    void* pMappedBuffer;
 
-                result = ma_pcm_rb_acquire_write(&pStreamState->rb, &framesToProcess, &pMappedBuffer);
-                if (result != MA_SUCCESS) {
-                    ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to acquire space in ring buffer.");
-                    break;
-                }
+                    result = ma_pcm_rb_acquire_write(&pStreamState->rb, &framesToProcess, &pMappedBuffer);
+                    if (result != MA_SUCCESS) {
+                        ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to acquire space in ring buffer.");
+                        break;
+                    }
 
-                MA_PIPEWIRE_COPY_MEMORY(pMappedBuffer, (char*)pBuffer->buffer->datas[0].data + ((frameCount - framesRemaining) * bytesPerFrame), framesToProcess * bytesPerFrame);
-                framesRemaining -= framesToProcess;
+                    MA_PIPEWIRE_COPY_MEMORY(pMappedBuffer, (char*)pBuffer->buffer->datas[0].data + ((frameCount - framesRemaining) * bytesPerFrame), framesToProcess * bytesPerFrame);
+                    framesRemaining -= framesToProcess;
 
-                result = ma_pcm_rb_commit_write(&pStreamState->rb, framesToProcess);
-                if (result != MA_SUCCESS) {
-                    ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to commit write to ring buffer.");
-                    break;
+                    result = ma_pcm_rb_commit_write(&pStreamState->rb, framesToProcess);
+                    if (result != MA_SUCCESS) {
+                        ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "(PipeWire) Failed to commit write to ring buffer.");
+                        break;
+                    }
                 }
             }
 
@@ -2722,6 +2740,7 @@ static void ma_device_uninit__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+    ma_device_type deviceType = ma_device_get_type(pDevice);
 
     if (pDeviceStatePipeWire->capture.pStream != NULL) {
         pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->capture.pStream);
@@ -2739,6 +2758,15 @@ static void ma_device_uninit__pipewire(ma_device* pDevice)
     pContextStatePipeWire->pw_core_disconnect(pDeviceStatePipeWire->pCore);
     pContextStatePipeWire->pw_context_destroy(pDeviceStatePipeWire->pContext);
     pContextStatePipeWire->pw_loop_destroy(pDeviceStatePipeWire->pLoop);
+
+    if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            ma_pcm_rb_uninit(&pDeviceStatePipeWire->capture.rb);
+        }
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            ma_pcm_rb_uninit(&pDeviceStatePipeWire->playback.rb);
+        }
+    }
 
     ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
 }
@@ -2801,49 +2829,52 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
             return MA_DEVICE_NOT_STARTED;
         }
 
-        /* We want to handle both playback and capture in a single iteration for duplex mode. */
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            ma_uint32 framesAvailable;
+        /* We need only process data here in single-threaded mode. */
+        if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            /* We want to handle both playback and capture in a single iteration for duplex mode. */
+            if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+                ma_uint32 framesAvailable;
 
-            framesAvailable = ma_pcm_rb_available_read(&pDeviceStatePipeWire->capture.rb);
-            if (framesAvailable > 0) {
-                hasProcessedData = MA_TRUE;
-            }
+                framesAvailable = ma_pcm_rb_available_read(&pDeviceStatePipeWire->capture.rb);
+                if (framesAvailable > 0) {
+                    hasProcessedData = MA_TRUE;
+                }
 
-            while (framesAvailable > 0) {
-                void* pMappedBuffer;
-                ma_uint32 framesToRead = framesAvailable;
-                ma_result result;
+                while (framesAvailable > 0) {
+                    void* pMappedBuffer;
+                    ma_uint32 framesToRead = framesAvailable;
+                    ma_result result;
 
-                result = ma_pcm_rb_acquire_read(&pDeviceStatePipeWire->capture.rb, &framesToRead, &pMappedBuffer);
-                if (result == MA_SUCCESS) {
-                    ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, framesToRead);
+                    result = ma_pcm_rb_acquire_read(&pDeviceStatePipeWire->capture.rb, &framesToRead, &pMappedBuffer);
+                    if (result == MA_SUCCESS) {
+                        ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, framesToRead);
 
-                    result = ma_pcm_rb_commit_read(&pDeviceStatePipeWire->capture.rb, framesToRead);
-                    framesAvailable -= framesToRead;
+                        result = ma_pcm_rb_commit_read(&pDeviceStatePipeWire->capture.rb, framesToRead);
+                        framesAvailable -= framesToRead;
+                    }
                 }
             }
-        }
-        
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            ma_uint32 framesAvailable;
+            
+            if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+                ma_uint32 framesAvailable;
 
-            framesAvailable = ma_pcm_rb_available_write(&pDeviceStatePipeWire->playback.rb);
-            if (framesAvailable > 0) {
-                hasProcessedData = MA_TRUE;
-            }
+                framesAvailable = ma_pcm_rb_available_write(&pDeviceStatePipeWire->playback.rb);
+                if (framesAvailable > 0) {
+                    hasProcessedData = MA_TRUE;
+                }
 
-            while (framesAvailable > 0) {
-                void* pMappedBuffer;
-                ma_uint32 framesToWrite = framesAvailable;
-                ma_result result;
+                while (framesAvailable > 0) {
+                    void* pMappedBuffer;
+                    ma_uint32 framesToWrite = framesAvailable;
+                    ma_result result;
 
-                result = ma_pcm_rb_acquire_write(&pDeviceStatePipeWire->playback.rb, &framesToWrite, &pMappedBuffer);
-                if (result == MA_SUCCESS) {
-                    ma_device_handle_backend_data_callback(pDevice, pMappedBuffer, NULL, framesToWrite);
+                    result = ma_pcm_rb_acquire_write(&pDeviceStatePipeWire->playback.rb, &framesToWrite, &pMappedBuffer);
+                    if (result == MA_SUCCESS) {
+                        ma_device_handle_backend_data_callback(pDevice, pMappedBuffer, NULL, framesToWrite);
 
-                    result = ma_pcm_rb_commit_write(&pDeviceStatePipeWire->playback.rb, framesToWrite);
-                    framesAvailable -= framesToWrite;
+                        result = ma_pcm_rb_commit_write(&pDeviceStatePipeWire->playback.rb, framesToWrite);
+                        framesAvailable -= framesToWrite;
+                    }
                 }
             }
         }
