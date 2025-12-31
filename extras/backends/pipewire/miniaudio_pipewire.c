@@ -3,6 +3,119 @@
 
 #include "miniaudio_pipewire.h"
 
+/* This is temporary until this is merged into miniaudio proper. */
+MA_API MA_NO_INLINE int ma_pipewire_itoa_s(int value, char* dst, size_t dstSizeInBytes, int radix)
+{
+    int sign;
+    unsigned int valueU;
+    char* dstEnd;
+
+    if (dst == NULL || dstSizeInBytes == 0) {
+        return 22;
+    }
+    if (radix < 2 || radix > 36) {
+        dst[0] = '\0';
+        return 22;
+    }
+
+    sign = (value < 0 && radix == 10) ? -1 : 1;     /* The negative sign is only used when the base is 10. */
+
+    if (value < 0) {
+        valueU = -value;
+    } else {
+        valueU = value;
+    }
+
+    dstEnd = dst;
+    do
+    {
+        int remainder = valueU % radix;
+        if (remainder > 9) {
+            *dstEnd = (char)((remainder - 10) + 'a');
+        } else {
+            *dstEnd = (char)(remainder + '0');
+        }
+
+        dstEnd += 1;
+        dstSizeInBytes -= 1;
+        valueU /= radix;
+    } while (dstSizeInBytes > 0 && valueU > 0);
+
+    if (dstSizeInBytes == 0) {
+        dst[0] = '\0';
+        return 22;  /* Ran out of room in the output buffer. */
+    }
+
+    if (sign < 0) {
+        *dstEnd++ = '-';
+        dstSizeInBytes -= 1;
+    }
+
+    if (dstSizeInBytes == 0) {
+        dst[0] = '\0';
+        return 22;  /* Ran out of room in the output buffer. */
+    }
+
+    *dstEnd = '\0';
+
+
+    /* At this point the string will be reversed. */
+    dstEnd -= 1;
+    while (dst < dstEnd) {
+        char temp = *dst;
+        *dst = *dstEnd;
+        *dstEnd = temp;
+
+        dst += 1;
+        dstEnd -= 1;
+    }
+
+    return 0;
+}
+
+MA_API MA_NO_INLINE int ma_pipewire_strcat_s(char* dst, size_t dstSizeInBytes, const char* src)
+{
+    char* dstorig;
+
+    if (dst == 0) {
+        return 22;
+    }
+    if (dstSizeInBytes == 0) {
+        return 34;
+    }
+    if (src == 0) {
+        dst[0] = '\0';
+        return 22;
+    }
+
+    dstorig = dst;
+
+    while (dstSizeInBytes > 0 && dst[0] != '\0') {
+        dst += 1;
+        dstSizeInBytes -= 1;
+    }
+
+    if (dstSizeInBytes == 0) {
+        return 22;  /* Unterminated. */
+    }
+
+
+    while (dstSizeInBytes > 0 && src[0] != '\0') {
+        *dst++ = *src++;
+        dstSizeInBytes -= 1;
+    }
+
+    if (dstSizeInBytes > 0) {
+        dst[0] = '\0';
+    } else {
+        dstorig[0] = '\0';
+        return 34;
+    }
+
+    return 0;
+}
+
+
 #include <string.h> /* memset() */
 #include <assert.h> /* assert() */
 
@@ -34,6 +147,7 @@
 #endif
 
 #if defined(MA_HAS_PIPEWIRE)
+#if 0
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic"
@@ -43,9 +157,10 @@
         #pragma GCC diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
     #endif
 #endif
+#endif
 /*#include <pipewire/pipewire.h>*/
 
-#include <spa/param/audio/format-utils.h>   /* For spa_format_audio_raw_build() */
+/*#include <spa/param/audio/format-utils.h>*/
 /*#include <spa/param/audio/raw.h>*/
 /*#include <spa/utils/dict.h>*/
 /*#include <spa/pod/command.h>*/
@@ -395,6 +510,36 @@ struct ma_spa_hook
 
 
 /* spa_pod is the most complicated part of SPA that we use. We're only implementing specifically what we need. */
+#define MA_SPA_TYPE_Id                      3
+#define MA_SPA_TYPE_Int                     4
+#define MA_SPA_TYPE_Array                   13
+#define MA_SPA_TYPE_Object                  15
+#define MA_SPA_TYPE_Choice                  19
+
+#define MA_SPA_TYPE_OBJECT_Format           262147
+#define MA_SPA_TYPE_OBJECT_ParamBuffers     262148
+
+#define MA_SPA_PARAM_EnumFormat             3
+#define MA_SPA_PARAM_Format                 4
+#define MA_SPA_PARAM_Buffers                5
+
+#define MA_SPA_PARAM_BUFFERS_buffers        1
+#define MA_SPA_PARAM_BUFFERS_blocks         2
+#define MA_SPA_PARAM_BUFFERS_size           3
+#define MA_SPA_PARAM_BUFFERS_stride         4
+
+#define MA_SPA_FORMAT_mediaType             1
+#define MA_SPA_FORMAT_mediaSubtype          2
+
+#define MA_SPA_MEDIA_TYPE_audio             1
+#define MA_SPA_MEDIA_SUBTYPE_raw            1
+
+#define MA_SPA_FORMAT_AUDIO_format          65537
+#define MA_SPA_FORMAT_AUDIO_rate            65539
+#define MA_SPA_FORMAT_AUDIO_channels        65540
+#define MA_SPA_FORMAT_AUDIO_position        65541
+
+
 struct ma_spa_pod
 {
     ma_uint32 size;
@@ -415,7 +560,7 @@ static MA_INLINE struct ma_spa_pod_id ma_spa_pod_id_init(ma_uint32 value)
 
     MA_PIPEWIRE_ZERO_OBJECT(&pod);
     pod.pod.size = 4; /* Does not include the header or padding. */
-    pod.pod.type = SPA_TYPE_Id;
+    pod.pod.type = MA_SPA_TYPE_Id;
     pod.value    = value;
 
     return pod;
@@ -435,7 +580,7 @@ static MA_INLINE struct ma_spa_pod_int ma_spa_pod_int_init(ma_int32 value)
 
     MA_PIPEWIRE_ZERO_OBJECT(&pod);
     pod.pod.size = 4; /* Does not include the header or padding. */
-    pod.pod.type = SPA_TYPE_Int;
+    pod.pod.type = MA_SPA_TYPE_Int;
     pod.value    = value;
 
     return pod;
@@ -578,14 +723,14 @@ static MA_INLINE struct ma_spa_pod_buffer_params ma_spa_pod_buffer_params_init(m
     MA_PIPEWIRE_ZERO_OBJECT(&pod);
 
     pod.object.pod.size  = sizeof(struct ma_spa_pod_buffer_params) - sizeof(struct ma_spa_pod); /* Don't include the header in the size. */
-    pod.object.pod.type  = SPA_TYPE_Object;
-    pod.object.body.type = SPA_TYPE_OBJECT_ParamBuffers;
-    pod.object.body.id   = SPA_PARAM_Buffers;
+    pod.object.pod.type  = MA_SPA_TYPE_Object;
+    pod.object.body.type = MA_SPA_TYPE_OBJECT_ParamBuffers;
+    pod.object.body.id   = MA_SPA_PARAM_Buffers;
 
-    pod.buffers = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_buffers, 2);
-    pod.blocks  = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_blocks,  1);
-    pod.stride  = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_stride,  (ma_int32)strideInBytes);
-    pod.size    = ma_spa_pod_prop_int_init(SPA_PARAM_BUFFERS_size,    (ma_int32)(strideInBytes * bufferSizeInFrames));
+    pod.buffers = ma_spa_pod_prop_int_init(MA_SPA_PARAM_BUFFERS_buffers, 2);
+    pod.blocks  = ma_spa_pod_prop_int_init(MA_SPA_PARAM_BUFFERS_blocks,  1);
+    pod.stride  = ma_spa_pod_prop_int_init(MA_SPA_PARAM_BUFFERS_stride,  (ma_int32)strideInBytes);
+    pod.size    = ma_spa_pod_prop_int_init(MA_SPA_PARAM_BUFFERS_size,    (ma_int32)(strideInBytes * bufferSizeInFrames));
 
     return pod;
 }
@@ -625,27 +770,27 @@ static MA_INLINE struct ma_spa_pod_audio_info_raw ma_spa_pod_audio_info_raw_init
     MA_PIPEWIRE_ZERO_OBJECT(&pod);
 
     pod.object.pod.size  = sizeof(struct ma_spa_pod_object) - sizeof(struct ma_spa_pod); /* Don't include the header in the size. */
-    pod.object.pod.type  = SPA_TYPE_Object;
-    pod.object.body.type = SPA_TYPE_OBJECT_Format;
-    pod.object.body.id   = SPA_PARAM_EnumFormat;
+    pod.object.pod.type  = MA_SPA_TYPE_Object;
+    pod.object.body.type = MA_SPA_TYPE_OBJECT_Format;
+    pod.object.body.id   = MA_SPA_PARAM_EnumFormat;
 
-    pod.mediaType = ma_spa_pod_prop_id_init(SPA_FORMAT_mediaType, SPA_MEDIA_TYPE_audio);
+    pod.mediaType = ma_spa_pod_prop_id_init(MA_SPA_FORMAT_mediaType, MA_SPA_MEDIA_TYPE_audio);
     pod.object.pod.size += sizeof(struct ma_spa_pod_prop_id);
 
-    pod.mediaSubtype = ma_spa_pod_prop_id_init(SPA_FORMAT_mediaSubtype, SPA_MEDIA_SUBTYPE_raw);
+    pod.mediaSubtype = ma_spa_pod_prop_id_init(MA_SPA_FORMAT_mediaSubtype, MA_SPA_MEDIA_SUBTYPE_raw);
     pod.object.pod.size += sizeof(struct ma_spa_pod_prop_id);
 
-    pod.format = ma_spa_pod_prop_id_init(SPA_FORMAT_AUDIO_format, (ma_uint32)format);
+    pod.format = ma_spa_pod_prop_id_init(MA_SPA_FORMAT_AUDIO_format, (ma_uint32)format);
     pod.object.pod.size += sizeof(struct ma_spa_pod_prop_id);
 
     if (channels > 0) {
-        pod.extra[extraIndex] = ma_spa_pod_prop_int_init(SPA_FORMAT_AUDIO_channels, (ma_int32)channels);
+        pod.extra[extraIndex] = ma_spa_pod_prop_int_init(MA_SPA_FORMAT_AUDIO_channels, (ma_int32)channels);
         pod.object.pod.size += sizeof(struct ma_spa_pod_prop_int);
         extraIndex += 1;
     }
 
     if (sampleRate > 0) {
-        pod.extra[extraIndex] = ma_spa_pod_prop_int_init(SPA_FORMAT_AUDIO_rate, (ma_int32)sampleRate);
+        pod.extra[extraIndex] = ma_spa_pod_prop_int_init(MA_SPA_FORMAT_AUDIO_rate, (ma_int32)sampleRate);
         pod.object.pod.size += sizeof(struct ma_spa_pod_prop_int);
         extraIndex += 1;
     }
@@ -663,13 +808,13 @@ static MA_INLINE ma_uint32 ma_spa_pod_get_id_value(const struct ma_spa_pod* pod)
 
     switch (pod->type)
     {
-        case SPA_TYPE_Id:
+        case MA_SPA_TYPE_Id:
         {
             const struct ma_spa_pod_id* pPodID = (const struct ma_spa_pod_id*)pod;
             return pPodID->value;
         }
 
-        case SPA_TYPE_Choice:
+        case MA_SPA_TYPE_Choice:
         {
             const struct ma_spa_pod_choice* pPodChoice = (const struct ma_spa_pod_choice*)pod;
             const void* pValues = ma_spa_pod_choice_get_values(pPodChoice);
@@ -692,13 +837,13 @@ static MA_INLINE ma_int32 ma_spa_pod_get_int_value(const struct ma_spa_pod* pod)
 
     switch (pod->type)
     {
-        case SPA_TYPE_Id:
+        case MA_SPA_TYPE_Id:
         {
             const struct ma_spa_pod_int* pPodInt = (const struct ma_spa_pod_int*)pod;
             return pPodInt->value;
         }
 
-        case SPA_TYPE_Choice:
+        case MA_SPA_TYPE_Choice:
         {
             const struct ma_spa_pod_choice* pPodChoice = (const struct ma_spa_pod_choice*)pod;
             const void* pValues = ma_spa_pod_choice_get_values(pPodChoice);
@@ -854,7 +999,7 @@ struct ma_pw_stream_events
     void (* state_changed)(void* data, enum ma_pw_stream_state oldState, enum ma_pw_stream_state newState, const char* error);
     void (* control_info )(void* data, ma_uint32 id, const struct ma_pw_stream_control* control);
     void (* io_changed   )(void* data, ma_uint32 id, void* area, ma_uint32 size);
-    void (* param_changed)(void* data, ma_uint32 id, const struct spa_pod* param);
+    void (* param_changed)(void* data, ma_uint32 id, const struct ma_spa_pod* param);
     void (* add_buffer   )(void* data, struct ma_pw_buffer* buffer);
     void (* remove_buffer)(void* data, struct ma_pw_buffer* buffer);
     void (* process      )(void* data);
@@ -1316,7 +1461,7 @@ typedef struct
 } ma_enumerate_devices_data_pipewire;
 
 
-static void ma_on_core_done__pipewire(void* pUserData, uint32_t id, int seq)
+static void ma_on_core_done__pipewire(void* pUserData, ma_uint32 id, int seq)
 {
     ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)pUserData;
 
@@ -1454,7 +1599,7 @@ static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire =
 };
 
 
-static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct ma_spa_dict* props, ma_device_type deviceType)
+static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props, ma_device_type deviceType)
 {
     ma_device_info deviceInfo;
     const char* pNodeName;  /* <-- This is the ID. */
@@ -1498,7 +1643,7 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
     /*printf("Registry Global Added By Type: ID=%u, Type=%s, DeviceType=%d, NiceName=%s\n", id, type, deviceType, pNiceName);*/
 }
 
-static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, uint32_t id, uint32_t permissions, const char* type, uint32_t version, const struct ma_spa_dict* props)
+static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props)
 {
     ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)pUserData;
     const char* pMediaClass;
@@ -1516,7 +1661,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
         if (pName != NULL && strcmp(pName, "default") == 0) {
             pEnumData->pMetadata = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
             if (pEnumData->pMetadata != NULL) {
-                spa_zero(pEnumData->metadataListener);
+                MA_PIPEWIRE_ZERO_OBJECT(&pEnumData->metadataListener);
 
                 /* Not using pw_metadata_add_listener() because it appears to be an inline function and thus not exported by libpipewire. */
                 ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadata)->cb.funcs)->add_listener(pEnumData->pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);
@@ -1604,7 +1749,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 
     ma_enumerate_devices_data_pipewire_init(&enumData, pContextStatePipeWire, pLoop, pCore, pRegistry, ma_context_get_allocation_callbacks(pContext));
 
-    spa_zero(registeryListener);
+    MA_PIPEWIRE_ZERO_OBJECT(&registeryListener);
     pContextStatePipeWire->pw_registry_add_listener(pRegistry, &registeryListener, &ma_gRegistryEventsPipeWire_Enumeration, &enumData);
 
     /*
@@ -1689,12 +1834,12 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 }
 
 
-static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 id, const struct spa_pod* pParam, ma_device_type deviceType)
+static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 id, const struct ma_spa_pod* pParam, ma_device_type deviceType)
 {
     ma_device_state_pipewire*  pDeviceStatePipeWire  = (ma_device_state_pipewire*)pUserData;
     ma_context_state_pipewire* pContextStatePipeWire = pDeviceStatePipeWire->pContextStatePipeWire;
 
-    if (id == SPA_PARAM_Format) {
+    if (id == MA_SPA_PARAM_Format) {
         ma_pipewire_stream_state* pStreamState;
         struct ma_spa_pod_buffer_params bufferParams;
         const struct ma_spa_pod* pBufferParameters[1];
@@ -1738,7 +1883,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
             ma_uint32 cursor = 0;
             ma_uint32 size;
 
-            if (pParam->type != SPA_TYPE_Object || pParam->size < sizeof(struct ma_spa_pod_object_body)) {
+            if (pParam->type != MA_SPA_TYPE_Object || pParam->size < sizeof(struct ma_spa_pod_object_body)) {
                 ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid pod type).");
                 return;
             }
@@ -1749,7 +1894,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
             size = pParam->size + sizeof(struct ma_spa_pod);
             cursor += sizeof(struct ma_spa_pod);
             
-            if (pObject->body.type != SPA_TYPE_OBJECT_Format) {
+            if (pObject->body.type != MA_SPA_TYPE_OBJECT_Format) {
                 ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid body type).");
                 return;
             }
@@ -1772,27 +1917,27 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
 
                 switch (pNextProp->key)
                 {
-                    case SPA_FORMAT_AUDIO_format:
+                    case MA_SPA_FORMAT_AUDIO_format:
                     {
                         formatPA = (enum ma_spa_audio_format)ma_spa_pod_get_id_value(pPropValue);
                     } break;
 
-                    case SPA_FORMAT_AUDIO_channels:
+                    case MA_SPA_FORMAT_AUDIO_channels:
                     {
                         channels = ma_spa_pod_get_int_value(pPropValue);
                     } break;
 
-                    case SPA_FORMAT_AUDIO_rate:
+                    case MA_SPA_FORMAT_AUDIO_rate:
                     {
                         sampleRate = ma_spa_pod_get_int_value(pPropValue);
                     } break;
 
-                    case SPA_FORMAT_AUDIO_position:
+                    case MA_SPA_FORMAT_AUDIO_position:
                     {
                         ma_uint32 positionCount;
 
                         /* I'm assuming we can only get an array back for this. */
-                        if (pPropValue->type != SPA_TYPE_Array) {
+                        if (pPropValue->type != MA_SPA_TYPE_Array) {
                             ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid type for position property).");
                             return;
                         }
@@ -1830,9 +1975,18 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         {
             struct ma_spa_dict_item items[1];
             struct ma_spa_dict dict;
+            char bufferSizeInFramesStr[32];
+            char sampleRateStr[32];
             char latencyStr[32];
 
-            snprintf(latencyStr, sizeof(latencyStr), "%u/%u", (unsigned int)pStreamState->bufferSizeInFrames, pStreamState->sampleRate);
+            ma_pipewire_itoa_s(pStreamState->bufferSizeInFrames, bufferSizeInFramesStr, sizeof(bufferSizeInFramesStr), 10);
+            ma_pipewire_itoa_s(pStreamState->sampleRate,         sampleRateStr,         sizeof(sampleRateStr),         10);
+
+            latencyStr[0] = '\0';
+            ma_pipewire_strcat_s(latencyStr, sizeof(latencyStr), bufferSizeInFramesStr);
+            ma_pipewire_strcat_s(latencyStr, sizeof(latencyStr), "/");
+            ma_pipewire_strcat_s(latencyStr, sizeof(latencyStr), sampleRateStr);
+
             items[0] = MA_SPA_DICT_ITEM_INIT(MA_PW_KEY_NODE_LATENCY, latencyStr);
 
             dict = MA_SPA_DICT_INIT(items, 1);
@@ -2010,12 +2164,12 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
 }
 
 
-static void ma_stream_event_param_changed_playback__pipewire(void* pUserData, ma_uint32 id, const struct spa_pod* pParam)
+static void ma_stream_event_param_changed_playback__pipewire(void* pUserData, ma_uint32 id, const struct ma_spa_pod* pParam)
 {
     ma_stream_event_param_changed__pipewire(pUserData, id, pParam, ma_device_type_playback);
 }
 
-static void ma_stream_event_param_changed_capture__pipewire(void* pUserData, ma_uint32 id, const struct spa_pod* pParam)
+static void ma_stream_event_param_changed_capture__pipewire(void* pUserData, ma_uint32 id, const struct ma_spa_pod* pParam)
 {
     ma_stream_event_param_changed__pipewire(pUserData, id, pParam, ma_device_type_capture);
 }
@@ -2436,8 +2590,10 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
 
 ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_PipeWire;
 
+#if 0
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic pop
+#endif
 #endif
 #else
 ma_device_backend_vtable* ma_device_backend_pipewire = NULL;
