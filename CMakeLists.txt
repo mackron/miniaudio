@@ -159,14 +159,6 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 
-function(is_backend_enabled NAME)
-    if (NOT MINIAUDIO_NO_${NAME} AND (NOT MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS OR MINIAUDIO_ENABLE_${NAME}))
-        set(${NAME}_ENABLED TRUE PARENT_SCOPE)
-    else()
-        set(${NAME}_ENABLED FALSE PARENT_SCOPE)
-    endif()
-endfunction()
-
 
 # External Libraries
 set(LINKED_LIBS)
@@ -709,8 +701,7 @@ endif()
 
 
 if(MINIAUDIO_NO_RUNTIME_LINKING)
-    is_backend_enabled(PULSEAUDIO)
-    if (PULSEAUDIO_ENABLED)
+    if (NOT MINIAUDIO_NO_PULSEAUDIO)
         find_package(PulseAudio)
 
         if (PulseAudio_FOUND)
@@ -720,8 +711,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
         endif()
     endif()
 
-    is_backend_enabled(ALSA)
-    if (ALSA_ENABLED)
+    if (NOT MINIAUDIO_NO_ALSA)
         find_package(PkgConfig QUIET)
 
         if(PKG_CONFIG_FOUND)
@@ -745,8 +735,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
         endif()
     endif()
 
-    is_backend_enabled(SNDIO)
-    if (SNDIO_ENABLED)
+    if (NOT MINIAUDIO_NO_SNDIO)
         find_package(PkgConfig QUIET)
 
         if(PKG_CONFIG_FOUND)
@@ -764,8 +753,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
         endif()
     endif()
 
-    is_backend_enabled(JACK)
-    if (JACK_ENABLED)
+    if (NOT MINIAUDIO_NO_JACK)
         find_package(PkgConfig QUIET)
 
         if(PKG_CONFIG_FOUND)
