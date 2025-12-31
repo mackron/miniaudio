@@ -25,8 +25,9 @@ option(MINIAUDIO_NO_LIBOPUS                    "Disable miniaudio_libopus"      
 option(MINIAUDIO_NO_WASAPI                     "Disable the WASAPI backend"          OFF)
 option(MINIAUDIO_NO_DSOUND                     "Disable the DirectSound backend"     OFF)
 option(MINIAUDIO_NO_WINMM                      "Disable the WinMM backend"           OFF)
-option(MINIAUDIO_NO_ALSA                       "Disable the ALSA backend"            OFF)
+option(MINIAUDIO_NO_PIPEWIRE                   "Disable the PipeWire backend"        OFF)
 option(MINIAUDIO_NO_PULSEAUDIO                 "Disable the PulseAudio backend"      OFF)
+option(MINIAUDIO_NO_ALSA                       "Disable the ALSA backend"            OFF)
 option(MINIAUDIO_NO_JACK                       "Disable the JACK backend"            OFF)
 option(MINIAUDIO_NO_COREAUDIO                  "Disable the CoreAudio backend"       OFF)
 option(MINIAUDIO_NO_SNDIO                      "Disable the sndio backend"           OFF)
@@ -36,13 +37,13 @@ option(MINIAUDIO_NO_AAUDIO                     "Disable the AAudio backend"     
 option(MINIAUDIO_NO_OPENSL                     "Disable the OpenSL|ES backend"       OFF)
 option(MINIAUDIO_NO_WEBAUDIO                   "Disable the Web Audio backend"       OFF)
 option(MINIAUDIO_NO_NULL                       "Disable the null backend"            OFF)
-option(MINIAUDIO_NO_PIPEWIRE                   "Disable the PipeWire backend"        OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"           OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"      OFF)
 option(MINIAUDIO_ENABLE_WINMM                  "Enable the WinMM backend"            OFF)
-option(MINIAUDIO_ENABLE_ALSA                   "Enable the ALSA backend"             OFF)
+option(MINIAUDIO_ENABLE_PIPEWIRE               "Enable the PipeWire backend"         OFF)
 option(MINIAUDIO_ENABLE_PULSEAUDIO             "Enable the PulseAudio backend"       OFF)
+option(MINIAUDIO_ENABLE_ALSA                   "Enable the ALSA backend"             OFF)
 option(MINIAUDIO_ENABLE_JACK                   "Enable the JACK backend"             OFF)
 option(MINIAUDIO_ENABLE_COREAUDIO              "Enable the CoreAudio backend"        OFF)
 option(MINIAUDIO_ENABLE_SNDIO                  "Enable the sndio backend"            OFF)
@@ -71,16 +72,6 @@ option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types" 
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
 option(MINIAUDIO_INSTALL                       "Enable installation targets"         ON) 
 
-include(GNUInstallDirs)
-
-# Construct compiler options.
-set(COMPILE_OPTIONS)
-
-# Store libraries to install
-# When installing any header that imports miniaudio.h from a relative path, we
-# need to maintain its place in the directory tree so it can find miniaudio.
-set(LIBS_TO_INSTALL)
-
 
 # Special rules for Emscripten.
 #
@@ -94,6 +85,43 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     set(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS ON)
     set(MINIAUDIO_ENABLE_WEBAUDIO ON)
 endif()
+
+
+# Normalize our MINIAUDIO_NO_[BACKEND] options to account for MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS. This makes
+# it easier to check if a backend is enabled or not.
+function(normalize_backend_enabled_option NAME)
+    if (MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS AND NOT MINIAUDIO_ENABLE_${NAME})
+        set(MINIAUDIO_NO_${NAME} ON)
+    endif()
+endfunction()
+
+normalize_backend_enabled_option(WASAPI)
+normalize_backend_enabled_option(DSOUND)
+normalize_backend_enabled_option(WINMM)
+normalize_backend_enabled_option(PIPEWIRE)
+normalize_backend_enabled_option(PULSEAUDIO)
+normalize_backend_enabled_option(ALSA)
+normalize_backend_enabled_option(JACK)
+normalize_backend_enabled_option(COREAUDIO)
+normalize_backend_enabled_option(SNDIO)
+normalize_backend_enabled_option(AUDIO4)
+normalize_backend_enabled_option(OSS)
+normalize_backend_enabled_option(AAUDIO)
+normalize_backend_enabled_option(OPENSL)
+normalize_backend_enabled_option(WEBAUDIO)
+normalize_backend_enabled_option(NULL)
+
+
+
+include(GNUInstallDirs)
+
+# Construct compiler options.
+set(COMPILE_OPTIONS)
+
+# Store libraries to install
+# When installing any header that imports miniaudio.h from a relative path, we
+# need to maintain its place in the directory tree so it can find miniaudio.
+set(LIBS_TO_INSTALL)
 
 
 if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
@@ -144,8 +172,7 @@ endfunction()
 set(LINKED_LIBS)
 
 if(MINIAUDIO_NO_RUNTIME_LINKING)
-    is_backend_enabled(PIPEWIRE)
-    if(PIPEWIRE_ENABLED)
+    if(NOT MINIAUDIO_NO_PIPEWIRE)
         find_package(PkgConfig QUIET)
 
         if(PKG_CONFIG_FOUND)
@@ -545,8 +572,7 @@ target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
 
 # Extra Backends
-is_backend_enabled(PIPEWIRE)
-if(PIPEWIRE_ENABLED AND NOT MINIAUDIO_NO_DEVICEIO)
+if(NOT MINIAUDIO_NO_PIPEWIRE AND NOT MINIAUDIO_NO_DEVICEIO)
     add_library(miniaudio_pipewire STATIC
         extras/backends/pipewire/miniaudio_pipewire.c
         extras/backends/pipewire/miniaudio_pipewire.h
