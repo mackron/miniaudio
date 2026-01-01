@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -78,6 +78,10 @@ static struct
     ma_bool32 hasEncoder;   /* Used for duplex mode to determine whether or not audio data should be written to a file. */
     ma_bool32 wantsToClose;
     ma_uint64 runTimeInFrames;  /* Only used in auto mode. */
+    ma_device_info* pPlaybackDevices;
+    ma_uint32 playbackDeviceCount;
+    ma_device_info* pCaptureDevices;
+    ma_uint32 captureDeviceCount;
 } g_State;
 
 const char* get_mode_description(ma_device_type deviceType)
@@ -329,35 +333,29 @@ ma_result print_device_info(const ma_device_info* pDeviceInfo)
     return MA_SUCCESS;
 }
 
-ma_result enumerate_devices(ma_context* pContext)
+ma_result enumerate_devices(void)
 {
     ma_result result;
-    ma_device_info* pPlaybackDevices;
-    ma_uint32 playbackDeviceCount;
-    ma_device_info* pCaptureDevices;
-    ma_uint32 captureDeviceCount;
     ma_uint32 iDevice;
 
-    MA_ASSERT(pContext != NULL);
-
-    result = ma_context_get_devices(pContext, &pPlaybackDevices, &playbackDeviceCount, &pCaptureDevices, &captureDeviceCount);
+    result = ma_context_get_devices(&g_State.context, &g_State.pPlaybackDevices, &g_State.playbackDeviceCount, &g_State.pCaptureDevices, &g_State.captureDeviceCount);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     printf("Playback Devices\n");
     printf("----------------\n");
-    for (iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
+    for (iDevice = 0; iDevice < g_State.playbackDeviceCount; iDevice += 1) {
         printf("%d: ", iDevice);
-        print_device_info(&pPlaybackDevices[iDevice]);
+        print_device_info(&g_State.pPlaybackDevices[iDevice]);
     }
     printf("\n");
 
     printf("Capture Devices\n");
     printf("---------------\n");
-    for (iDevice = 0; iDevice < captureDeviceCount; iDevice += 1) {
+    for (iDevice = 0; iDevice < g_State.captureDeviceCount; iDevice += 1) {
         printf("%d: ", iDevice);
-        print_device_info(&pCaptureDevices[iDevice]);
+        print_device_info(&g_State.pCaptureDevices[iDevice]);
     }
     printf("\n");
 
@@ -472,6 +470,8 @@ int main(int argc, char** argv)
     ma_waveform_type waveformType = ma_waveform_type_sine;
     ma_noise_type noiseType = ma_noise_type_white;
     ma_threading_mode threadingMode = MA_THREADING_MODE_MULTI_THREADED;
+    int playbackDeviceIndex = -1;
+    int captureDeviceIndex = -1;
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
     ma_bool32 enumerate = MA_TRUE;
     ma_bool32 interactive = MA_TRUE;
@@ -487,6 +487,25 @@ int main(int argc, char** argv)
             interactive = MA_FALSE;
             continue;
         }
+
+        if (strcmp(argv[iarg], "--playback-device") == 0) {
+            if (iarg + 1 < argc) {
+                playbackDeviceIndex = atoi(argv[iarg + 1]);
+                iarg += 1;
+            }
+
+            continue;
+        }
+
+        if (strcmp(argv[iarg], "--capture-device") == 0) {
+            if (iarg + 1 < argc) {
+                captureDeviceIndex = atoi(argv[iarg + 1]);
+                iarg += 1;
+            }
+
+            continue;
+        }
+
 
         /* mode */
         if (try_parse_mode(argv[iarg], &deviceType)) {
@@ -541,8 +560,8 @@ int main(int argc, char** argv)
     printf("\n");
 
     /* Enumerate if required. */
-    if (enumerate) {
-        enumerate_devices(&g_State.context);
+    if (enumerate || playbackDeviceIndex != -1 || captureDeviceIndex != -1) {
+        enumerate_devices();
     }
 
     /*
@@ -570,6 +589,23 @@ int main(int argc, char** argv)
     deviceConfig.sampleRate           = deviceSampleRate;
     deviceConfig.dataCallback         = on_data;
     deviceConfig.notificationCallback = on_notification;
+
+    if (playbackDeviceIndex != -1) {
+        if (playbackDeviceIndex < (int)g_State.playbackDeviceCount) {
+            deviceConfig.playback.pDeviceID = &g_State.pPlaybackDevices[playbackDeviceIndex].id;
+        } else {
+            printf("Invalid playback device index %d. Using default device.\n", playbackDeviceIndex);
+        }
+    }
+
+    if (captureDeviceIndex != -1) {
+        if (captureDeviceIndex < (int)g_State.captureDeviceCount) {
+            deviceConfig.capture.pDeviceID = &g_State.pCaptureDevices[captureDeviceIndex].id;
+        } else {
+            printf("Invalid capture device index %d. Using default device.\n", captureDeviceIndex);
+        }
+    }
+
     result = ma_device_init(&g_State.context, &deviceConfig, &g_State.device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize device: %s.\n", ma_result_description(result));
