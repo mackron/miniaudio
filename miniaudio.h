@@ -42552,10 +42552,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const void* pCo
             miniaudio.unlock = function() {
                 for(var i = 0; i < miniaudio.devices.length; ++i) {
                     var device = miniaudio.devices[i];
-                    if (device != null &&
-                        device.webaudio != null &&
-                        device.state === miniaudio.device_status.started) {
-
+                    if (device != null && device.webaudio != null && device.state === miniaudio.device_status.started) {
                         device.webaudio.resume().then(() => {
                             _ma_device_post_notification_unlocked_emscripten(device.pDevice);
                         },
@@ -42724,8 +42721,8 @@ typedef struct
 {
     ma_device* pDevice;
     ma_device_state_webaudio* pDeviceStateWebAudio;
-    ma_device_descriptor* pDescriptorPlayback;
-    ma_device_descriptor* pDescriptorCapture;
+    ma_device_descriptor descriptorPlayback;
+    ma_device_descriptor descriptorCapture;
 } ma_audio_worklet_thread_initialized_data;
 
 static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const AudioSampleFrame* pInputs, int outputCount, AudioSampleFrame* pOutputs, int paramCount, const AudioParamFrame* pParams, void* pUserData)
@@ -42803,8 +42800,6 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     EmscriptenAudioWorkletNodeCreateOptions audioWorkletOptions;
     int channels = 0;
     size_t intermediaryBufferSizeInFrames;
-    int sampleRate;
-    ma_uint32 chosenPeriodSizeInFrames;
 
     if (success == EM_FALSE) {
         pParameters->pDeviceStateWebAudio->initResult = MA_ERROR;
@@ -42823,10 +42818,12 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     proper control over the channel count. In the capture case, we'll have to output silence to its output node.
     */
     if (deviceType == ma_device_type_capture) {
-        channels = (int)((pParameters->pDescriptorCapture->channels > 0) ? pParameters->pDescriptorCapture->channels : MA_DEFAULT_CHANNELS);
+        MA_ASSERT(pParameters->descriptorCapture.channels > 0);   /* Should have been initialized to a valid value earlier. */
+        channels = (int)pParameters->descriptorCapture.channels;
         audioWorkletOptions.numberOfInputs = 1;
     } else {
-        channels = (int)((pParameters->pDescriptorPlayback->channels > 0) ? pParameters->pDescriptorPlayback->channels : MA_DEFAULT_CHANNELS);
+        MA_ASSERT(pParameters->descriptorPlayback.channels > 0);   /* Should have been initialized to a valid value earlier. */
+        channels = (int)pParameters->descriptorPlayback.channels;
 
         if (deviceType == ma_device_type_duplex) {
             audioWorkletOptions.numberOfInputs = 1;
@@ -42910,55 +42907,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
         }
     }
 
-    /* We need to update the descriptors so that they reflect the internal data format. Both capture and playback should be the same. */
-    sampleRate = EM_ASM_INT({ return emscriptenGetAudioObject($0).sampleRate; }, audioContext);
-
-    /*
-    We're now going to choose a period size. For single-threaded mode, the quantum size reported by Web Audio is too small
-    for us to use so we'll need to use something bigger for our internal bufferring.
-    */
-    if (ma_device_get_threading_mode(pParameters->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        chosenPeriodSizeInFrames = intermediaryBufferSizeInFrames;
-        if (pParameters->pDescriptorCapture != NULL) {
-            if (chosenPeriodSizeInFrames < pParameters->pDescriptorCapture->periodSizeInFrames) {
-                chosenPeriodSizeInFrames = pParameters->pDescriptorCapture->periodSizeInFrames;
-            }
-        }
-        if (pParameters->pDescriptorPlayback != NULL) {
-            if (chosenPeriodSizeInFrames < pParameters->pDescriptorPlayback->periodSizeInFrames) {
-                chosenPeriodSizeInFrames = pParameters->pDescriptorPlayback->periodSizeInFrames;
-            }
-        }
-
-        /* I'd like to keep this a power of two. In my testing, 512 was too small and results in glitching so going with 1024. */
-        if (chosenPeriodSizeInFrames < 1024) {
-            chosenPeriodSizeInFrames = 1024;
-        }
-    } else {
-        chosenPeriodSizeInFrames = intermediaryBufferSizeInFrames;
-    }
-
-    if (pParameters->pDescriptorCapture != NULL) {
-        pParameters->pDescriptorCapture->format              = ma_format_f32;
-        pParameters->pDescriptorCapture->channels            = (ma_uint32)channels;
-        pParameters->pDescriptorCapture->sampleRate          = (ma_uint32)sampleRate;
-        ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pParameters->pDescriptorCapture->channelMap, ma_countof(pParameters->pDescriptorCapture->channelMap), pParameters->pDescriptorCapture->channels);
-        pParameters->pDescriptorCapture->periodSizeInFrames  = chosenPeriodSizeInFrames;
-        pParameters->pDescriptorCapture->periodCount         = 1;
-    }
-
-    if (pParameters->pDescriptorPlayback != NULL) {
-        pParameters->pDescriptorPlayback->format             = ma_format_f32;
-        pParameters->pDescriptorPlayback->channels           = (ma_uint32)channels;
-        pParameters->pDescriptorPlayback->sampleRate         = (ma_uint32)sampleRate;
-        ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pParameters->pDescriptorPlayback->channelMap, ma_countof(pParameters->pDescriptorPlayback->channelMap), pParameters->pDescriptorPlayback->channels);
-        pParameters->pDescriptorPlayback->periodSizeInFrames = chosenPeriodSizeInFrames;
-        pParameters->pDescriptorPlayback->periodCount        = 1;
-    }
-
-    if (ma_device_get_threading_mode(pParameters->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        ma_device_state_async_init(deviceType, pParameters->pDescriptorPlayback, pParameters->pDescriptorCapture, ma_device_get_allocation_callbacks(pParameters->pDevice), &pParameters->pDeviceStateWebAudio->async);
-    }
+    
 
     /* At this point we're done and we can return. */
     ma_log_postf(ma_device_get_log(pParameters->pDevice), MA_LOG_LEVEL_DEBUG, "AudioWorklets: Created worklet node: %d", pParameters->pDeviceStateWebAudio->audioWorklet);
@@ -43064,8 +43013,88 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             return MA_OUT_OF_MEMORY;
         }
 
+        /*
+        We can build the descriptors now before we've initialized the device. The format is ma_format_f32, the channel count
+        is chosen by us, and the sample rate is taken from the audio context which we've initialized just above. The period
+        size is also chosen by us.
+        */
+        {
+            ma_format format;
+            ma_uint32 channels;
+            ma_uint32 sampleRate;
+            ma_uint32 periodSizeInFrames;
+
+            /* The format is always 32-bit floating point. */
+            format = ma_format_f32;
+
+            /* The channels are chosen by us. For duplex mode we'll always use the playback channel count. */
+            if (deviceType == ma_device_type_capture) {
+                channels = (pDescriptorCapture->channels  > 0) ? pDescriptorCapture->channels  : MA_DEFAULT_CHANNELS;
+            } else {
+                channels = (pDescriptorPlayback->channels > 0) ? pDescriptorPlayback->channels : MA_DEFAULT_CHANNELS;
+            }
+
+            /* The sample rate is taken from the audio context. */
+            sampleRate = (ma_uint32)EM_ASM_INT({ return emscriptenGetAudioObject($0).sampleRate; }, pDeviceStateWebAudio->audioContext);
+
+            /*
+            We're now going to choose a period size. For single-threaded mode, the quantum size reported by Web Audio is too small
+            for us to use so we'll need to use something bigger for our internal bufferring.
+            */
+            #if defined(MA_SUPPORT_AUDIO_WORKLETS_VARIABLE_BUFFER_SIZE)
+            {
+                periodSizeInFrames = (ma_uint32)emscripten_audio_context_quantum_size(pDeviceStateWebAudio->audioContext);
+            }
+            #else
+            {
+                periodSizeInFrames = 128;
+            }
+            #endif
+
+            if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+                if (pDescriptorCapture != NULL) {
+                    if (periodSizeInFrames < pDescriptorCapture->periodSizeInFrames) {
+                        periodSizeInFrames = pDescriptorCapture->periodSizeInFrames;
+                    }
+                }
+                if (pDescriptorPlayback != NULL) {
+                    if (periodSizeInFrames < pDescriptorPlayback->periodSizeInFrames) {
+                        periodSizeInFrames = pDescriptorPlayback->periodSizeInFrames;
+                    }
+                }
+
+                /* I'd like to keep this a power of two. In my testing, 512 was too small and results in glitching so going with 1024. */
+                if (periodSizeInFrames < 1024) {
+                    periodSizeInFrames = 1024;
+                }
+            }
+
+            /* The descriptors are the same between playback and capture. */
+            if (pDescriptorCapture != NULL) {
+                pDescriptorCapture->format              = format;
+                pDescriptorCapture->channels            = channels;
+                pDescriptorCapture->sampleRate          = sampleRate;
+                ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
+                pDescriptorCapture->periodSizeInFrames  = periodSizeInFrames;
+                pDescriptorCapture->periodCount         = 1;
+            }
+
+            if (pDescriptorPlayback != NULL) {
+                pDescriptorPlayback->format             = format;
+                pDescriptorPlayback->channels           = channels;
+                pDescriptorPlayback->sampleRate         = sampleRate;
+                ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
+                pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
+                pDescriptorPlayback->periodCount        = 1;
+            }
+        }
+
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateWebAudio->async);
+        }
+
         /* Our thread initialization parameters need to be allocated on the heap so they don't go out of scope. */
-        pInitParameters = (ma_audio_worklet_thread_initialized_data*)ma_malloc(sizeof(*pInitParameters), ma_device_get_allocation_callbacks(pDevice));
+        pInitParameters = (ma_audio_worklet_thread_initialized_data*)ma_calloc(sizeof(*pInitParameters), ma_device_get_allocation_callbacks(pDevice));
         if (pInitParameters == NULL) {
             ma_aligned_free(pStackBuffer, ma_device_get_allocation_callbacks(pDevice));
             emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
@@ -43075,25 +43104,12 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
 
         pInitParameters->pDevice              = pDevice;
         pInitParameters->pDeviceStateWebAudio = pDeviceStateWebAudio;
-        pInitParameters->pDescriptorPlayback  = pDescriptorPlayback;
-        pInitParameters->pDescriptorCapture   = pDescriptorCapture;
 
-        /*
-        We need to flag the device as not yet initialized so we can wait on it later. Unfortunately all of
-        the Emscripten WebAudio stuff is asynchronous.
-        */
-        pDeviceStateWebAudio->initResult = MA_BUSY;
-        {
-            emscripten_start_wasm_audio_worklet_thread_async(pDeviceStateWebAudio->audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pInitParameters);
+        if (pDescriptorPlayback != NULL) {
+            pInitParameters->descriptorPlayback = *pDescriptorPlayback;
         }
-        while (pDeviceStateWebAudio->initResult == MA_BUSY) { emscripten_sleep(1); }    /* We must wait for initialization to complete. We're just spinning here. The emscripten_sleep() call is why we need to build with `-sASYNCIFY`. */
-
-        /* Initialization is now complete. Descriptors were updated when the worklet was initialized. */
-        if (pDeviceStateWebAudio->initResult != MA_SUCCESS) {
-            ma_aligned_free(pStackBuffer, ma_device_get_allocation_callbacks(pDevice));
-            emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
-            ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
-            return pDeviceStateWebAudio->initResult;
+        if (pDescriptorCapture != NULL) {
+            pInitParameters->descriptorCapture  = *pDescriptorCapture;
         }
 
         /* We need to add an entry to the miniaudio.devices list on the JS side so we can do some JS/C interop. */
@@ -43104,6 +43120,13 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                 pDevice: $1
             });
         }, pDeviceStateWebAudio->audioContext, pDevice);
+
+        /*
+        We now have enough to initialize the audio worklet. This is asynchronous. Waiting for it to complete will
+        require a call to emscripten_sleep() which in turn requires building with `-sASYNCIFY`. We're just going
+        to not wait for it and just assume it was successful. Audio should resume once it's all up and running.
+        */
+        emscripten_start_wasm_audio_worklet_thread_async(pDeviceStateWebAudio->audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pInitParameters);
     }
     #else
     {
@@ -43365,7 +43388,7 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
         Suspends the progression of AudioContext's currentTime, allows any current context processing blocks that are already processed to be played to the
         destination, and then allows the system to release its claim on audio hardware.
 
-    I read this to mean that "any current context processing blocks" are processed by suspend() - i.e. They they are drained. We therefore shouldn't need to
+    I read this to mean that "any current context processing blocks" are processed by suspend() - i.e. They are drained. We therefore shouldn't need to
     do any kind of explicit draining.
     */
     EM_ASM({
