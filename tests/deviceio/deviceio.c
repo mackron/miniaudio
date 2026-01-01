@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -19,6 +19,7 @@ will receive the captured audio.
     sndio
     audio4
     oss
+    pipewire
     pulseaudio or pulse
     alsa
     jack
@@ -27,7 +28,6 @@ will receive the captured audio.
     webaudio
     null
     sdl2
-    pipewire
 
 "waveform" can be one of the following:
     sine
@@ -39,6 +39,11 @@ will receive the captured audio.
     white
     pink
     brownian or brown
+
+"threading mode" can be one of the following:
+    multi-threaded or multithreaded (default)    
+    single-threaded or singlethreaded
+    
 
 If multiple backends are specified, the priority will be based on the order in which you specify them. If multiple waveform or noise types
 are specified the last one on the command line will have priority.
@@ -256,6 +261,23 @@ ma_bool32 try_parse_noise(const char* arg, ma_noise_type* pNoiseType)
     return MA_FALSE;
 }
 
+ma_bool32 try_parse_threading_mode(const char* arg, ma_threading_mode* pThreadingMode)
+{
+    MA_ASSERT(arg              != NULL);
+    MA_ASSERT(pThreadingMode   != NULL);
+
+    if (strcmp(arg, "multi-threaded") == 0 || strcmp(arg, "multithreaded") == 0) {
+        *pThreadingMode = MA_THREADING_MODE_MULTI_THREADED;
+        return MA_TRUE;
+    }
+    if (strcmp(arg, "single-threaded") == 0 || strcmp(arg, "singlethreaded") == 0) {
+        *pThreadingMode = MA_THREADING_MODE_SINGLE_THREADED;
+        return MA_TRUE;
+    }
+
+    return MA_FALSE;
+}
+
 void print_enabled_backends(void)
 {
     ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
@@ -449,6 +471,7 @@ int main(int argc, char** argv)
     ma_device_config deviceConfig;
     ma_waveform_type waveformType = ma_waveform_type_sine;
     ma_noise_type noiseType = ma_noise_type_white;
+    ma_threading_mode threadingMode = MA_THREADING_MODE_MULTI_THREADED;
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
     ma_bool32 enumerate = MA_TRUE;
     ma_bool32 interactive = MA_TRUE;
@@ -484,6 +507,11 @@ int main(int argc, char** argv)
         /* noise */
         if (try_parse_noise(argv[iarg], &noiseType)) {
             g_State.sourceType = source_type_noise;
+            continue;
+        }
+
+        /* threading mode */
+        if (try_parse_threading_mode(argv[iarg], &threadingMode)) {
             continue;
         }
 
@@ -534,6 +562,7 @@ int main(int argc, char** argv)
     }
 
     deviceConfig = ma_device_config_init(deviceType);
+    deviceConfig.threadingMode        = threadingMode;
     deviceConfig.playback.format      = deviceFormat;
     deviceConfig.playback.channels    = deviceChannels;
     deviceConfig.capture.format       = deviceFormat;
@@ -622,45 +651,62 @@ int main(int argc, char** argv)
         goto done;
     }
 
+    if (ma_device_get_threading_mode(&g_State.device) == MA_THREADING_MODE_SINGLE_THREADED) {
+        printf("Running in single-threaded mode. Press Ctrl+C to quit.\n");
+    }
+
     /* Now we just keep looping and wait for user input. */
     for (;;) {
         if (interactive) {
-            int c;
-
-            if (ma_device_is_started(&g_State.device)) {
-                printf("Press Q to quit, P to pause.\n");
-            } else {
-                printf("Press Q to quit, P to resume.\n");
-            }
-            
-            for (;;) {
-                c = getchar();
-                if (c != '\n') {
+            if (ma_device_get_threading_mode(&g_State.device) == MA_THREADING_MODE_MULTI_THREADED) {
+                int c;
+    
+                if (ma_device_is_started(&g_State.device)) {
+                    printf("Press Q to quit, P to pause.\n");
+                } else {
+                    printf("Press Q to quit, P to resume.\n");
+                }
+                
+                for (;;) {
+                    c = getchar();
+                    if (c != '\n') {
+                        break;
+                    }
+                }
+                
+                if (c == 'q' || c == 'Q') {
+                    g_State.wantsToClose = MA_TRUE;
                     break;
                 }
-            }
-            
-            if (c == 'q' || c == 'Q') {
-                g_State.wantsToClose = MA_TRUE;
-                break;
-            }
-            if (c == 'p' || c == 'P') {
-                if (ma_device_is_started(&g_State.device)) {
-                    result = ma_device_stop(&g_State.device);
-                    if (result != MA_SUCCESS) {
-                        printf("ERROR: Error when stopping the device: %s\n", ma_result_description(result));
+                if (c == 'p' || c == 'P') {
+                    if (ma_device_is_started(&g_State.device)) {
+                        result = ma_device_stop(&g_State.device);
+                        if (result != MA_SUCCESS) {
+                            printf("ERROR: Error when stopping the device: %s\n", ma_result_description(result));
+                        }
+                    } else {
+                        result = ma_device_start(&g_State.device);
+                        if (result != MA_SUCCESS) {
+                            printf("ERROR: Error when starting the device: %s\n", ma_result_description(result));
+                        }
                     }
-                } else {
-                    result = ma_device_start(&g_State.device);
-                    if (result != MA_SUCCESS) {
-                        printf("ERROR: Error when starting the device: %s\n", ma_result_description(result));
-                    }
+                }
+            } else {
+                /* Single-threaded mode. Just sleep for a bit and check if we want to close. */
+                ma_device_step(&g_State.device, MA_BLOCKING_MODE_BLOCKING);
+
+                if (g_State.wantsToClose) {
+                    break;
                 }
             }
         } else {
             /* Running in auto-close mode. Just sleep for a bit. The data callback will control when this loop aborts. */
             if (g_State.wantsToClose) {
                 break;
+            }
+
+            if (ma_device_get_threading_mode(&g_State.device) == MA_THREADING_MODE_SINGLE_THREADED) {
+                ma_device_step(&g_State.device, MA_BLOCKING_MODE_BLOCKING);
             }
 
             /*
