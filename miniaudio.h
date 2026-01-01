@@ -4406,11 +4406,11 @@ typedef enum
     ma_standard_sample_rate_384000 = 384000,
 
     ma_standard_sample_rate_min    = ma_standard_sample_rate_8000,
-    ma_standard_sample_rate_max    = ma_standard_sample_rate_384000,
+    ma_standard_sample_rate_max    = ma_standard_sample_rate_384000
 } ma_standard_sample_rate;
 
-MA_API const ma_uint32 ma_standard_sample_rates[];
-MA_API const ma_uint32 ma_standard_sample_rate_count;
+MA_API const ma_uint32* ma_get_standard_sample_rates(void);
+MA_API ma_uint32 ma_get_standard_sample_rate_count(void);
 
 
 typedef enum
@@ -12004,7 +12004,7 @@ int ma_android_sdk_version(void)
     #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
 
-const ma_uint32 ma_standard_sample_rates[] =
+static const ma_uint32 ma_standard_sample_rates[] =
 {
     (ma_uint32)ma_standard_sample_rate_48000,
     (ma_uint32)ma_standard_sample_rate_44100,
@@ -12026,7 +12026,18 @@ const ma_uint32 ma_standard_sample_rates[] =
     (ma_uint32)ma_standard_sample_rate_384000
 };
 
-const ma_uint32 ma_standard_sample_rate_count = ma_countof(ma_standard_sample_rates);
+static const ma_uint32 ma_standard_sample_rate_count = ma_countof(ma_standard_sample_rates);
+
+
+MA_API const ma_uint32* ma_get_standard_sample_rates(void)
+{
+    return ma_standard_sample_rates;
+}
+
+MA_API ma_uint32 ma_get_standard_sample_rate_count(void)
+{
+    return ma_standard_sample_rate_count;
+}
 
 
 static MA_INLINE ma_bool32 ma_is_standard_sample_rate(ma_uint32 sampleRate)
