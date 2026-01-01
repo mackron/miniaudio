@@ -42914,24 +42914,28 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     sampleRate = EM_ASM_INT({ return emscriptenGetAudioObject($0).sampleRate; }, audioContext);
 
     /*
-    We're now going to choose a period size. The quantum size reported by Web Audio is too small for us to use so
-    we'll need to use something bigger for our internal bufferring.
+    We're now going to choose a period size. For single-threaded mode, the quantum size reported by Web Audio is too small
+    for us to use so we'll need to use something bigger for our internal bufferring.
     */
-    chosenPeriodSizeInFrames = intermediaryBufferSizeInFrames;
-    if (pParameters->pDescriptorCapture != NULL) {
-        if (chosenPeriodSizeInFrames < pParameters->pDescriptorCapture->periodSizeInFrames) {
-            chosenPeriodSizeInFrames = pParameters->pDescriptorCapture->periodSizeInFrames;
+    if (ma_device_get_threading_mode(pParameters->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        chosenPeriodSizeInFrames = intermediaryBufferSizeInFrames;
+        if (pParameters->pDescriptorCapture != NULL) {
+            if (chosenPeriodSizeInFrames < pParameters->pDescriptorCapture->periodSizeInFrames) {
+                chosenPeriodSizeInFrames = pParameters->pDescriptorCapture->periodSizeInFrames;
+            }
         }
-    }
-    if (pParameters->pDescriptorPlayback != NULL) {
-        if (chosenPeriodSizeInFrames < pParameters->pDescriptorPlayback->periodSizeInFrames) {
-            chosenPeriodSizeInFrames = pParameters->pDescriptorPlayback->periodSizeInFrames;
+        if (pParameters->pDescriptorPlayback != NULL) {
+            if (chosenPeriodSizeInFrames < pParameters->pDescriptorPlayback->periodSizeInFrames) {
+                chosenPeriodSizeInFrames = pParameters->pDescriptorPlayback->periodSizeInFrames;
+            }
         }
-    }
 
-    /* I'd like to keep this a power of two. In my testing, 512 was too small and results in glitching so going with 1024. */
-    if (chosenPeriodSizeInFrames < 1024) {
-        chosenPeriodSizeInFrames = 1024;
+        /* I'd like to keep this a power of two. In my testing, 512 was too small and results in glitching so going with 1024. */
+        if (chosenPeriodSizeInFrames < 1024) {
+            chosenPeriodSizeInFrames = 1024;
+        }
+    } else {
+        chosenPeriodSizeInFrames = intermediaryBufferSizeInFrames;
     }
 
     if (pParameters->pDescriptorCapture != NULL) {
