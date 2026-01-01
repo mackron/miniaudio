@@ -298,22 +298,36 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
 {
     ma_context_state_sdl* pContextStateSDL = ma_context_get_backend_state__sdl(pContext);
     ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
+    MA_SDL_AudioSpec defaultAudioSpec;
+    ma_device_info deviceInfo;
+    int deviceCount;
     int iDevice;
 
     MA_SDL_ASSERT(pContextStateSDL != NULL);
 
     /* Playback */
     if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-        int deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(0);
-        for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
-            ma_device_info deviceInfo;
+        ma_bool32 hasDefaultPlaybackDeviceBeenEnumerated = MA_FALSE;
+        ma_bool32 hasDefaultPlaybackDevice;
+        char* pDefaultPlaybackDeviceName = NULL;
+
+        hasDefaultPlaybackDevice = pContextStateSDL->SDL_GetDefaultAudioInfo(&pDefaultPlaybackDeviceName, &defaultAudioSpec, 0) == 0;
+
+        deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(0);
+        for (iDevice = 0; iDevice < deviceCount; iDevice += 1) {
             MA_SDL_AudioSpec audioSpec;
 
             memset(&deviceInfo, 0, sizeof(deviceInfo));
 
-            /* Default. */
-            if (iDevice == 0) { /* <-- Is this correct? Should we instead compare against the name from SDL_GetDefaultAudioInfo()? */
-                deviceInfo.isDefault = MA_TRUE;
+            /* Default. For SDL2 we'll just use the first device that matches the default device name. */
+            if (!hasDefaultPlaybackDeviceBeenEnumerated && hasDefaultPlaybackDevice) {
+                const char* pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0);
+                if (ma_strcmp(pDeviceName, pDefaultPlaybackDeviceName) == 0) {
+                    deviceInfo.isDefault = MA_TRUE;
+                    hasDefaultPlaybackDeviceBeenEnumerated = MA_TRUE;
+                }
+            } else {
+                deviceInfo.isDefault = MA_FALSE;
             }
 
             /* ID. */
@@ -337,20 +351,49 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
                 break;
             }
         }
+
+        /* SDL2 does not flag the default playback device so we'll enumerate an explicit default device here. */
+        if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE && !hasDefaultPlaybackDeviceBeenEnumerated) {
+            memset(&deviceInfo, 0, sizeof(deviceInfo));
+            deviceInfo.isDefault = MA_TRUE;
+            deviceInfo.id.custom.i = -1;    /* Special ID for the default device. */
+
+            if (hasDefaultPlaybackDevice) {
+                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pDefaultPlaybackDeviceName, (size_t)-1);
+                ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &defaultAudioSpec);
+            } else {
+                /* No way to retrieve the data format. Just report support for everything. */
+                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Playback Device", (size_t)-1);
+                deviceInfo.nativeDataFormatCount = 1;
+            }
+
+            cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
+        }
     }
 
     /* Capture */
     if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-        int deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(1);
-        for (iDevice = 0; iDevice < deviceCount; ++iDevice) {
-            ma_device_info deviceInfo;
+        ma_bool32 hasDefaultCaptureDeviceBeenEnumerated = MA_FALSE;
+        ma_bool32 hasDefaultCaptureDevice;
+        char* pDefaultCaptureDeviceName = NULL;
+
+        hasDefaultCaptureDevice = pContextStateSDL->SDL_GetDefaultAudioInfo(&pDefaultCaptureDeviceName, &defaultAudioSpec, 1) == 0;
+
+        deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(1);
+        for (iDevice = 0; iDevice < deviceCount; iDevice += 1) {
             MA_SDL_AudioSpec audioSpec;
 
             memset(&deviceInfo, 0, sizeof(deviceInfo));
 
-            /* Default. */
-            if (iDevice == 0) { /* <-- Is this correct? Should we instead compare against the name from SDL_GetDefaultAudioInfo()? */
-                deviceInfo.isDefault = MA_TRUE;
+            /* Default. For SDL2 we'll just use the first device that matches the default device name. */
+            if (!hasDefaultCaptureDeviceBeenEnumerated && hasDefaultCaptureDevice) {
+                const char* pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1);
+                if (ma_strcmp(pDeviceName, pDefaultCaptureDeviceName) == 0) {
+                    deviceInfo.isDefault = MA_TRUE;
+                    hasDefaultCaptureDeviceBeenEnumerated = MA_TRUE;
+                }
+            } else {
+                deviceInfo.isDefault = MA_FALSE;
             }
 
             /* ID. */
@@ -373,6 +416,24 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                 break;
             }
+        }
+
+        /* SDL2 does not flag the default playback device so we'll enumerate an explicit default device here. */
+        if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE && !hasDefaultCaptureDeviceBeenEnumerated) {
+            memset(&deviceInfo, 0, sizeof(deviceInfo));
+            deviceInfo.isDefault = MA_TRUE;
+            deviceInfo.id.custom.i = -1;    /* Special ID for the default device. */
+
+            if (hasDefaultCaptureDevice) {
+                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pDefaultCaptureDeviceName, (size_t)-1);
+                ma_add_native_format_from_AudioSpec__sdl(&deviceInfo, &defaultAudioSpec);
+            } else {
+                /* No way to retrieve the data format. Just report support for everything. */
+                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Capture Device", (size_t)-1);
+                deviceInfo.nativeDataFormatCount = 1;
+            }
+
+            cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
         }
     }
 
@@ -451,8 +512,9 @@ static ma_result ma_device_init_internal__sdl(ma_device* pDevice, ma_context_sta
         desiredSpec.format = MA_AUDIO_F32;
     }
 
+    /* We explicitly want the device name to be NULL for the default device. Otherwise we'll grab the name from the device index. */
     pDeviceName = NULL;
-    if (pDescriptor->pDeviceID != NULL) {
+    if (pDescriptor->pDeviceID != NULL && pDescriptor->pDeviceID->custom.i != -1) {
         pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(pDescriptor->pDeviceID->custom.i, (deviceType == ma_device_type_playback) ? 0 : 1);
     }
 
