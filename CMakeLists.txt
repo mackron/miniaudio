@@ -169,8 +169,7 @@ set(LINKED_LIBS)
 if(MINIAUDIO_NO_RUNTIME_LINKING)
     if(NOT MINIAUDIO_NO_PIPEWIRE)
         find_package(PkgConfig QUIET)
-
-        if(PKG_CONFIG_FOUND)
+        if(PkgConfig_FOUND)
             pkg_check_modules(PipeWire IMPORTED_TARGET libpipewire-0.3)
             pkg_check_modules(SPA      IMPORTED_TARGET libspa-0.2)
         endif()
@@ -180,13 +179,60 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
             set(MINIAUDIO_NO_PIPEWIRE ON)
         endif()
     endif()
+
+    if(NOT MINIAUDIO_NO_PULSEAUDIO)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(PulseAudio IMPORTED_TARGET libpulse)
+        endif()
+
+        if(NOT TARGET PkgConfig::PulseAudio)
+            message(STATUS "PulseAudio development files not found. Disabling PulseAudio backend.")
+            set(MINIAUDIO_NO_PULSEAUDIO ON)
+        endif()
+    endif()
+
+    if(NOT MINIAUDIO_NO_ALSA)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(ALSA IMPORTED_TARGET alsa)
+        endif()
+
+        if(NOT TARGET PkgConfig::ALSA)
+            message(STATUS "ALSA development files not found. Disabling ALSA backend.")
+            set(MINIAUDIO_NO_ALSA ON)
+        endif()
+    endif()
+
+    if(NOT MINIAUDIO_NO_JACK)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(JACK IMPORTED_TARGET jack)
+        endif()
+
+        if(NOT TARGET PkgConfig::JACK)
+            message(STATUS "JACK development files not found. Disabling JACK backend.")
+            set(MINIAUDIO_NO_JACK ON)
+        endif()
+    endif()
+
+    if(NOT MINIAUDIO_NO_SNDIO)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(sndio IMPORTED_TARGET sndio)
+        endif()
+
+        if(NOT TARGET PkgConfig::sndio)
+            message(STATUS "sndio development files not found. Disabling sndio backend.")
+            set(MINIAUDIO_NO_SNDIO ON)
+        endif()
+    endif()
 endif()
 
 # SDL2. We do this outside of the MINIAUDIO_NO_RUNTIME_LINKING check because we use SDL2 in some examples.
 if(NOT MINIAUDIO_NO_SDL2)
     find_package(PkgConfig QUIET)
-
-    if(PKG_CONFIG_FOUND)
+    if(PkgConfig_FOUND)
         pkg_check_modules(SDL2 IMPORTED_TARGET sdl2)
     endif()
 
@@ -417,7 +463,7 @@ if(NOT MINIAUDIO_NO_LIBVORBIS)
     if(NOT TARGET vorbisfile)
         # Try pkg-config first
         find_package(PkgConfig QUIET)
-        if(PKG_CONFIG_FOUND)
+        if(PkgConfig_FOUND)
             pkg_check_modules(PC_VORBISFILE vorbisfile)
         endif()
 
@@ -446,7 +492,7 @@ if(NOT MINIAUDIO_NO_LIBOPUS)
     if(NOT TARGET opusfile)
         # Try pkg-config first
         find_package(PkgConfig QUIET)
-        if(PKG_CONFIG_FOUND)
+        if(PkgConfig_FOUND)
             pkg_check_modules(PC_OPUSFILE opusfile)
         endif()
 
@@ -589,7 +635,7 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
         target_compile_options    (miniaudio_pipewire PRIVATE ${COMPILE_OPTIONS})
         target_compile_definitions(miniaudio_pipewire PRIVATE ${COMPILE_DEFINES})
 
-        if(MINIAUDIO_NO_RUNTIME_LINKING)
+        if(MINIAUDIO_NO_RUNTIME_LINKING AND TARGET PkgConfig::PipeWire AND TARGET PkgConfig::SPA)
             target_link_libraries(miniaudio_pipewire PRIVATE PkgConfig::PipeWire PkgConfig::SPA)
         endif()
     endif()
@@ -725,86 +771,54 @@ target_link_libraries (miniaudio_test INTERFACE ${COMMON_LINK_LIBRARIES})
 # of the specific compile time options rather than being influenced by externally set options. However,
 # sometimes we need to disable some backends in order for automated build tools to work.
 if(MINIAUDIO_NO_RUNTIME_LINKING)
+    target_compile_definitions(miniaudio_test INTERFACE MA_NO_RUNTIME_LINKING)
+
     if(NOT TARGET PkgConfig::SDL2)
         target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL2)
     endif()
 endif()
 
 
+# Link external libraries if runtime linking is disabled.
 if(MINIAUDIO_NO_RUNTIME_LINKING)
-    if (NOT MINIAUDIO_NO_PULSEAUDIO)
-        find_package(PulseAudio)
+    if (NOT MINIAUDIO_NO_PIPEWIRE)
+        if(TARGET PkgConfig::PipeWire AND TARGET PkgConfig::SPA)
+            target_link_libraries(miniaudio      PRIVATE   PkgConfig::PipeWire PkgConfig::SPA)
+            target_link_libraries(miniaudio_test INTERFACE PkgConfig::PipeWire PkgConfig::SPA)
+            list(APPEND LINKED_LIBS libpipewire-0.3)
+            list(APPEND LINKED_LIBS libspa-0.2)
+        endif()
+    endif()
 
-        if (PulseAudio_FOUND)
-            target_link_libraries(miniaudio PRIVATE ${PULSEAUDIO_LIBRARY})
-            target_include_directories(miniaudio SYSTEM PRIVATE ${PULSEAUDIO_INCLUDE_DIR})
+    if (NOT MINIAUDIO_NO_PULSEAUDIO)
+        if(TARGET PkgConfig::PulseAudio)
+            target_link_libraries(miniaudio      PRIVATE   PkgConfig::PulseAudio)
+            target_link_libraries(miniaudio_test INTERFACE PkgConfig::PulseAudio)
             list(APPEND LINKED_LIBS libpulse)
         endif()
     endif()
 
     if (NOT MINIAUDIO_NO_ALSA)
-        find_package(PkgConfig QUIET)
-
-        if(PKG_CONFIG_FOUND)
-            pkg_check_modules(PC_ALSA alsa)
-        endif()
-
-        find_library(ALSA_LIBRARY
-            NAMES asound
-            HINTS ${PC_ALSA_LIBRARY_DIRS}
-        )
-
-        if (ALSA_LIBRARY)
-            find_path(ALSA_INCLUDE_DIR
-                NAMES alsa/asoundlib.h
-                HINTS ${PC_ALSA_INCLUDE_DIRS}
-            )
-
-            target_link_libraries(miniaudio PRIVATE ${ALSA_LIBRARY})
-            target_include_directories(miniaudio PRIVATE ${ALSA_INCLUDE_DIR})
+        if(TARGET PkgConfig::ALSA)
+            target_link_libraries(miniaudio      PRIVATE   PkgConfig::ALSA)
+            target_link_libraries(miniaudio_test INTERFACE PkgConfig::ALSA)
             list(APPEND LINKED_LIBS alsa)
         endif()
     endif()
 
-    if (NOT MINIAUDIO_NO_SNDIO)
-        find_package(PkgConfig QUIET)
-
-        if(PKG_CONFIG_FOUND)
-            pkg_check_modules(PC_SNDIO sndio)
-        endif()
-
-        find_library(SNDIO_LIBRARY
-            NAMES sndio
-            HINTS ${PC_SNDIO_LIBRARY_DIRS}
-        )
-
-        if (SNDIO_LIBRARY)
-            target_link_libraries(miniaudio PRIVATE ${SNDIO_LIBRARY})
-            list(APPEND LINKED_LIBS sndio)
+    if (NOT MINIAUDIO_NO_JACK)
+        if(TARGET PkgConfig::JACK)
+            target_link_libraries(miniaudio      PRIVATE   PkgConfig::JACK)
+            target_link_libraries(miniaudio_test INTERFACE PkgConfig::JACK)
+            list(APPEND LINKED_LIBS jack)
         endif()
     endif()
 
-    if (NOT MINIAUDIO_NO_JACK)
-        find_package(PkgConfig QUIET)
-
-        if(PKG_CONFIG_FOUND)
-            pkg_check_modules(PC_JACK jack)
-        endif()
-
-        find_library(JACK_LIBRARY
-            NAMES jack
-            HINTS ${PC_JACK_LIBRARY_DIRS}
-        )
-
-        if (JACK_LIBRARY)
-            find_path(JACK_INCLUDE_DIR
-                NAMES jack/jack.h
-                HINTS ${PC_JACK_INCLUDE_DIRS}
-            )
-
-            target_link_libraries(miniaudio PRIVATE ${JACK_LIBRARY})
-            target_include_directories(miniaudio PRIVATE ${JACK_INCLUDE_DIR})
-            list(APPEND LINKED_LIBS jack)
+    if (NOT MINIAUDIO_NO_SNDIO)
+        if(TARGET PkgConfig::sndio)
+            target_link_libraries(miniaudio      PRIVATE   PkgConfig::sndio)
+            target_link_libraries(miniaudio_test INTERFACE PkgConfig::sndio)
+            list(APPEND LINKED_LIBS sndio)
         endif()
     endif()
 endif()
