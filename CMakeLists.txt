@@ -37,6 +37,7 @@ option(MINIAUDIO_NO_AAUDIO                     "Disable the AAudio backend"     
 option(MINIAUDIO_NO_OPENSL                     "Disable the OpenSL|ES backend"       OFF)
 option(MINIAUDIO_NO_WEBAUDIO                   "Disable the Web Audio backend"       OFF)
 option(MINIAUDIO_NO_NULL                       "Disable the null backend"            OFF)
+option(MINIAUDIO_NO_SDL2                       "Disable the SDL2 backend"            OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"           OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"      OFF)
@@ -53,6 +54,7 @@ option(MINIAUDIO_ENABLE_AAUDIO                 "Enable the AAudio backend"      
 option(MINIAUDIO_ENABLE_OPENSL                 "Enable the OpenSL|ES backend"        OFF)
 option(MINIAUDIO_ENABLE_WEBAUDIO               "Enable the Web Audio backend"        OFF)
 option(MINIAUDIO_ENABLE_NULL                   "Enable the null backend"             OFF)
+option(MINIAUDIO_ENABLE_SDL2                   "Enable the SDL2 backend"             OFF)
 option(MINIAUDIO_NO_DECODING                   "Disable decoding APIs"               OFF)
 option(MINIAUDIO_NO_ENCODING                   "Disable encoding APIs"               OFF)
 option(MINIAUDIO_NO_WAV                        "Disable the built-in WAV decoder"    OFF)
@@ -110,6 +112,7 @@ normalize_backend_enabled_option(AAUDIO)
 normalize_backend_enabled_option(OPENSL)
 normalize_backend_enabled_option(WEBAUDIO)
 normalize_backend_enabled_option(NULL)
+normalize_backend_enabled_option(SDL2)
 
 
 
@@ -179,6 +182,20 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
     endif()
 endif()
 
+# SDL2. We do this outside of the MINIAUDIO_NO_RUNTIME_LINKING check because we use SDL2 in some examples.
+if(NOT MINIAUDIO_NO_SDL2)
+    find_package(PkgConfig QUIET)
+
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(SDL2 IMPORTED_TARGET sdl2)
+    endif()
+
+    if(NOT TARGET PkgConfig::SDL2)
+        message(STATUS "SDL2 development files not found. Disabling SDL2 backend.")
+        set(MINIAUDIO_NO_SDL2 ON)
+    endif()
+endif()
+
 
 # Construct compiler defines
 set(COMPILE_DEFINES)
@@ -192,11 +209,14 @@ endif()
 if(MINIAUDIO_NO_WINMM)
     list(APPEND COMPILE_DEFINES MA_NO_WINMM)
 endif()
-if(MINIAUDIO_NO_ALSA)
-    list(APPEND COMPILE_DEFINES MA_NO_ALSA)
+if(MINIAUDIO_NO_PIPEWIRE)
+    list(APPEND COMPILE_DEFINES MA_NO_PIPEWIRE)
 endif()
 if(MINIAUDIO_NO_PULSEAUDIO)
     list(APPEND COMPILE_DEFINES MA_NO_PULSEAUDIO)
+endif()
+if(MINIAUDIO_NO_ALSA)
+    list(APPEND COMPILE_DEFINES MA_NO_ALSA)
 endif()
 if(MINIAUDIO_NO_JACK)
     list(APPEND COMPILE_DEFINES MA_NO_JACK)
@@ -225,9 +245,6 @@ endif()
 if(MINIAUDIO_NO_NULL)
     list(APPEND COMPILE_DEFINES MA_NO_NULL)
 endif()
-if(MINIAUDIO_NO_PIPEWIRE)
-    list(APPEND COMPILE_DEFINES MA_NO_PIPEWIRE)
-endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
 
@@ -240,11 +257,14 @@ if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     if(MINIAUDIO_ENABLE_WINMM)
         list(APPEND COMPILE_DEFINES MA_ENABLE_WINMM)
     endif()
-    if(MINIAUDIO_ENABLE_ALSA)
-        list(APPEND COMPILE_DEFINES MA_ENABLE_ALSA)
+    if(MINIAUDIO_ENABLE_PIPEWIRE)
+        list(APPEND COMPILE_DEFINES MA_ENABLE_PIPEWIRE)
     endif()
     if(MINIAUDIO_ENABLE_PULSEAUDIO)
         list(APPEND COMPILE_DEFINES MA_ENABLE_PULSEAUDIO)
+    endif()
+    if(MINIAUDIO_ENABLE_ALSA)
+        list(APPEND COMPILE_DEFINES MA_ENABLE_ALSA)
     endif()
     if(MINIAUDIO_ENABLE_JACK)
         list(APPEND COMPILE_DEFINES MA_ENABLE_JACK)
@@ -449,15 +469,6 @@ if(NOT MINIAUDIO_NO_LIBOPUS)
 endif()
 
 
-find_library(SDL2_LIBRARY NAMES SDL2)
-if(SDL2_LIBRARY)
-    message(STATUS "Found SDL2: ${SDL2_LIBRARY}")
-    set(HAS_SDL2 TRUE)
-else()
-    message(STATUS "SDL2 not found. SDL2 examples will be excluded.")
-endif()
-
-
 # SteamAudio has an annoying SDK setup. In the lib folder there is a folder for each platform. We need to specify the
 # platform we're compiling for.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
@@ -564,21 +575,41 @@ target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
 
 # Extra Backends
-if(NOT MINIAUDIO_NO_PIPEWIRE AND NOT MINIAUDIO_NO_DEVICEIO)
-    add_library(miniaudio_pipewire STATIC
-        extras/backends/pipewire/miniaudio_pipewire.c
-        extras/backends/pipewire/miniaudio_pipewire.h
-    )
+if(NOT MINIAUDIO_NO_DEVICEIO)
+    if(NOT MINIAUDIO_NO_PIPEWIRE)
+        add_library(miniaudio_pipewire STATIC
+            extras/backends/pipewire/miniaudio_pipewire.c
+            extras/backends/pipewire/miniaudio_pipewire.h
+        )
 
-    list(APPEND LIBS_TO_INSTALL miniaudio_pipewire)
-    install(FILES extras/backends/pipewire/miniaudio_pipewire.h DESTINATION include/miniaudio/extras/backends/pipewire)
+        list(APPEND LIBS_TO_INSTALL miniaudio_pipewire)
+        install(FILES extras/backends/pipewire/miniaudio_pipewire.h DESTINATION include/miniaudio/extras/backends/pipewire)
 
-    target_include_directories(miniaudio_pipewire PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/pipewire)
-    target_compile_options    (miniaudio_pipewire PRIVATE ${COMPILE_OPTIONS})
-    target_compile_definitions(miniaudio_pipewire PRIVATE ${COMPILE_DEFINES})
+        target_include_directories(miniaudio_pipewire PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/pipewire)
+        target_compile_options    (miniaudio_pipewire PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_pipewire PRIVATE ${COMPILE_DEFINES})
 
-    if(MINIAUDIO_NO_RUNTIME_LINKING)
-        target_link_libraries(miniaudio_pipewire PRIVATE PkgConfig::PipeWire PkgConfig::SPA)
+        if(MINIAUDIO_NO_RUNTIME_LINKING)
+            target_link_libraries(miniaudio_pipewire PRIVATE PkgConfig::PipeWire PkgConfig::SPA)
+        endif()
+    endif()
+
+    if(NOT MINIAUDIO_NO_SDL2)
+        add_library(miniaudio_sdl2 STATIC
+            extras/backends/sdl/backend_sdl.c
+            extras/backends/sdl/backend_sdl.h
+        )
+
+        list(APPEND LIBS_TO_INSTALL miniaudio_sdl2)
+        install(FILES extras/backends/sdl/backend_sdl.h DESTINATION include/miniaudio/extras/backends/sdl2)
+
+        target_include_directories(miniaudio_sdl2 PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/sdl2)
+        target_compile_options    (miniaudio_sdl2 PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_sdl2 PRIVATE ${COMPILE_DEFINES})
+
+        if(MINIAUDIO_NO_RUNTIME_LINKING)
+            target_link_libraries(miniaudio_sdl2 PRIVATE PkgConfig::SDL2)
+        endif()
     endif()
 endif()
 
@@ -694,8 +725,8 @@ target_link_libraries (miniaudio_test INTERFACE ${COMMON_LINK_LIBRARIES})
 # of the specific compile time options rather than being influenced by externally set options. However,
 # sometimes we need to disable some backends in order for automated build tools to work.
 if(MINIAUDIO_NO_RUNTIME_LINKING)
-    if(NOT HAS_SDL2)
-        target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL)
+    if(NOT TARGET PkgConfig::SDL2)
+        target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL2)
     endif()
 endif()
 
@@ -802,8 +833,8 @@ if(MINIAUDIO_BUILD_TESTS)
 
         add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
         if(MINIAUDIO_NO_RUNTIME_LINKING)
-            if(HAS_SDL2)
-                target_link_libraries(miniaudio_cpp PRIVATE ${SDL2_LIBRARY})
+            if(TARGET PkgConfig::SDL2)
+                target_link_libraries(miniaudio_cpp PRIVATE PkgConfig::SDL2)
             endif()
         endif()
         add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
@@ -811,8 +842,8 @@ if(MINIAUDIO_BUILD_TESTS)
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
     if(MINIAUDIO_NO_RUNTIME_LINKING)
-        if(HAS_SDL2)
-            target_link_libraries(miniaudio_deviceio PRIVATE ${SDL2_LIBRARY})
+        if(TARGET PkgConfig::SDL2)
+            target_link_libraries(miniaudio_deviceio PRIVATE PkgConfig::SDL2)
         endif()
     endif()
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
@@ -874,9 +905,9 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_engine_effects engine_effects.c)
     add_miniaudio_example(miniaudio_engine_hello_world engine_hello_world.c)
 
-    if(HAS_SDL2)
+    if(TARGET PkgConfig::SDL2)
         add_miniaudio_example(miniaudio_engine_sdl engine_sdl.c)
-        target_link_libraries(miniaudio_engine_sdl PRIVATE ${SDL2_LIBRARY})
+        target_link_libraries(miniaudio_engine_sdl PRIVATE PkgConfig::SDL2)
     else()
         message(STATUS "SDL2 could not be found. miniaudio_engine_sdl has been excluded.")
     endif()
