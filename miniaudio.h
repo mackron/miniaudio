@@ -26187,12 +26187,13 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
 {
     ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
     HRESULT hr;
+    ma_bool32 wasSuccessful = MA_TRUE;
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         hr = ma_IDirectSoundCaptureBuffer_Stop(pDeviceStateDSound->pCaptureBuffer);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Stop() failed.");
-            return ma_result_from_HRESULT(hr);
+            wasSuccessful = MA_FALSE;
         }
     }
 
@@ -26248,7 +26249,7 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
         hr = ma_IDirectSoundBuffer_Stop(pDeviceStateDSound->pPlaybackBuffer);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Stop() failed.");
-            return ma_result_from_HRESULT(hr);
+            wasSuccessful = MA_FALSE;
         }
 
         ma_IDirectSoundBuffer_SetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, 0);
@@ -26259,6 +26260,10 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
         pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = 0;
         pDeviceStateDSound->framesWrittenToPlaybackDevice      = 0;
         pDeviceStateDSound->isPlaybackDeviceStarted            = MA_FALSE;
+    }
+
+    if (!wasSuccessful) {
+        return MA_ERROR;
     }
 
     return MA_SUCCESS;
