@@ -774,7 +774,8 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
     target_compile_definitions(miniaudio_test INTERFACE MA_NO_RUNTIME_LINKING)
 
     if(NOT TARGET PkgConfig::SDL2)
-        target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL2)
+        message(STATUS "Disabling SDL2 backend for tests because SDL2 development files were not found.")
+        target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL2 MA_NO_SDL)   # TODO: Remove MA_NO_SDL once this has been renamed to MA_NO_SDL2 in miniaudio_sdl2.c.
     endif()
 endif()
 
@@ -847,7 +848,7 @@ if(MINIAUDIO_BUILD_TESTS)
 
         add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
         if(MINIAUDIO_NO_RUNTIME_LINKING)
-            if(TARGET PkgConfig::SDL2)
+            if(NOT MINIAUDIO_NO_SDL2 AND TARGET PkgConfig::SDL2)
                 target_link_libraries(miniaudio_cpp PRIVATE PkgConfig::SDL2)
             endif()
         endif()
@@ -856,7 +857,7 @@ if(MINIAUDIO_BUILD_TESTS)
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
     if(MINIAUDIO_NO_RUNTIME_LINKING)
-        if(TARGET PkgConfig::SDL2)
+        if(NOT MINIAUDIO_NO_SDL2 AND TARGET PkgConfig::SDL2)
             target_link_libraries(miniaudio_deviceio PRIVATE PkgConfig::SDL2)
         endif()
     endif()
