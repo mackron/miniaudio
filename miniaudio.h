@@ -43822,14 +43822,11 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
 
     ma_device_set_status(pDevice, ma_device_status_stopped);
 
-    /*
-    After the device has stopped, make sure an event is posted. Don't post a stopped event if
-    stopping failed. This can happen on some backends when the underlying stream has been
-    stopped due to the device being physically unplugged or disabled via an OS setting.
-    */
-    if (result == MA_SUCCESS) {
-        ma_device_post_notification_stopped(pDevice);
-    }
+    /* A stop event should always be posted when the device has stopped. */
+    ma_device_post_notification_stopped(pDevice);
+
+    /* Silence an assigned but not used warning (we're always returning MA_SUCCESS here for now). We might change this later to return void. */
+    (void)result;   
 
     ma_device_op_completion_event_signal(pCompletionEvent, MA_SUCCESS);
     return MA_SUCCESS;
