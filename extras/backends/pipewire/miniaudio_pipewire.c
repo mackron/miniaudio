@@ -1687,8 +1687,12 @@ static void ma_context_uninit__pipewire(ma_context* pContext)
     }
 
     /* Close the handle to the PipeWire shared object last. */
-    ma_dlclose(ma_context_get_log(pContext), pContextStatePipeWire->hPipeWire);
-    pContextStatePipeWire->hPipeWire = NULL;
+    #ifndef MA_NO_RUNTIME_LINKING
+    {
+        ma_dlclose(ma_context_get_log(pContext), pContextStatePipeWire->hPipeWire);
+        pContextStatePipeWire->hPipeWire = NULL;
+    }
+    #endif
 
     ma_free(pContextStatePipeWire, ma_context_get_allocation_callbacks(pContext));
 }
