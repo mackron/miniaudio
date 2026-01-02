@@ -322,7 +322,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             /* Default. For SDL2 we'll just use the first device that matches the default device name. */
             if (!hasDefaultPlaybackDeviceBeenEnumerated && hasDefaultPlaybackDevice) {
                 const char* pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0);
-                if (ma_strcmp(pDeviceName, pDefaultPlaybackDeviceName) == 0) {
+                if (strcmp(pDeviceName, pDefaultPlaybackDeviceName) == 0) {
                     deviceInfo.isDefault = MA_TRUE;
                     hasDefaultPlaybackDeviceBeenEnumerated = MA_TRUE;
                 }
@@ -388,7 +388,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
             /* Default. For SDL2 we'll just use the first device that matches the default device name. */
             if (!hasDefaultCaptureDeviceBeenEnumerated && hasDefaultCaptureDevice) {
                 const char* pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1);
-                if (ma_strcmp(pDeviceName, pDefaultCaptureDeviceName) == 0) {
+                if (strcmp(pDeviceName, pDefaultCaptureDeviceName) == 0) {
                     deviceInfo.isDefault = MA_TRUE;
                     hasDefaultCaptureDeviceBeenEnumerated = MA_TRUE;
                 }
