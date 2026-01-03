@@ -7709,15 +7709,6 @@ struct ma_context
         ma_proc CoTaskMemFree;
         ma_proc PropVariantClear;
         ma_proc StringFromGUID2;
-
-        /*HMODULE*/ ma_handle hUser32DLL;
-        ma_proc GetForegroundWindow;
-        ma_proc GetDesktopWindow;
-
-        /*HMODULE*/ ma_handle hAdvapi32DLL;
-        ma_proc RegOpenKeyExA;
-        ma_proc RegCloseKey;
-        ma_proc RegQueryValueExA;
     } win32;
 #endif
 };
@@ -20009,16 +20000,6 @@ typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(void* pv);
 typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(MA_PROPVARIANT *pvar);
 typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, WCHAR* lpsz, int cchMax);
 
-typedef HWND    (WINAPI * MA_PFN_GetForegroundWindow)(void);
-typedef HWND    (WINAPI * MA_PFN_GetDesktopWindow)(void);
-
-#if defined(MA_WIN32_DESKTOP)
-/* Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG. */
-typedef LONG    (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, const char* lpSubKey, DWORD ulOptions, DWORD samDesired, HKEY* phkResult);
-typedef LONG    (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
-typedef LONG    (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValueName, DWORD* lpReserved, DWORD* lpType, BYTE* lpData, DWORD* lpcbData);
-#endif  /* MA_WIN32_DESKTOP */
-
 static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 /*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
@@ -25255,11 +25236,13 @@ static MA_INLINE HRESULT ma_IDirectSoundNotify_SetNotificationPositions(ma_IDire
 
 typedef BOOL (CALLBACK * ma_DSEnumCallbackAProc)(GUID* pDeviceGUID, const char* pDeviceDescription, const char* pModule, void* pContext);
 
-typedef HRESULT (WINAPI   * ma_DirectSoundCreateProc           )(const GUID* pcGuidDevice, ma_IDirectSound** ppDS8, ma_IUnknown* pUnkOuter);
-typedef HRESULT (WINAPI   * ma_DirectSoundEnumerateAProc       )(ma_DSEnumCallbackAProc pDSEnumCallback, void* pContext);
-typedef HRESULT (WINAPI   * ma_DirectSoundCaptureCreateProc    )(const GUID* pcGuidDevice, ma_IDirectSoundCapture** ppDSC8, ma_IUnknown* pUnkOuter);
-typedef HRESULT (WINAPI   * ma_DirectSoundCaptureEnumerateAProc)(ma_DSEnumCallbackAProc pDSEnumCallback, void* pContext);
+typedef HRESULT (WINAPI * ma_DirectSoundCreateProc           )(const GUID* pcGuidDevice, ma_IDirectSound** ppDS8, ma_IUnknown* pUnkOuter);
+typedef HRESULT (WINAPI * ma_DirectSoundEnumerateAProc       )(ma_DSEnumCallbackAProc pDSEnumCallback, void* pContext);
+typedef HRESULT (WINAPI * ma_DirectSoundCaptureCreateProc    )(const GUID* pcGuidDevice, ma_IDirectSoundCapture** ppDSC8, ma_IUnknown* pUnkOuter);
+typedef HRESULT (WINAPI * ma_DirectSoundCaptureEnumerateAProc)(ma_DSEnumCallbackAProc pDSEnumCallback, void* pContext);
 
+typedef HWND    (WINAPI * ma_GetForegroundWindowProc)(void);
+typedef HWND    (WINAPI * ma_GetDesktopWindowProc   )(void);
 
 typedef struct ma_context_state_dsound
 {
@@ -25269,6 +25252,10 @@ typedef struct ma_context_state_dsound
     ma_DirectSoundEnumerateAProc        DirectSoundEnumerateA;
     ma_DirectSoundCaptureCreateProc     DirectSoundCaptureCreate;
     ma_DirectSoundCaptureEnumerateAProc DirectSoundCaptureEnumerateA;
+
+    ma_handle hUser32DLL;
+    ma_GetForegroundWindowProc GetForegroundWindow;
+    ma_GetDesktopWindowProc    GetDesktopWindow;
 } ma_context_state_dsound;
 
 typedef struct ma_device_state_dsound
@@ -25345,6 +25332,16 @@ static ma_result ma_context_init__dsound(ma_context* pContext, const void* pCont
         return MA_API_NOT_FOUND;
     }
 
+    /* User32.dll */
+    pContextStateDSound->hUser32DLL = ma_dlopen(ma_context_get_log(pContext), "user32.dll");
+    if (pContextStateDSound->hUser32DLL == NULL) {
+        ma_dlclose(ma_context_get_log(pContext), pContextStateDSound->hDSoundDLL);
+        return MA_API_NOT_FOUND;
+    }
+
+    pContextStateDSound->GetForegroundWindow = (ma_GetForegroundWindowProc)ma_dlsym(ma_context_get_log(pContext), pContextStateDSound->hUser32DLL, "GetForegroundWindow");
+    pContextStateDSound->GetDesktopWindow    = (ma_GetDesktopWindowProc   )ma_dlsym(ma_context_get_log(pContext), pContextStateDSound->hUser32DLL, "GetDesktopWindow");
+
     pContextStateDSound->hWnd = (HWND)pContextConfigDSound->hWnd;
 
     *ppContextState = pContextStateDSound;
@@ -25356,6 +25353,7 @@ static void ma_context_uninit__dsound(ma_context* pContext)
 {
     ma_context_state_dsound* pContextStateDSound = ma_context_get_backend_state__dsound(pContext);
 
+    ma_dlclose(ma_context_get_log(pContext), pContextStateDSound->hUser32DLL);
     ma_dlclose(ma_context_get_log(pContext), pContextStateDSound->hDSoundDLL);
 
     ma_free(pContextStateDSound, ma_context_get_allocation_callbacks(pContext));
@@ -25460,9 +25458,9 @@ static ma_result ma_context_create_IDirectSound__dsound(ma_context* pContext, ma
     /* The cooperative level must be set before doing anything else. */
     hWnd = pContextStateDSound->hWnd;
     if (hWnd == 0) {
-        hWnd = ((MA_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
+        hWnd = ((ma_GetForegroundWindowProc)pContextStateDSound->GetForegroundWindow)();
         if (hWnd == 0) {
-            hWnd = ((MA_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
+            hWnd = ((ma_GetDesktopWindowProc)pContextStateDSound->GetDesktopWindow)();
         }
     }
 
@@ -26699,6 +26697,13 @@ typedef MA_MMRESULT (WINAPI * MA_PFN_waveInAddBuffer       )(MA_HWAVEIN hwi, MA_
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInStart           )(MA_HWAVEIN hwi);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInReset           )(MA_HWAVEIN hwi);
 
+#if defined(MA_WIN32_DESKTOP)
+/* Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG. */
+typedef LONG    (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, const char* lpSubKey, DWORD ulOptions, DWORD samDesired, HKEY* phkResult);
+typedef LONG    (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
+typedef LONG    (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValueName, DWORD* lpReserved, DWORD* lpType, BYTE* lpData, DWORD* lpcbData);
+#endif  /* MA_WIN32_DESKTOP */
+
 
 typedef struct ma_context_state_winmm
 {
@@ -26720,6 +26725,11 @@ typedef struct ma_context_state_winmm
     MA_PFN_waveInAddBuffer        waveInAddBuffer;
     MA_PFN_waveInStart            waveInStart;
     MA_PFN_waveInReset            waveInReset;
+
+    ma_handle hAdvapi32;
+    MA_PFN_RegOpenKeyExA          RegOpenKeyExA;
+    MA_PFN_RegCloseKey            RegCloseKey;
+    MA_PFN_RegQueryValueExA       RegQueryValueExA;
 } ma_context_state_winmm;
 
 typedef struct ma_device_state_winmm
@@ -26800,6 +26810,19 @@ static ma_result ma_context_init__winmm(ma_context* pContext, const void* pConte
     pContextStateWinMM->waveInStart            = (MA_PFN_waveInStart           )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInStart");
     pContextStateWinMM->waveInReset            = (MA_PFN_waveInReset           )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInReset");
 
+
+    /* Advapi32.dll */
+    pContextStateWinMM->hAdvapi32 = ma_dlopen(ma_context_get_log(pContext), "advapi32.dll");
+    if (pContextStateWinMM->hAdvapi32 == NULL) {
+        ma_dlclose(ma_context_get_log(pContext), pContextStateWinMM->hWinMM);
+        ma_free(pContextStateWinMM, ma_context_get_allocation_callbacks(pContext));
+        return MA_NO_BACKEND;
+    }
+
+    pContextStateWinMM->RegOpenKeyExA    = (MA_PFN_RegOpenKeyExA   )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hAdvapi32, "RegOpenKeyExA");
+    pContextStateWinMM->RegCloseKey      = (MA_PFN_RegCloseKey     )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hAdvapi32, "RegCloseKey");
+    pContextStateWinMM->RegQueryValueExA = (MA_PFN_RegQueryValueExA)ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hAdvapi32, "RegQueryValueExA");
+
     *ppContextState = pContextStateWinMM;
 
     return MA_SUCCESS;
@@ -26809,6 +26832,7 @@ static void ma_context_uninit__winmm(ma_context* pContext)
 {
     ma_context_state_winmm* pContextStateWinMM = ma_context_get_backend_state__winmm(pContext);
 
+    ma_dlclose(ma_context_get_log(pContext), pContextStateWinMM->hAdvapi32);
     ma_dlclose(ma_context_get_log(pContext), pContextStateWinMM->hWinMM);
 
     ma_free(pContextStateWinMM, ma_context_get_allocation_callbacks(pContext));
@@ -26976,6 +27000,7 @@ static ma_result ma_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD c
 
 static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, MA_WAVECAPSA* pCaps, ma_device_info* pDeviceInfo)
 {
+    ma_context_state_winmm* pContextStateWinmm = (ma_context_state_winmm*)ma_context_get_backend_state(pContext);
     WORD bitsPerSample;
     DWORD sampleRate;
     ma_result result;
@@ -27017,11 +27042,11 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
             ma_strcpy_s(keyStr, sizeof(keyStr), "SYSTEM\\CurrentControlSet\\Control\\MediaCategories\\");
             ma_strcat_s(keyStr, sizeof(keyStr), guidStr);
 
-            if (((MA_PFN_RegOpenKeyExA)pContext->win32.RegOpenKeyExA)(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            if (((MA_PFN_RegOpenKeyExA)pContextStateWinmm->RegOpenKeyExA)(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
                 BYTE nameFromReg[512];
                 DWORD nameFromRegSize = sizeof(nameFromReg);
-                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContext->win32.RegQueryValueExA)(hKey, "Name", 0, NULL, (BYTE*)nameFromReg, (DWORD*)&nameFromRegSize);
-                ((MA_PFN_RegCloseKey)pContext->win32.RegCloseKey)(hKey);
+                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContextStateWinmm->RegQueryValueExA)(hKey, "Name", 0, NULL, (BYTE*)nameFromReg, (DWORD*)&nameFromRegSize);
+                ((MA_PFN_RegCloseKey)pContextStateWinmm->RegCloseKey)(hKey);
 
                 if (resultWin32 == ERROR_SUCCESS) {
                     /* We have the value from the registry, so now we need to construct the name string. */
@@ -27070,7 +27095,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info_from_WAVEOUTCAPS2(ma_context* pContext, MA_WAVEOUTCAPS2A* pCaps, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info_from_WAVEOUTCAPS2__winmm(ma_context* pContext, MA_WAVEOUTCAPS2A* pCaps, ma_device_info* pDeviceInfo)
 {
     MA_WAVECAPSA caps;
 
@@ -27085,7 +27110,7 @@ static ma_result ma_context_get_device_info_from_WAVEOUTCAPS2(ma_context* pConte
     return ma_context_get_device_info_from_WAVECAPS(pContext, &caps, pDeviceInfo);
 }
 
-static ma_result ma_context_get_device_info_from_WAVEINCAPS2(ma_context* pContext, MA_WAVEINCAPS2A* pCaps, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info_from_WAVEINCAPS2__winmm(ma_context* pContext, MA_WAVEINCAPS2A* pCaps, ma_device_info* pDeviceInfo)
 {
     MA_WAVECAPSA caps;
 
@@ -27136,7 +27161,7 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
             deviceInfo.id.winmm = iPlaybackDevice;
 
             /* Name and Data Format. */
-            if (ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
+            if (ma_context_get_device_info_from_WAVEOUTCAPS2__winmm(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
                 ma_device_enumeration_result cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
                 if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                     return MA_SUCCESS; /* Enumeration was stopped. */
@@ -27169,7 +27194,7 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
             deviceInfo.id.winmm = iCaptureDevice;
 
             /* Name and Data Format. */
-            if (ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
+            if (ma_context_get_device_info_from_WAVEINCAPS2__winmm(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
                 ma_device_enumeration_result cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
                 if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
                     return MA_SUCCESS; /* Enumeration was stopped. */
@@ -44234,11 +44259,6 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
     #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     {
-        #if defined(MA_WIN32_DESKTOP)
-            ma_dlclose(ma_context_get_log(pContext), pContext->win32.hUser32DLL);
-            ma_dlclose(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL);
-        #endif
-
         ma_dlclose(ma_context_get_log(pContext), pContext->win32.hOle32DLL);
     }
     #else
@@ -44258,30 +44278,6 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     */
     #if (defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)) && !defined(MA_XBOX)
     {
-        #if defined(MA_WIN32_DESKTOP)
-        {
-            /* User32.dll */
-            pContext->win32.hUser32DLL = ma_dlopen(ma_context_get_log(pContext), "user32.dll");
-            if (pContext->win32.hUser32DLL == NULL) {
-                return MA_FAILED_TO_INIT_BACKEND;
-            }
-
-            pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetForegroundWindow");
-            pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetDesktopWindow");
-
-
-            /* Advapi32.dll */
-            pContext->win32.hAdvapi32DLL = ma_dlopen(ma_context_get_log(pContext), "advapi32.dll");
-            if (pContext->win32.hAdvapi32DLL == NULL) {
-                return MA_FAILED_TO_INIT_BACKEND;
-            }
-
-            pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
-            pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegCloseKey");
-            pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
-        }
-        #endif
-
         /* Ole32.dll */
         pContext->win32.hOle32DLL = ma_dlopen(ma_context_get_log(pContext), "ole32.dll");
         if (pContext->win32.hOle32DLL == NULL) {
