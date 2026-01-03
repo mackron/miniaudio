@@ -7202,7 +7202,8 @@ typedef enum
     ma_device_status_stopped       = 1,  /* The device's default state after initialization. */
     ma_device_status_started       = 2,  /* The device is started and is requesting and/or delivering audio data. */
     ma_device_status_starting      = 3,  /* Transitioning from a stopped state to started. */
-    ma_device_status_stopping      = 4   /* Transitioning from a started state to stopped. */
+    ma_device_status_stopping      = 4,  /* Transitioning from a started state to stopped. */
+    ma_device_status_errored       = 5
 } ma_device_status;
 
 MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, device_status)
@@ -7280,7 +7281,8 @@ typedef enum
     ma_device_notification_type_rerouted,
     ma_device_notification_type_interruption_began,
     ma_device_notification_type_interruption_ended,
-    ma_device_notification_type_unlocked
+    ma_device_notification_type_unlocked,
+    ma_device_notification_type_errored
 } ma_device_notification_type;
 
 typedef struct
@@ -7309,6 +7311,10 @@ typedef struct
         {
             int _unused;
         } unlocked;
+        struct
+        {
+            int _unused;
+        } errored;
     } data;
 } ma_device_notification;
 
@@ -9088,30 +9094,32 @@ MA_API ma_bool32 ma_device_is_started(const ma_device* pDevice);
 
 
 /*
-Retrieves the state of the device.
+Retrieves the status of the device.
 
 
 Parameters
 ----------
 pDevice (in)
-    A pointer to the device whose state is being retrieved.
+    A pointer to the device whose status is being retrieved.
 
 
 Return Value
 ------------
-The current state of the device. The return value will be one of the following:
+The current status of the device. The return value will be one of the following:
 
-    +-------------------------------+------------------------------------------------------------------------------+
-    | ma_device_status_uninitialized | Will only be returned if the device is in the middle of initialization.      |
-    +-------------------------------+------------------------------------------------------------------------------+
-    | ma_device_status_stopped       | The device is stopped. The initial state of the device after initialization. |
-    +-------------------------------+------------------------------------------------------------------------------+
-    | ma_device_status_started       | The device started and requesting and/or delivering audio data.              |
-    +-------------------------------+------------------------------------------------------------------------------+
-    | ma_device_status_starting      | The device is in the process of starting.                                    |
-    +-------------------------------+------------------------------------------------------------------------------+
-    | ma_device_status_stopping      | The device is in the process of stopping.                                    |
-    +-------------------------------+------------------------------------------------------------------------------+
+    +--------------------------------+-------------------------------------------------------------------------------+
+    | ma_device_status_uninitialized | Will only be returned if the device is in the middle of initialization.       |
+    +--------------------------------+-------------------------------------------------------------------------------+
+    | ma_device_status_stopped       | The device is stopped. The initial status of the device after initialization. |
+    +--------------------------------+-------------------------------------------------------------------------------+
+    | ma_device_status_started       | The device started and requesting and/or delivering audio data.               |
+    +--------------------------------+-------------------------------------------------------------------------------+
+    | ma_device_status_starting      | The device is in the process of starting.                                     |
+    +--------------------------------+-------------------------------------------------------------------------------+
+    | ma_device_status_stopping      | The device is in the process of stopping.                                     |
+    +--------------------------------+-------------------------------------------------------------------------------+
+    | ma_device_status_errored       | The device is in an error state. See remarks.                                 |
+    +--------------------------------+-------------------------------------------------------------------------------+
 
 
 Thread Safety
@@ -9127,7 +9135,7 @@ Safe. This is implemented as a simple accessor.
 
 Remarks
 -------
-The general flow of a devices state goes like this:
+The general flow of a devices status goes like this:
 
     ```
     ma_device_init()  -> ma_device_status_uninitialized -> ma_device_status_stopped
@@ -9135,11 +9143,31 @@ The general flow of a devices state goes like this:
     ma_device_stop()  -> ma_device_status_stopping      -> ma_device_status_stopped
     ```
 
-When the state of the device is changed with `ma_device_start()` or `ma_device_stop()` at this same time as this function is called, the
+When the status of the device is changed with `ma_device_start()` or `ma_device_stop()` at this same time as this function is called, the
 value returned by this function could potentially be out of sync. If this is significant to your program you need to implement your own
 synchronization.
+
+If an internal error occurs the backend may put the device into an error state with `ma_device_status_errored`. When this happens, the
+device is unusable and your only option is uninitialize it and try initializing it again. Backends will usually do their best to work
+around error states so an errored status should be rare.
 */
 MA_API ma_device_status ma_device_get_status(const ma_device* pDevice);
+
+/*
+Puts the device into an errored state.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device that is being put into an errored state.
+
+
+Remarks
+-------
+Once the device is has been put into this state there is no changing it. The only thing an application can do is reinitialize the device.
+*/
+MA_API void ma_device_set_errored(ma_device* pDevice);
 
 
 /*
@@ -9439,6 +9467,7 @@ MA_API void ma_device_post_notification_rerouted(ma_device* pDevice);
 MA_API void ma_device_post_notification_interruption_began(ma_device* pDevice);
 MA_API void ma_device_post_notification_interruption_ended(ma_device* pDevice);
 MA_API void ma_device_post_notification_unlocked(ma_device* pDevice);
+MA_API void ma_device_post_notification_errored(ma_device* pDevice);
 
 
 
@@ -20672,6 +20701,15 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
 /* A helper for changing the state of the device. */
 static MA_INLINE void ma_device_set_status(ma_device* pDevice, ma_device_status newStatus)
 {
+    /* We cannot change away from an errored state. */
+    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+        if (newStatus != ma_device_status_errored) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Device is in an errored state. The device status cannot be changed.");
+        }
+
+        return;
+    }
+
     ma_atomic_device_status_set(&pDevice->state, newStatus);
 }
 
@@ -26172,6 +26210,12 @@ static ma_result ma_device_start__dsound(ma_device* pDevice)
         hr = ma_IDirectSoundCaptureBuffer_Start(pDeviceStateDSound->pCaptureBuffer, MA_DSCBSTART_LOOPING);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCaptureBuffer_Start() failed.");
+            
+            /* If we got NODRIVER the application will need to do a full reinitialization to get audio working again. */
+            if (hr == MA_DSERR_NODRIVER) {
+                ma_device_set_errored(pDevice);
+            }
+
             return ma_result_from_HRESULT(hr);
         }
     }
@@ -26274,7 +26318,7 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
     ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_result result = MA_SUCCESS;
-    HRESULT hr;
+    HRESULT hr = S_OK;
     ma_uint32 waitTimeInMilliseconds = 1;
     ma_bool32 wasDataProcessed = MA_FALSE;
 
@@ -26310,7 +26354,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
             
             hr = ma_IDirectSoundCaptureBuffer_GetCurrentPosition(pDeviceStateDSound->pCaptureBuffer, &physicalCaptureCursorInBytes, &physicalReadCursorInBytes);
             if (FAILED(hr)) {
-                return ma_result_from_HRESULT(hr);
+                result = ma_result_from_HRESULT(hr);
+                goto error;
             }
 
             /* If the previous capture position is the same as the current position we need to wait a bit longer. */
@@ -26341,6 +26386,7 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                     if (FAILED(hr)) {
                         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.");
                         result = ma_result_from_HRESULT(hr);
+                        goto error;
                     }
 
                     if (lockSizeInBytesCapture != mappedSizeInBytesCapture) {
@@ -26352,7 +26398,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                     hr = ma_IDirectSoundCaptureBuffer_Unlock(pDeviceStateDSound->pCaptureBuffer, pMappedDeviceBufferCapture, mappedSizeInBytesCapture, NULL, 0);
                     if (FAILED(hr)) {
                         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.");
-                        return ma_result_from_HRESULT(hr);
+                        result = ma_result_from_HRESULT(hr);
+                        goto error;
                     }
                     pDeviceStateDSound->prevReadCursorInBytesCapture = lockOffsetInBytesCapture + mappedSizeInBytesCapture;
 
@@ -26378,7 +26425,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
 
             hr = ma_IDirectSoundBuffer_GetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
             if (FAILED(hr)) {
-                return ma_result_from_HRESULT(hr);
+                result = ma_result_from_HRESULT(hr);
+                goto error;
             }
 
             /* If the playback device is not started, start it now. */
@@ -26388,7 +26436,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                 hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
                 if (FAILED(hr)) {
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed after attempting to resume from state %d.", (int)playbackBufferStatus);
-                    return ma_result_from_HRESULT(hr);
+                    result = ma_result_from_HRESULT(hr);
+                    goto error;
                 }
             } else {
                 if (physicalPlayCursorInBytes < pDeviceStateDSound->prevPlayCursorInBytesPlayback) {
@@ -26434,7 +26483,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                     hr = ma_IDirectSoundBuffer_Lock(pDeviceStateDSound->pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedDeviceBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
                     if (FAILED(hr)) {
                         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.");
-                        return ma_result_from_HRESULT(hr);
+                        result = ma_result_from_HRESULT(hr);
+                        goto error;
                     }
 
                     /* At this point we have a buffer for output. */
@@ -26443,7 +26493,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                     hr = ma_IDirectSoundBuffer_Unlock(pDeviceStateDSound->pPlaybackBuffer, pMappedDeviceBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
                     if (FAILED(hr)) {
                         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.");
-                        return ma_result_from_HRESULT(hr);
+                        result = ma_result_from_HRESULT(hr);
+                        goto error;
                     }
 
                     pDeviceStateDSound->virtualWriteCursorInBytesPlayback += mappedSizeInBytesPlayback;
@@ -26462,7 +26513,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                             hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
                             if (FAILED(hr)) {
                                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.");
-                                return ma_result_from_HRESULT(hr);
+                                result = ma_result_from_HRESULT(hr);
+                                goto error;
                             }
 
                             pDeviceStateDSound->isPlaybackDeviceStarted = MA_TRUE;
@@ -26476,7 +26528,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                         hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
                         if (FAILED(hr)) {
                             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.");
-                            return ma_result_from_HRESULT(hr);
+                            result = ma_result_from_HRESULT(hr);
+                            goto error;
                         }
 
                         pDeviceStateDSound->isPlaybackDeviceStarted = MA_TRUE;
@@ -26486,7 +26539,7 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
         }
 
         if (result != MA_SUCCESS) {
-            return result;
+            goto error;
         }
 
         /* If we're in non-blocking mode we can just abort now, regardless of whether or not any data was processed. */
@@ -26499,6 +26552,14 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
     }
 
     return MA_SUCCESS;
+
+error:
+    /* This can fail with DSERR_NODRIVER. In this case we need to put the device into an errored state. */
+    if (hr == MA_DSERR_NODRIVER) {
+        ma_device_set_errored(pDevice);
+    }
+
+    return result;
 }
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_DSound =
@@ -45584,6 +45645,10 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return MA_INVALID_ARGS;
     }
 
+    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+        return MA_INVALID_OPERATION;    /* In an errored state. */
+    }
+
     if (ma_device_get_status(pDevice) == ma_device_status_uninitialized) {
         return MA_INVALID_OPERATION;    /* Not initialized. */
     }
@@ -45634,6 +45699,10 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
     if (pDevice == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+        return MA_INVALID_OPERATION;    /* In an errored state. */
     }
 
     if (ma_device_get_status(pDevice) == ma_device_status_uninitialized) {
@@ -45709,6 +45778,20 @@ MA_API ma_device_status ma_device_get_status(const ma_device* pDevice)
     }
 
     return ma_atomic_device_status_get((ma_atomic_device_status*)&pDevice->state);   /* Naughty cast to get rid of a const warning. */
+}
+
+MA_API void ma_device_set_errored(ma_device* pDevice)
+{
+    if (pDevice == NULL) {
+        return;
+    }
+
+    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+        return; /* Already in an errored state. */
+    }
+
+    ma_device_set_status(pDevice, ma_device_status_errored);
+    ma_device_post_notification_errored(pDevice);
 }
 
 MA_API ma_result ma_device_step(ma_device* pDevice, ma_blocking_mode blockingMode)
@@ -45891,6 +45974,11 @@ MA_API void ma_device_post_notification_interruption_ended(ma_device* pDevice)
 MA_API void ma_device_post_notification_unlocked(ma_device* pDevice)
 {
     ma_device_post_notification(ma_device_notification_init(pDevice, ma_device_notification_type_unlocked));
+}
+
+MA_API void ma_device_post_notification_errored(ma_device* pDevice)
+{
+    ma_device_post_notification(ma_device_notification_init(pDevice, ma_device_notification_type_errored));
 }
 
 

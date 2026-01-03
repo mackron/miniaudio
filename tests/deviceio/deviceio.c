@@ -400,6 +400,16 @@ void on_notification(const ma_device_notification* pNotification)
             printf("Interruption Ended\n");
         } break;
 
+        case ma_device_notification_type_unlocked:
+        {
+            printf("Unlocked\n");
+        } break;
+
+        case ma_device_notification_type_errored:
+        {
+            printf("Errored\n");
+        } break;
+
         default: break;
     }
 }
