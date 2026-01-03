@@ -532,6 +532,7 @@ set(STEAMAUDIO_FIND_LIBRARY_HINTS)
 list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/lib/${STEAMAUDIO_ARCH})
 
 if(WIN32)
+    # No standard locations on Windows.
 else()
     list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /opt/steamaudio/lib/${STEAMAUDIO_ARCH})
     list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /usr/local/steamaudio/lib/${STEAMAUDIO_ARCH})
@@ -541,6 +542,7 @@ set(STEAMAUDIO_FIND_HEADER_HINTS)
 list(APPEND STEAMAUDIO_FIND_HEADER_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/include)
 
 if(WIN32)
+    # No standard locations on Windows.
 else()
     list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /opt/steamaudio/include)
     list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /usr/local/steamaudio/include)
@@ -549,15 +551,14 @@ endif()
 
 find_library(STEAMAUDIO_LIBRARY NAMES phonon HINTS ${STEAMAUDIO_FIND_LIBRARY_HINTS})
 if(STEAMAUDIO_LIBRARY)
-    message(STATUS "Found SteamAudio: ${STEAMAUDIO_LIBRARY}")
-
     find_path(STEAMAUDIO_INCLUDE_DIR
         NAMES phonon.h
         HINTS ${STEAMAUDIO_FIND_HEADER_HINTS}
     )
     if(STEAMAUDIO_INCLUDE_DIR)
-        message(STATUS "Found phonon.h in ${STEAMAUDIO_INCLUDE_DIR}")
-        set(HAS_STEAMAUDIO TRUE)
+        add_library               (steamaudio INTERFACE)
+        target_include_directories(steamaudio INTERFACE ${STEAMAUDIO_INCLUDE_DIR})
+        target_link_libraries     (steamaudio INTERFACE ${STEAMAUDIO_LIBRARY})
     else()
         message(STATUS "Could not find phonon.h. miniaudio_engine_steamaudio will be excluded.")
     endif()
@@ -907,10 +908,9 @@ if (MINIAUDIO_BUILD_EXAMPLES)
         message(STATUS "SDL2 could not be found. miniaudio_engine_sdl has been excluded.")
     endif()
 
-    if(HAS_STEAMAUDIO)
+    if(TARGET steamaudio)
         add_miniaudio_example(miniaudio_engine_steamaudio engine_steamaudio.c)
-        target_include_directories(miniaudio_engine_steamaudio PRIVATE ${STEAMAUDIO_INCLUDE_DIR})
-        target_link_libraries     (miniaudio_engine_steamaudio PRIVATE ${STEAMAUDIO_LIBRARY})
+        target_link_libraries(miniaudio_engine_steamaudio PRIVATE steamaudio)
     else()
         message(STATUS "SteamAudio could not be found. miniaudio_engine_steamaudio has been excluded.")
     endif()
