@@ -7718,8 +7718,6 @@ struct ma_context
         ma_proc RegOpenKeyExA;
         ma_proc RegCloseKey;
         ma_proc RegQueryValueExA;
-
-        /*HRESULT*/ long CoInitializeResult;
     } win32;
 #endif
 };
@@ -44236,15 +44234,6 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
     #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     {
-        /* TODO: Remove this once the new single threaded backend system is in place in 0.12. */
-        #if !defined(MA_XBOX)
-        {
-            if (pContext->win32.CoInitializeResult == S_OK || pContext->win32.CoInitializeResult == S_FALSE) {
-                ma_CoUninitialize(pContext);    /* TODO: Remove this once the new single threaded backend system is in place in 0.12. */
-            }
-        }
-        #endif
-
         #if defined(MA_WIN32_DESKTOP)
             ma_dlclose(ma_context_get_log(pContext), pContext->win32.hUser32DLL);
             ma_dlclose(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL);
@@ -44310,13 +44299,6 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     #else
     {
         (void)pContext; /* Unused. */
-    }
-    #endif
-
-    /* TODO: Remove this once the new single threaded backend system is in place in 0.12. */
-    #if !defined(MA_XBOX)
-    {
-        pContext->win32.CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     }
     #endif
 
