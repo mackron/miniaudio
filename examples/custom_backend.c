@@ -57,8 +57,8 @@ int main(int argc, char** argv)
     defining it here just for the sake of demonstration. Whether or not this is required depends on the backend. If you're not sure,
     check the documentation for the backend.
     */
-    ma_context_config_sdl sdlContextConfig = ma_context_config_sdl_init();
-    sdlContextConfig._unused = 0;
+    ma_context_config_sdl2 sdl2ContextConfig = ma_context_config_sdl2_init();
+    sdl2ContextConfig._unused = 0;
 
     /*
     You must include an entry for each backend you're using, even if the config is NULL. This is how miniaudio knows about
@@ -69,7 +69,7 @@ int main(int argc, char** argv)
     */
     ma_device_backend_config backends[] =
     {
-        { ma_device_backend_sdl,        &sdlContextConfig },
+        { ma_device_backend_sdl2,       &sdl2ContextConfig },
         { ma_device_backend_wasapi,     NULL },
         { ma_device_backend_pulseaudio, NULL }
     };
@@ -89,15 +89,15 @@ int main(int argc, char** argv)
     Just like with context configs, we can define some device-level configs as well. It works the same way, except you will pass in
     a backend-specific device-level config. If the backend doesn't require a device-level config, you can set this to NULL.
     */
-    ma_device_config_sdl sdlDeviceConfig = ma_device_config_sdl_init();
-    sdlDeviceConfig._unused = 0;
+    ma_device_config_sdl2 sdl2DeviceConfig = ma_device_config_sdl2_init();
+    sdl2DeviceConfig._unused = 0;
 
     /*
     Unlike with contexts, if your backend does not require a device-level config, you can just leave it out of this list entirely.
     */
     ma_device_backend_config pBackendDeviceConfigs[] =
     {
-        { ma_device_backend_sdl,        &sdlDeviceConfig },
+        { ma_device_backend_sdl2,       &sdl2DeviceConfig },
         { ma_device_backend_wasapi,     NULL },
         { ma_device_backend_pulseaudio, NULL }
     };

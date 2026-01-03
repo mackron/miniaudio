@@ -198,7 +198,7 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
         goto done;
     }
     if (strcmp(arg, "sdl2") == 0) {
-        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl, NULL);
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl2, NULL);
         goto done;
     }
     if (strcmp(arg, "pipewire") == 0) {
@@ -301,7 +301,7 @@ void print_enabled_backends(void)
         }
     }
 
-    if (ma_device_backend_sdl != NULL) {
+    if (ma_device_backend_sdl2 != NULL) {
         printf("    SDL2\n");
     }
 
