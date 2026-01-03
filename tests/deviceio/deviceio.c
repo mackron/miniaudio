@@ -49,7 +49,7 @@ If multiple backends are specified, the priority will be based on the order in w
 are specified the last one on the command line will have priority.
 */
 #include "../common/common.c"
-#include "../../extras/backends/sdl/backend_sdl.c"
+#include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 
 #if defined(MA_TESTS_INCLUDE_PIPEWIRE)
 #include "../../extras/backends/pipewire/miniaudio_pipewire.h"

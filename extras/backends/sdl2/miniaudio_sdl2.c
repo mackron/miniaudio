@@ -12,7 +12,7 @@ which requires the `-s USE_SDL=2` option.
 #include "../../../miniaudio.h"
 #endif
 
-#include "backend_sdl.h"
+#include "miniaudio_sdl2.h"
 
 #include <string.h> /* memset() */
 #include <assert.h>

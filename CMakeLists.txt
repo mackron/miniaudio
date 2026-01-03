@@ -648,12 +648,12 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
 
     if(NOT MINIAUDIO_NO_SDL2)
         add_library(miniaudio_sdl2 STATIC
-            extras/backends/sdl/backend_sdl.c
-            extras/backends/sdl/backend_sdl.h
+            extras/backends/sdl2/miniaudio_sdl2.c
+            extras/backends/sdl2/miniaudio_sdl2.h
         )
 
         list(APPEND LIBS_TO_INSTALL miniaudio_sdl2)
-        install(FILES extras/backends/sdl/backend_sdl.h DESTINATION include/miniaudio/extras/backends/sdl2)
+        install(FILES extras/backends/sdl2/miniaudio_sdl2.h DESTINATION include/miniaudio/extras/backends/sdl2)
 
         target_include_directories(miniaudio_sdl2 PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/sdl2)
         target_compile_options    (miniaudio_sdl2 PRIVATE ${COMPILE_OPTIONS})

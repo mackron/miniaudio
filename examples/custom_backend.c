@@ -13,7 +13,7 @@ backends would actually get hit. By default, the `ma_backend_custom` backend is 
 #include "../miniaudio.c"
 
 /* We're using SDL for this example. To use this in your own program, you need to include backend_sdl.h after miniaudio.h. */
-#include "../extras/backends/sdl/backend_sdl.h"
+#include "../extras/backends/sdl2/miniaudio_sdl2.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -146,4 +146,4 @@ int main(int argc, char** argv)
 }
 
 /* We put the SDL implementation here just to simplify the compilation process. This way you need only compile custom_backend.c. */
-#include "../extras/backends/sdl/backend_sdl.c"
+#include "../extras/backends/sdl2/miniaudio_sdl2.c"
