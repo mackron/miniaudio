@@ -39755,16 +39755,9 @@ static ma_result ma_device_write__oss(ma_device* pDevice, const void* pPCMFrames
 {
     ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
     int resultOSS;
-    ma_uint32 deviceState;
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
-    }
-
-    /* Don't do any processing if the device is stopped. */
-    deviceState = ma_device_get_status(pDevice);
-    if (deviceState != ma_device_status_started && deviceState != ma_device_status_starting) {
-        return MA_SUCCESS;
     }
 
     resultOSS = write(pDeviceStateOSS->fdPlayback, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
@@ -39784,16 +39777,9 @@ static ma_result ma_device_read__oss(ma_device* pDevice, void* pPCMFrames, ma_ui
 {
     ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
     int resultOSS;
-    ma_uint32 deviceState;
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
-    }
-
-    /* Don't do any processing if the device is stopped. */
-    deviceState = ma_device_get_status(pDevice);
-    if (deviceState != ma_device_status_started && deviceState != ma_device_status_starting) {
-        return MA_SUCCESS;
     }
 
     resultOSS = read(pDeviceStateOSS->fdCapture, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
