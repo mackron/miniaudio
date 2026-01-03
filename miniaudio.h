@@ -36792,7 +36792,8 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
                         if (deviceType == ma_device_type_duplex) {
                             pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitCapture);
                         }
-                        ma_device_set_status(pDevice, ma_device_status_stopped);
+
+                        return ma_result_from_OSStatus(status);
                     }
                 }
                 
@@ -36802,7 +36803,8 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
                         if (deviceType == ma_device_type_duplex) {
                             pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitPlayback);
                         }
-                        ma_device_set_status(pDevice, ma_device_status_stopped);
+
+                        return ma_result_from_OSStatus(status);
                     }
                 }
             }
