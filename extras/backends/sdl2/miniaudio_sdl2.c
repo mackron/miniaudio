@@ -660,7 +660,7 @@ static ma_result ma_device_step__sdl2(ma_device* pDevice, ma_blocking_mode block
     return ma_device_state_async_step(&pDeviceStateSDL->async, pDevice, blockingMode, NULL);
 }
 
-static void ma_device_wake__sdl2(ma_device* pDevice)
+static void ma_device_wakeup__sdl2(ma_device* pDevice)
 {
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
     ma_device_state_async_release(&pDeviceStateSDL->async);
@@ -677,7 +677,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL2 =
     ma_device_start__sdl2,
     ma_device_stop__sdl2,
     ma_device_step__sdl2,
-    ma_device_wake__sdl2
+    ma_device_wakeup__sdl2
 };
 
 ma_device_backend_vtable* ma_device_backend_sdl2 = &ma_gDeviceBackendVTable_SDL2;

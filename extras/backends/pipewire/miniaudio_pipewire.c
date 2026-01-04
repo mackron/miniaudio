@@ -2891,7 +2891,7 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
     return MA_SUCCESS;
 }
 
-static void ma_device_wake__pipewire(ma_device* pDevice)
+static void ma_device_wakeup__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
@@ -2911,7 +2911,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_PipeWire =
     ma_device_start__pipewire,
     ma_device_stop__pipewire,
     ma_device_step__pipewire,
-    ma_device_wake__pipewire
+    ma_device_wakeup__pipewire
 };
 
 ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_PipeWire;
