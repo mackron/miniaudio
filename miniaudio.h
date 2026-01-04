@@ -66523,14 +66523,6 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
         /* Initialization was successful. Finish up. */
         result = ma_decoder__postinit(&config, pDecoder);
         if (result != MA_SUCCESS) {
-            /*
-            The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-            due to an out of memory error. We're going to abort with an error here and not try to recover.
-            */
-            if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
-            }
-
             return result;
         }
     } else {
@@ -67150,14 +67142,6 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
         /* Initialization was successful. Finish up. */
         result = ma_decoder__postinit(&config, pDecoder);
         if (result != MA_SUCCESS) {
-            /*
-            The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-            due to an out of memory error. We're going to abort with an error here and not try to recover.
-            */
-            if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
-            }
-
             return result;
         }
     } else {
@@ -67300,14 +67284,6 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
         /* Initialization was successful. Finish up. */
         result = ma_decoder__postinit(&config, pDecoder);
         if (result != MA_SUCCESS) {
-            /*
-            The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-            due to an out of memory error. We're going to abort with an error here and not try to recover.
-            */
-            if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
-            }
-
             return result;
         }
     } else {

@@ -1,5 +1,6 @@
 v0.11.24 - TBD
 =====================
+* Fix a possible double-uninit error when a decoder fails to initialize.
 * Fix a compilation error with the MSVC Aarch64 build.
 * Web: Fixed an error when uninitializing a context.
 
