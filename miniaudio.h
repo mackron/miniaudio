@@ -6605,19 +6605,6 @@ struct ma_job
                 ma_uint64 frameIndex;
             } seekDataStream;
         } resourceManager;
-
-        /* Device. */
-        union
-        {
-            union
-            {
-                struct
-                {
-                    /*ma_device**/ void* pDevice;
-                    /*ma_device_type*/ ma_uint32 deviceType;
-                } reroute;
-            } aaudio;
-        } device;
     } data;
 };
 
