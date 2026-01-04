@@ -74813,6 +74813,11 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
     MA_ZERO_OBJECT(pNodeGraph);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
     pNodeGraph->processingSizeInFrames = pConfig->processingSizeInFrames;
 
     /* Data source. */
