@@ -8803,6 +8803,11 @@ Retrieves a pointer to the context that owns the given device.
 MA_API ma_context* ma_device_get_context(ma_device* pDevice);
 
 /*
+Retrieves the user data pointer of the given device.
+*/
+MA_API void* ma_device_get_user_data(ma_device* pDevice);
+
+/*
 Helper function for retrieving the log object associated with the context that owns this device.
 */
 MA_API ma_log* ma_device_get_log(ma_device* pDevice);
@@ -45451,6 +45456,15 @@ MA_API ma_context* ma_device_get_context(ma_device* pDevice)
     }
 
     return pDevice->pContext;
+}
+
+MA_API void* ma_device_get_user_data(ma_device* pDevice)
+{
+    if (pDevice == NULL) {
+        return NULL;
+    }
+
+    return pDevice->pUserData;
 }
 
 MA_API ma_log* ma_device_get_log(ma_device* pDevice)
