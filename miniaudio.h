@@ -4124,6 +4124,22 @@ typedef ma_uint16   ma_wchar_win32;
 
 
 
+static MA_INLINE ma_bool32 ma_is_little_endian(void)
+{
+#if defined(MA_X86) || defined(MA_X64)
+    return MA_TRUE;
+#else
+    int n = 1;
+    return (*(char*)&n) == 1;
+#endif
+}
+
+static MA_INLINE ma_bool32 ma_is_big_endian(void)
+{
+    return !ma_is_little_endian();
+}
+
+
 /*
 Basic Functions
 ===============
@@ -11706,22 +11722,6 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
         #define MA_HAS_BYTESWAP16_INTRINSIC
     #endif
 #endif
-
-
-static MA_INLINE ma_bool32 ma_is_little_endian(void)
-{
-#if defined(MA_X86) || defined(MA_X64)
-    return MA_TRUE;
-#else
-    int n = 1;
-    return (*(char*)&n) == 1;
-#endif
-}
-
-static MA_INLINE ma_bool32 ma_is_big_endian(void)
-{
-    return !ma_is_little_endian();
-}
 
 
 static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
