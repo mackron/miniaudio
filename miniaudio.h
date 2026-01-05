@@ -41766,7 +41766,10 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     if (outputCount > 0) {
         /* If it's a capture-only device, we'll need to output silence. */
         if (pDevice->type == ma_device_type_capture) {
-            MA_ZERO_MEMORY(pOutputs[0].data, frameCount * pDevice->playback.internalChannels * sizeof(float));
+            /* Ensure all output buffers are filled with zero */
+            for (int i = 0; i < outputCount; i += 1) {
+                MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
+            }
         } else {
             ma_device_process_pcm_frames_playback__webaudio(pDevice, frameCount, pDevice->webaudio.pIntermediaryBuffer);
 
@@ -41775,6 +41778,10 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
                 for (ma_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
                     pOutputs[0].data[frameCount*iChannel + iFrame] = pDevice->webaudio.pIntermediaryBuffer[iFrame*pDevice->playback.internalChannels + iChannel];
                 }
+            }
+            /* Ensure all output buffers are filled with zero */
+            for (int i = 1; i < outputCount; i += 1) {
+                MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
             }
         }
     }
