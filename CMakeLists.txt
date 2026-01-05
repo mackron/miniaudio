@@ -64,7 +64,7 @@ option(MINIAUDIO_NO_DEVICEIO                   "Disable audio playback and captu
 option(MINIAUDIO_NO_RESOURCE_MANAGER           "Disable the resource manager API"    OFF)
 option(MINIAUDIO_NO_NODE_GRAPH                 "Disable the node graph API"          OFF)
 option(MINIAUDIO_NO_ENGINE                     "Disable the high-level engine API"   OFF)
-option(MINIAUDIO_NO_THREADING                  "Disable threading. Must be used with MINIAUDIO_NO_DEVICEIO." OFF)
+option(MINIAUDIO_NO_THREADING                  "Disable threading"                   OFF)
 option(MINIAUDIO_NO_GENERATION                 "Disable generation APIs such as ma_waveform and ma_noise" OFF)
 option(MINIAUDIO_NO_SSE2                       "Disable SSE2 optimizations"          OFF)
 option(MINIAUDIO_NO_AVX2                       "Disable AVX2 optimizations"          OFF)
