@@ -41743,8 +41743,11 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
         frameCount = pDevice->capture.internalPeriodSizeInFrames;
     }
 
+    /*
+    If this is called by the device has not yet been started we need to return early, making sure we output silence to
+    the output buffer.
+    */
     if (ma_device_get_state(pDevice) != ma_device_state_started) {
-        /* Fill the output buffer with zero to avoid a noise sound */
         for (int i = 0; i < outputCount; i += 1) {
             MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
         }
@@ -41766,7 +41769,6 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     if (outputCount > 0) {
         /* If it's a capture-only device, we'll need to output silence. */
         if (pDevice->type == ma_device_type_capture) {
-            /* Ensure all output buffers are filled with zero */
             for (int i = 0; i < outputCount; i += 1) {
                 MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
             }
@@ -41779,8 +41781,12 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
                     pOutputs[0].data[frameCount*iChannel + iFrame] = pDevice->webaudio.pIntermediaryBuffer[iFrame*pDevice->playback.internalChannels + iChannel];
                 }
             }
-            /* Ensure all remaining output buffers (index >= 1) are filled with zero */
-            for (int i = 1; i < outputCount; i += 1) {
+
+            /*
+            Just above we output data to the first output buffer. Here we just make sure we're putting silence into any
+            remaining output buffers.
+            */
+            for (int i = 1; i < outputCount; i += 1) {  /* <-- Note that the counter starts at 1 instead of 0. */
                 MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
             }
         }
