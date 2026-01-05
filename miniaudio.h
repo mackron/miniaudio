@@ -41779,7 +41779,7 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
                     pOutputs[0].data[frameCount*iChannel + iFrame] = pDevice->webaudio.pIntermediaryBuffer[iFrame*pDevice->playback.internalChannels + iChannel];
                 }
             }
-            /* Ensure all output buffers are filled with zero */
+            /* Ensure all remaining output buffers (index >= 1) are filled with zero */
             for (int i = 1; i < outputCount; i += 1) {
                 MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
             }
