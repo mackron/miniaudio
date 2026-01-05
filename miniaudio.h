@@ -3870,6 +3870,52 @@ typedef ma_uint16 wchar_t;
 #define MA_UINT64_MAX      (((ma_uint64)0xFFFFFFFF << 32) | (ma_uint64)0xFFFFFFFF)   /* Weird shifting syntax is for VC6 compatibility. */
 
 
+/* Architecture Detection */
+#if !defined(MA_64BIT) && !defined(MA_32BIT)
+    #ifdef _WIN32
+        #ifdef _WIN64
+            #define MA_64BIT
+        #else
+            #define MA_32BIT
+        #endif
+    #endif
+#endif
+
+#if !defined(MA_64BIT) && !defined(MA_32BIT)
+    #ifdef __GNUC__
+        #ifdef __LP64__
+            #define MA_64BIT
+        #else
+            #define MA_32BIT
+        #endif
+    #endif
+#endif
+
+#if !defined(MA_64BIT) && !defined(MA_32BIT)
+    #include <stdint.h>
+    #if INTPTR_MAX == INT64_MAX
+        #define MA_64BIT
+    #else
+        #define MA_32BIT
+    #endif
+#endif
+
+#if defined(__arm__) || defined(_M_ARM)
+    #define MA_ARM32
+#endif
+#if defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
+    #define MA_ARM64
+#endif
+
+#if defined(__x86_64__) || defined(_M_X64)
+    #define MA_X64
+#elif defined(__i386) || defined(_M_IX86)
+    #define MA_X86
+#elif defined(MA_ARM32) || defined(MA_ARM64)
+    #define MA_ARM
+#endif
+
+
 /* Platform/backend detection. */
 #if defined(_WIN32)
     #define MA_WIN32
@@ -11373,51 +11419,6 @@ IMPLEMENTATION
 #include <emscripten/emscripten.h>
 #endif
 
-
-/* Architecture Detection */
-#if !defined(MA_64BIT) && !defined(MA_32BIT)
-#ifdef _WIN32
-#ifdef _WIN64
-#define MA_64BIT
-#else
-#define MA_32BIT
-#endif
-#endif
-#endif
-
-#if !defined(MA_64BIT) && !defined(MA_32BIT)
-#ifdef __GNUC__
-#ifdef __LP64__
-#define MA_64BIT
-#else
-#define MA_32BIT
-#endif
-#endif
-#endif
-
-#if !defined(MA_64BIT) && !defined(MA_32BIT)
-#include <stdint.h>
-#if INTPTR_MAX == INT64_MAX
-#define MA_64BIT
-#else
-#define MA_32BIT
-#endif
-#endif
-
-#if defined(__arm__) || defined(_M_ARM)
-#define MA_ARM32
-#endif
-#if defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
-#define MA_ARM64
-#endif
-
-#if defined(__x86_64__) || defined(_M_X64)
-#define MA_X64
-#elif defined(__i386) || defined(_M_IX86)
-#define MA_X86
-#elif defined(MA_ARM32) || defined(MA_ARM64)
-#define MA_ARM
-#endif
 
 /* Intrinsics Support */
 #if defined(MA_X64) || defined(MA_X86)
