@@ -1183,7 +1183,7 @@ static MA_INLINE struct ma_spa_pod_audio_info_raw ma_spa_pod_audio_info_raw_init
     if (sampleRate > 0) {
         pod.extra[extraIndex] = ma_spa_pod_prop_int_init(MA_SPA_FORMAT_AUDIO_rate, (ma_int32)sampleRate);
         pod.object.pod.size += sizeof(struct ma_spa_pod_prop_int);
-        extraIndex += 1;
+        /*extraIndex += 1;*/
     }
 
     /* We're going to leave the channel map alone and just do a conversion ourselves if it differs from the native map. */
@@ -2140,10 +2140,10 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         const struct ma_spa_pod* pBufferParameters[1];
         ma_uint32 bytesPerFrame;
         ma_uint32 iChannel;
-        enum ma_spa_audio_format formatPA;
-        ma_uint32 channels;
-        ma_uint32 sampleRate;
-        const ma_uint32* pChannelPositionsPA;
+        enum ma_spa_audio_format formatPA = MA_SPA_AUDIO_FORMAT_UNKNOWN;
+        ma_uint32 channels = 0;
+        ma_uint32 sampleRate = 0;
+        const ma_uint32* pChannelPositionsPA = NULL;
 
         /* It's possible for PipeWire to fire this callback with pParam set to NULL. I noticed it when tearing down a stream. Why does it do this? */
         if (pParam == NULL) {
@@ -2229,17 +2229,9 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
 
                     case MA_SPA_FORMAT_AUDIO_position:
                     {
-                        ma_uint32 positionCount;
-
                         /* I'm assuming we can only get an array back for this. */
                         if (pPropValue->type != MA_SPA_TYPE_Array) {
                             ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid type for position property).");
-                            return;
-                        }
-
-                        positionCount = ma_spa_pod_array_get_length((const struct ma_spa_pod_array*)pPropValue);
-                        if (positionCount != channels) {
-                            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (mismatched channel count for position property).");
                             return;
                         }
 
@@ -2709,6 +2701,7 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     /* Enter the main loop before we start iterating. */
     pContextStatePipeWire->pw_loop_enter(pLoop);
     
+    result = MA_DEVICE_TYPE_NOT_SUPPORTED;
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         result = ma_device_init_internal__pipewire(pDevice, pContextStatePipeWire, pDeviceStatePipeWire, pDeviceConfigPipeWire, ma_device_type_capture, pDescriptorCapture);
     }
@@ -2853,7 +2846,7 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
                     if (result == MA_SUCCESS) {
                         ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, framesToRead);
 
-                        result = ma_pcm_rb_commit_read(&pDeviceStatePipeWire->capture.rb, framesToRead);
+                        ma_pcm_rb_commit_read(&pDeviceStatePipeWire->capture.rb, framesToRead);
                         framesAvailable -= framesToRead;
                     }
                 }
@@ -2876,7 +2869,7 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
                     if (result == MA_SUCCESS) {
                         ma_device_handle_backend_data_callback(pDevice, pMappedBuffer, NULL, framesToWrite);
 
-                        result = ma_pcm_rb_commit_write(&pDeviceStatePipeWire->playback.rb, framesToWrite);
+                        ma_pcm_rb_commit_write(&pDeviceStatePipeWire->playback.rb, framesToWrite);
                         framesAvailable -= framesToWrite;
                     }
                 }
