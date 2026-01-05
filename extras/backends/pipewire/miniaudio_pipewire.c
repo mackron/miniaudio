@@ -233,10 +233,14 @@ MA_API MA_NO_INLINE int ma_pipewire_strcat_s(char* dst, size_t dstSizeInBytes, c
 
 #define MA_SPA_AUDIO_FORMAT_UNKNOWN         SPA_AUDIO_FORMAT_UNKNOWN
 #define MA_SPA_AUDIO_FORMAT_U8              SPA_AUDIO_FORMAT_U8
-#define MA_SPA_AUDIO_FORMAT_S16             SPA_AUDIO_FORMAT_S16
-#define MA_SPA_AUDIO_FORMAT_S24             SPA_AUDIO_FORMAT_S24
-#define MA_SPA_AUDIO_FORMAT_S32             SPA_AUDIO_FORMAT_S32
-#define MA_SPA_AUDIO_FORMAT_F32             SPA_AUDIO_FORMAT_F32
+#define MA_SPA_AUDIO_FORMAT_S16_LE          SPA_AUDIO_FORMAT_S16_LE
+#define MA_SPA_AUDIO_FORMAT_S16_BE          SPA_AUDIO_FORMAT_S16_BE
+#define MA_SPA_AUDIO_FORMAT_S24_LE          SPA_AUDIO_FORMAT_S24_LE
+#define MA_SPA_AUDIO_FORMAT_S24_BE          SPA_AUDIO_FORMAT_S24_BE
+#define MA_SPA_AUDIO_FORMAT_S32_LE          SPA_AUDIO_FORMAT_S32_LE
+#define MA_SPA_AUDIO_FORMAT_S32_BE          SPA_AUDIO_FORMAT_S32_BE
+#define MA_SPA_AUDIO_FORMAT_F32_LE          SPA_AUDIO_FORMAT_F32_LE
+#define MA_SPA_AUDIO_FORMAT_F32_BE          SPA_AUDIO_FORMAT_F32_BE
 
 #define MA_SPA_AUDIO_CHANNEL_MONO           SPA_AUDIO_CHANNEL_MONO
 #define MA_SPA_AUDIO_CHANNEL_FL             SPA_AUDIO_CHANNEL_FL
@@ -455,66 +459,6 @@ enum ma_spa_audio_format
     MA_SPA_AUDIO_FORMAT_F64_BE,
     MA_SPA_AUDIO_FORMAT_ULAW,
     MA_SPA_AUDIO_FORMAT_ALAW,
-
-#if __BYTE_ORDER == __BIG_ENDIAN
-    MA_SPA_AUDIO_FORMAT_S16       = MA_SPA_AUDIO_FORMAT_S16_BE,
-    MA_SPA_AUDIO_FORMAT_U16       = MA_SPA_AUDIO_FORMAT_U16_BE,
-    MA_SPA_AUDIO_FORMAT_S24_32    = MA_SPA_AUDIO_FORMAT_S24_32_BE,
-    MA_SPA_AUDIO_FORMAT_U24_32    = MA_SPA_AUDIO_FORMAT_U24_32_BE,
-    MA_SPA_AUDIO_FORMAT_S32       = MA_SPA_AUDIO_FORMAT_S32_BE,
-    MA_SPA_AUDIO_FORMAT_U32       = MA_SPA_AUDIO_FORMAT_U32_BE,
-    MA_SPA_AUDIO_FORMAT_S24       = MA_SPA_AUDIO_FORMAT_S24_BE,
-    MA_SPA_AUDIO_FORMAT_U24       = MA_SPA_AUDIO_FORMAT_U24_BE,
-    MA_SPA_AUDIO_FORMAT_S20       = MA_SPA_AUDIO_FORMAT_S20_BE,
-    MA_SPA_AUDIO_FORMAT_U20       = MA_SPA_AUDIO_FORMAT_U20_BE,
-    MA_SPA_AUDIO_FORMAT_S18       = MA_SPA_AUDIO_FORMAT_S18_BE,
-    MA_SPA_AUDIO_FORMAT_U18       = MA_SPA_AUDIO_FORMAT_U18_BE,
-    MA_SPA_AUDIO_FORMAT_F32       = MA_SPA_AUDIO_FORMAT_F32_BE,
-    MA_SPA_AUDIO_FORMAT_F64       = MA_SPA_AUDIO_FORMAT_F64_BE,
-    MA_SPA_AUDIO_FORMAT_S16_OE    = MA_SPA_AUDIO_FORMAT_S16_LE,
-    MA_SPA_AUDIO_FORMAT_U16_OE    = MA_SPA_AUDIO_FORMAT_U16_LE,
-    MA_SPA_AUDIO_FORMAT_S24_32_OE = MA_SPA_AUDIO_FORMAT_S24_32_LE,
-    MA_SPA_AUDIO_FORMAT_U24_32_OE = MA_SPA_AUDIO_FORMAT_U24_32_LE,
-    MA_SPA_AUDIO_FORMAT_S32_OE    = MA_SPA_AUDIO_FORMAT_S32_LE,
-    MA_SPA_AUDIO_FORMAT_U32_OE    = MA_SPA_AUDIO_FORMAT_U32_LE,
-    MA_SPA_AUDIO_FORMAT_S24_OE    = MA_SPA_AUDIO_FORMAT_S24_LE,
-    MA_SPA_AUDIO_FORMAT_U24_OE    = MA_SPA_AUDIO_FORMAT_U24_LE,
-    MA_SPA_AUDIO_FORMAT_S20_OE    = MA_SPA_AUDIO_FORMAT_S20_LE,
-    MA_SPA_AUDIO_FORMAT_U20_OE    = MA_SPA_AUDIO_FORMAT_U20_LE,
-    MA_SPA_AUDIO_FORMAT_S18_OE    = MA_SPA_AUDIO_FORMAT_S18_LE,
-    MA_SPA_AUDIO_FORMAT_U18_OE    = MA_SPA_AUDIO_FORMAT_U18_LE,
-    MA_SPA_AUDIO_FORMAT_F32_OE    = MA_SPA_AUDIO_FORMAT_F32_LE,
-    MA_SPA_AUDIO_FORMAT_F64_OE    = MA_SPA_AUDIO_FORMAT_F64_LE
-#elif __BYTE_ORDER == __LITTLE_ENDIAN
-    MA_SPA_AUDIO_FORMAT_S16       = MA_SPA_AUDIO_FORMAT_S16_LE,
-    MA_SPA_AUDIO_FORMAT_U16       = MA_SPA_AUDIO_FORMAT_U16_LE,
-    MA_SPA_AUDIO_FORMAT_S24_32    = MA_SPA_AUDIO_FORMAT_S24_32_LE,
-    MA_SPA_AUDIO_FORMAT_U24_32    = MA_SPA_AUDIO_FORMAT_U24_32_LE,
-    MA_SPA_AUDIO_FORMAT_S32       = MA_SPA_AUDIO_FORMAT_S32_LE,
-    MA_SPA_AUDIO_FORMAT_U32       = MA_SPA_AUDIO_FORMAT_U32_LE,
-    MA_SPA_AUDIO_FORMAT_S24       = MA_SPA_AUDIO_FORMAT_S24_LE,
-    MA_SPA_AUDIO_FORMAT_U24       = MA_SPA_AUDIO_FORMAT_U24_LE,
-    MA_SPA_AUDIO_FORMAT_S20       = MA_SPA_AUDIO_FORMAT_S20_LE,
-    MA_SPA_AUDIO_FORMAT_U20       = MA_SPA_AUDIO_FORMAT_U20_LE,
-    MA_SPA_AUDIO_FORMAT_S18       = MA_SPA_AUDIO_FORMAT_S18_LE,
-    MA_SPA_AUDIO_FORMAT_U18       = MA_SPA_AUDIO_FORMAT_U18_LE,
-    MA_SPA_AUDIO_FORMAT_F32       = MA_SPA_AUDIO_FORMAT_F32_LE,
-    MA_SPA_AUDIO_FORMAT_F64       = MA_SPA_AUDIO_FORMAT_F64_LE,
-    MA_SPA_AUDIO_FORMAT_S16_OE    = MA_SPA_AUDIO_FORMAT_S16_BE,
-    MA_SPA_AUDIO_FORMAT_U16_OE    = MA_SPA_AUDIO_FORMAT_U16_BE,
-    MA_SPA_AUDIO_FORMAT_S24_32_OE = MA_SPA_AUDIO_FORMAT_S24_32_BE,
-    MA_SPA_AUDIO_FORMAT_U24_32_OE = MA_SPA_AUDIO_FORMAT_U24_32_BE,
-    MA_SPA_AUDIO_FORMAT_S32_OE    = MA_SPA_AUDIO_FORMAT_S32_BE,
-    MA_SPA_AUDIO_FORMAT_U32_OE    = MA_SPA_AUDIO_FORMAT_U32_BE,
-    MA_SPA_AUDIO_FORMAT_S24_OE    = MA_SPA_AUDIO_FORMAT_S24_BE,
-    MA_SPA_AUDIO_FORMAT_U24_OE    = MA_SPA_AUDIO_FORMAT_U24_BE,
-    MA_SPA_AUDIO_FORMAT_S20_OE    = MA_SPA_AUDIO_FORMAT_S20_BE,
-    MA_SPA_AUDIO_FORMAT_U20_OE    = MA_SPA_AUDIO_FORMAT_U20_BE,
-    MA_SPA_AUDIO_FORMAT_S18_OE    = MA_SPA_AUDIO_FORMAT_S18_BE,
-    MA_SPA_AUDIO_FORMAT_U18_OE    = MA_SPA_AUDIO_FORMAT_U18_BE,
-    MA_SPA_AUDIO_FORMAT_F32_OE    = MA_SPA_AUDIO_FORMAT_F32_BE,
-    MA_SPA_AUDIO_FORMAT_F64_OE    = MA_SPA_AUDIO_FORMAT_F64_BE
-#endif
 };
 
 enum ma_spa_audio_channel
@@ -1380,28 +1324,56 @@ typedef struct
 
 static enum ma_spa_audio_format ma_format_to_pipewire(ma_format format)
 {
-    switch (format)
-    {
-        case ma_format_u8:  return MA_SPA_AUDIO_FORMAT_U8;
-        case ma_format_s16: return MA_SPA_AUDIO_FORMAT_S16;
-        case ma_format_s24: return MA_SPA_AUDIO_FORMAT_S24;
-        case ma_format_s32: return MA_SPA_AUDIO_FORMAT_S32;
-        case ma_format_f32: return MA_SPA_AUDIO_FORMAT_F32;
-        default: return MA_SPA_AUDIO_FORMAT_UNKNOWN;
+    if (format == ma_format_u8) {
+        return MA_SPA_AUDIO_FORMAT_U8;
     }
+
+    if (ma_is_little_endian()) {
+        switch (format) {
+            case ma_format_s16: return MA_SPA_AUDIO_FORMAT_S16_LE;
+            case ma_format_s24: return MA_SPA_AUDIO_FORMAT_S24_LE;
+            case ma_format_s32: return MA_SPA_AUDIO_FORMAT_S32_LE;
+            case ma_format_f32: return MA_SPA_AUDIO_FORMAT_F32_LE;
+            default: break;
+        }
+    } else {
+        switch (format) {
+            case ma_format_s16: return MA_SPA_AUDIO_FORMAT_S16_BE;
+            case ma_format_s24: return MA_SPA_AUDIO_FORMAT_S24_BE;
+            case ma_format_s32: return MA_SPA_AUDIO_FORMAT_S32_BE;
+            case ma_format_f32: return MA_SPA_AUDIO_FORMAT_F32_BE;
+            default: break;
+        }
+    }
+
+    return MA_SPA_AUDIO_FORMAT_UNKNOWN;
 }
 
 static ma_format ma_format_from_pipewire(enum ma_spa_audio_format format)
 {
-    switch (format)
-    {
-        case MA_SPA_AUDIO_FORMAT_U8:  return ma_format_u8;
-        case MA_SPA_AUDIO_FORMAT_S16: return ma_format_s16;
-        case MA_SPA_AUDIO_FORMAT_S24: return ma_format_s24;
-        case MA_SPA_AUDIO_FORMAT_S32: return ma_format_s32;
-        case MA_SPA_AUDIO_FORMAT_F32: return ma_format_f32;
-        default: return ma_format_unknown;
+    if (format == MA_SPA_AUDIO_FORMAT_U8) {
+        return ma_format_u8;
     }
+
+    if (ma_is_little_endian()) {
+        switch (format) {
+            case MA_SPA_AUDIO_FORMAT_S16_LE: return ma_format_s16;
+            case MA_SPA_AUDIO_FORMAT_S24_LE: return ma_format_s24;
+            case MA_SPA_AUDIO_FORMAT_S32_LE: return ma_format_s32;
+            case MA_SPA_AUDIO_FORMAT_F32_LE: return ma_format_f32;
+            default: break;
+        }
+    } else {
+        switch (format) {
+            case MA_SPA_AUDIO_FORMAT_S16_BE: return ma_format_s16;
+            case MA_SPA_AUDIO_FORMAT_S24_BE: return ma_format_s24;
+            case MA_SPA_AUDIO_FORMAT_S32_BE: return ma_format_s32;
+            case MA_SPA_AUDIO_FORMAT_F32_BE: return ma_format_f32;
+            default: break;
+        }
+    }
+
+    return ma_format_unknown;
 }
 
 static ma_channel ma_channel_from_pipewire(ma_uint32 channel)
@@ -1658,7 +1630,7 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
         pContextStatePipeWire->pw_stream_destroy           = pw_stream_destroy;
         pContextStatePipeWire->pw_stream_add_listener      = pw_stream_add_listener;
         pContextStatePipeWire->pw_stream_connect           = pw_stream_connect;
-        pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc)pw_stream_set_active;    /* This cast is because we use `unsigned char` instead of `bool`. */
+        pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc)(void*)pw_stream_set_active;    /* This cast is because we use `unsigned char` instead of `bool`. */
         pContextStatePipeWire->pw_stream_dequeue_buffer    = pw_stream_dequeue_buffer;
         pContextStatePipeWire->pw_stream_queue_buffer      = pw_stream_queue_buffer;
         pContextStatePipeWire->pw_stream_update_params     = pw_stream_update_params;
@@ -2575,7 +2547,11 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     /* If the format is SPA_AUDIO_FORMAT_UNKNOWN, PipeWire can pick a planar data layout (de-interleaved) which breaks things for us. Just force interleaved F32 in this case. */
     formatPA = ma_format_to_pipewire(pDescriptor->format);
     if (formatPA == MA_SPA_AUDIO_FORMAT_UNKNOWN) {
-        formatPA =  MA_SPA_AUDIO_FORMAT_F32;
+        if (ma_is_little_endian()) {
+            formatPA = MA_SPA_AUDIO_FORMAT_F32_LE;
+        } else {
+            formatPA = MA_SPA_AUDIO_FORMAT_F32_BE;
+        }
     }
 
     podAudioInfo = ma_spa_pod_audio_info_raw_init(formatPA, pDescriptor->channels, pDescriptor->sampleRate);
