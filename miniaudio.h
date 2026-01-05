@@ -45400,16 +45400,15 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     need to wait for the operation to complete. We can just wait for the thread instead.
     */
     #ifndef MA_NO_THREADING
-    {
+    if (pDevice->hasAudioThread) {
         ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_UNINIT, NULL, NULL);
         ma_thread_wait(&pDevice->audioThread);
-    }
-    #else
+    } else
+    #endif
     {
         /* Not using threading. */
         ma_device_op_do_uninit(pDevice, NULL);
     }
-    #endif
 
     if (pDevice->type == ma_device_type_duplex) {
         ma_duplex_rb_uninit(&pDevice->duplexRB);
