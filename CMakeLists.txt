@@ -832,6 +832,9 @@ if(MINIAUDIO_BUILD_TESTS)
             target_link_libraries(miniaudio_deviceio PRIVATE PkgConfig::SDL2)
         endif()
     endif()
+    if(MINIAUDIO_NO_THREADING)
+        target_compile_definitions(miniaudio_deviceio PRIVATE MA_NO_THREADING)  # We want to be able to test device I/O without threading.
+    endif()
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
 
     add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
