@@ -20880,6 +20880,8 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
         pDeviceConfigNull = &defaultConfigNull;
     }
 
+    (void)pDeviceConfigNull;
+
     if (deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
