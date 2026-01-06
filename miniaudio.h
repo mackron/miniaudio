@@ -76961,13 +76961,17 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                     framesJustRead = totalFramesConverted;
                 }
 
+                MA_ASSERT(framesJustRead <= pSound->processingCacheCap);
+                pSound->processingCacheFramesRemaining = (ma_uint32)framesJustRead;
+
                 /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
                 if (result == MA_AT_END) {
                     ma_sound_set_at_end(pSound, MA_TRUE);   /* This will be set to false in ma_sound_start(). */
                 }
 
-                MA_ASSERT(framesJustRead <= pSound->processingCacheCap);
-                pSound->processingCacheFramesRemaining = (ma_uint32)framesJustRead;
+                if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
+                    break;
+                }
             }
         }
     }
