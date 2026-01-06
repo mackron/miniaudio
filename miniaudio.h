@@ -76223,12 +76223,12 @@ MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_ui
     its start time not having been reached yet. Also, the stop time may have also been reached in
     which case it'll be considered stopped.
     */
-    if (ma_node_get_state_time(pNode, ma_node_state_started) > globalTimeBeg) {
-        return ma_node_state_stopped;   /* Start time has not yet been reached. */
+    if (ma_node_get_state_time(pNode, ma_node_state_stopped) < globalTimeBeg) {
+        return ma_node_state_stopped;   /* End time is before the start of the range. */
     }
 
-    if (ma_node_get_state_time(pNode, ma_node_state_stopped) <= globalTimeEnd) {
-        return ma_node_state_stopped;   /* Stop time has been reached. */
+    if (ma_node_get_state_time(pNode, ma_node_state_started) > globalTimeEnd) {
+        return ma_node_state_stopped;   /* Start time is after the end of the range. */
     }
 
     /* Getting here means the node is marked as started and is within its start/stop times. */
@@ -76308,14 +76308,14 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         return MA_INVALID_ARGS; /* Invalid output bus index. */
     }
 
+    globalTimeBeg = globalTime;
+    globalTimeEnd = globalTime + frameCount;
+
     /* Don't do anything if we're in a stopped state. */
-    if (ma_node_get_state_by_time_range(pNode, globalTime, globalTime + frameCount) != ma_node_state_started) {
+    if (ma_node_get_state_by_time_range(pNode, globalTimeBeg, globalTimeEnd) != ma_node_state_started) {
         return MA_SUCCESS;  /* We're in a stopped state. This is not an error - we just need to not read anything. */
     }
 
-
-    globalTimeBeg = globalTime;
-    globalTimeEnd = globalTime + frameCount;
     startTime = ma_node_get_state_time(pNode, ma_node_state_started);
     stopTime  = ma_node_get_state_time(pNode, ma_node_state_stopped);
 
@@ -76328,11 +76328,16 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     therefore need to offset it by a number of frames to accommodate. The same thing applies for
     the stop time.
     */
-    timeOffsetBeg = (globalTimeBeg < startTime) ? (ma_uint32)(globalTimeEnd - startTime) : 0;
+    timeOffsetBeg = (globalTimeBeg < startTime) ? (ma_uint32)(startTime - globalTimeBeg) : 0;
     timeOffsetEnd = (globalTimeEnd > stopTime)  ? (ma_uint32)(globalTimeEnd - stopTime)  : 0;
 
     /* Trim based on the start offset. We need to silence the start of the buffer. */
     if (timeOffsetBeg > 0) {
+        MA_ASSERT(timeOffsetBeg <= frameCount);
+        if (timeOffsetBeg > frameCount) {
+            timeOffsetBeg = frameCount;
+        }
+
         ma_silence_pcm_frames(pFramesOut, timeOffsetBeg, ma_format_f32, ma_node_get_output_channels(pNode, outputBusIndex));
         pFramesOut += timeOffsetBeg * ma_node_get_output_channels(pNode, outputBusIndex);
         frameCount -= timeOffsetBeg;
@@ -76340,6 +76345,11 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
     /* Trim based on the end offset. We don't need to silence the tail section because we'll just have a reduced value written to pFramesRead. */
     if (timeOffsetEnd > 0) {
+        MA_ASSERT(timeOffsetEnd <= frameCount);
+        if (timeOffsetEnd > frameCount) {
+            timeOffsetEnd = frameCount;
+        }
+
         frameCount -= timeOffsetEnd;
     }
 
@@ -77718,12 +77728,20 @@ static void ma_sound_set_at_end(ma_sound* pSound, ma_bool32 atEnd)
     MA_ASSERT(pSound != NULL);
     ma_atomic_exchange_32(&pSound->atEnd, atEnd);
 
+    /*
+    When this function is called the state of the sound will not yet be in a stopped state. This makes it confusing
+    because an end callback will intuitively expect ma_sound_is_playing() to return false from inside the callback.
+    I'm therefore no longer firing the callback here and will instead fire it manually in the *next* processing step
+    when the state should be set to stopped as expected.
+    */
+    #if 0
     /* Fire any callbacks or events. */
     if (atEnd) {
         if (pSound->notifications.onAtEnd != NULL) {
             pSound->notifications.onAtEnd(pSound->notifications.pUserData, pSound);
         }
     }
+    #endif
 }
 
 static ma_bool32 ma_sound_get_at_end(const ma_sound* pSound)
@@ -78090,6 +78108,11 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     /* If we're marked at the end we need to stop the sound and do nothing. */
     if (ma_sound_at_end(pSound)) {
         ma_sound_stop(pSound);
+
+        if (pSound->endCallback != NULL) {
+            pSound->endCallback(pSound->pEndCallbackUserData, pSound);
+        }
+
         *pFrameCountOut = 0;
         return;
     }
