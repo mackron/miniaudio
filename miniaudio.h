@@ -10843,6 +10843,7 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
 MA_API ma_uint32 ma_node_graph_get_channels(const ma_node_graph* pNodeGraph);
 MA_API ma_uint64 ma_node_graph_get_time(const ma_node_graph* pNodeGraph);
 MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 globalTime);
+MA_API ma_uint32 ma_node_graph_get_processing_size_in_frames(const ma_node_graph* pNodeGraph);
 
 
 
@@ -11238,7 +11239,10 @@ struct ma_sound
     MA_ATOMIC(4, ma_bool32) atEnd;
     ma_sound_end_proc endCallback;
     void* pEndCallbackUserData;
-    ma_bool8 ownsDataSource;
+    void* pProcessingCache;             /* Will be null if pDataSource is null. */
+    ma_uint32 processingCacheFramesRemaining;
+    ma_uint32 processingCacheCap;
+    ma_bool8 ownsDataSource;    
 
     /*
     We're declaring a resource manager data source object here to save us a malloc when loading a
@@ -73806,6 +73810,15 @@ MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 glo
     return ma_node_set_time(&pNodeGraph->endpoint, globalTime); /* Global time is just the local time of the endpoint. */
 }
 
+MA_API ma_uint32 ma_node_graph_get_processing_size_in_frames(const ma_node_graph* pNodeGraph)
+{
+    if (pNodeGraph == NULL) {
+        return 0;
+    }
+
+    return pNodeGraph->processingSizeInFrames;
+}
+
 
 #define MA_NODE_OUTPUT_BUS_FLAG_HAS_READ    0x01    /* Whether or not this bus ready to read more data. Only used on nodes with multiple output buses. */
 
@@ -78400,6 +78413,25 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
     }
 
 
+    /*
+    When pulling data from a data source we need a processing cache to hold onto unprocessed input data from the data source
+    after doing resampling.
+    */
+    if (pSound->pDataSource != NULL) {
+        pSound->processingCacheFramesRemaining = 0;
+        pSound->processingCacheCap = ma_node_graph_get_processing_size_in_frames(&pEngine->nodeGraph);
+        if (pSound->processingCacheCap == 0) {
+            pSound->processingCacheCap = 512;
+        }
+        
+        pSound->pProcessingCache = (float*)ma_calloc(pSound->processingCacheCap * ma_get_bytes_per_frame(ma_format_f32, engineNodeConfig.channelsIn), &pEngine->allocationCallbacks);
+        if (pSound->pProcessingCache == NULL) {
+            ma_engine_node_uninit(&pSound->engineNode, &pEngine->allocationCallbacks);
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+
     /* Apply initial range and looping state to the data source if applicable. */
     if (pConfig->rangeBegInPCMFrames != 0 || pConfig->rangeEndInPCMFrames != ~((ma_uint64)0)) {
         ma_data_source_set_range_in_pcm_frames(ma_sound_get_data_source(pSound), pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
@@ -78636,6 +78668,11 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
     so which makes thread safety beyond this point trivial.
     */
     ma_engine_node_uninit(&pSound->engineNode, &pSound->engineNode.pEngine->allocationCallbacks);
+
+    if (pSound->pProcessingCache != NULL) {
+        ma_free(pSound->pProcessingCache, &pSound->engineNode.pEngine->allocationCallbacks);
+        pSound->pProcessingCache = NULL;
+    }
 
     /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
 #ifndef MA_NO_RESOURCE_MANAGER
