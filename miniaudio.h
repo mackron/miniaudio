@@ -11083,7 +11083,7 @@ struct ma_sound
     MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     MA_ATOMIC(4, ma_bool32) atEnd;
     ma_sound_notifications notifications;
-    void* pProcessingCache;             /* Will be null if pDataSource is null. */
+    float* pProcessingCache;            /* Will be null if pDataSource is null. */
     ma_uint32 processingCacheFramesRemaining;
     ma_uint32 processingCacheCap;
     ma_bool8 ownsDataSource;
@@ -77819,22 +77819,6 @@ static ma_bool32 ma_engine_node_is_spatialization_enabled(const ma_engine_node* 
     return ma_atomic_load_explicit_32(&pEngineNode->isSpatializationDisabled, ma_atomic_memory_order_acquire) == 0;
 }
 
-static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
-{
-    ma_uint64 inputFrameCount = 0;
-
-    if (ma_engine_node_is_pitching_enabled(pEngineNode)) {
-        ma_result result = ma_linear_resampler_get_required_input_frame_count(&pEngineNode->resampler, outputFrameCount, &inputFrameCount);
-        if (result != MA_SUCCESS) {
-            inputFrameCount = 0;
-        }
-    } else {
-        inputFrameCount = outputFrameCount;    /* No resampling, so 1:1. */
-    }
-
-    return inputFrameCount;
-}
-
 static ma_result ma_engine_node_set_volume(ma_engine_node* pEngineNode, float volume)
 {
     if (pEngineNode == NULL) {
@@ -78122,8 +78106,8 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     if (ma_sound_at_end(pSound)) {
         ma_sound_stop(pSound);
 
-        if (pSound->endCallback != NULL) {
-            pSound->endCallback(pSound->pEndCallbackUserData, pSound);
+        if (pSound->notifications.onAtEnd != NULL) {
+            pSound->notifications.onAtEnd(pSound->notifications.pUserData, pSound);
         }
 
         *pFrameCountOut = 0;
@@ -78163,55 +78147,70 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
         /* Keep reading until we've read as much as was requested or we reach the end of the data source. */
         while (totalFramesRead < frameCount) {
             ma_uint32 framesRemaining = frameCount - totalFramesRead;
-            ma_uint32 framesToRead;
             ma_uint64 framesJustRead;
             ma_uint32 frameCountIn;
             ma_uint32 frameCountOut;
             const float* pRunningFramesIn;
             float* pRunningFramesOut;
 
-            /*
-            The first thing we need to do is read into the temporary buffer. We can calculate exactly
-            how many input frames we'll need after resampling.
-            */
-            framesToRead = (ma_uint32)ma_engine_node_get_required_input_frame_count(&pSound->engineNode, framesRemaining);
-            if (framesToRead > tempCapInFrames) {
-                framesToRead = tempCapInFrames;
-            }
+            /* If there's any input frames sitting in the cache get those processed first. */
+            if (pSound->processingCacheFramesRemaining > 0) {
+                pRunningFramesIn = pSound->pProcessingCache;
+                frameCountIn = pSound->processingCacheFramesRemaining;
 
-            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead);
+                pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_node_get_output_channels(pNode, 0));
+                frameCountOut = framesRemaining;
 
-            /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
-            if (result == MA_AT_END) {
-                ma_sound_set_at_end(pSound, MA_TRUE);   /* This will be set to false in ma_sound_start(). */
-            }
-
-            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_node_get_output_channels(pNode, 0));
-
-            frameCountIn = (ma_uint32)framesJustRead;
-            frameCountOut = framesRemaining;
-
-            /* Convert if necessary. */
-            if (dataSourceFormat == ma_format_f32) {
-                /* Fast path. No data conversion necessary. */
-                pRunningFramesIn = (float*)temp;
                 ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesIn, &frameCountIn, &pRunningFramesOut, &frameCountOut);
+
+                MA_ASSERT(frameCountIn <= pSound->processingCacheFramesRemaining);
+                pSound->processingCacheFramesRemaining -= frameCountIn;
+
+                /* Move any remaining data in the cache down. */
+                if (pSound->processingCacheFramesRemaining > 0) {
+                    MA_MOVE_MEMORY(pSound->pProcessingCache, ma_offset_pcm_frames_ptr_f32(pSound->pProcessingCache, frameCountIn, dataSourceChannels), pSound->processingCacheFramesRemaining * ma_get_bytes_per_frame(ma_format_f32, dataSourceChannels));
+                }
+                
+                totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
+
+                if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
+                    break;  /* Might have reached the end. */
+                }
             } else {
-                /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
-                float tempf32[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* Do not do `MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)` here like we've done in other places. */
-                ma_convert_pcm_frames_format(tempf32, ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
+                /* Getting here means there's nothing in the cache. Read more data from the data source. */
+                if (dataSourceFormat == ma_format_f32) {
+                    /* Fast path. No conversion to f32 necessary. */
+                    result = ma_data_source_read_pcm_frames(pSound->pDataSource, pSound->pProcessingCache, pSound->processingCacheCap, &framesJustRead);
+                } else {
+                    /* Slow path. Need to convert to f32. */
+                    ma_uint64 totalFramesConverted = 0;
 
-                /* Now that we have our samples in f32 format we can process like normal. */
-                pRunningFramesIn = tempf32;
-                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesIn, &frameCountIn, &pRunningFramesOut, &frameCountOut);
-            }
+                    while (totalFramesConverted < pSound->processingCacheCap) {
+                        ma_uint64 framesConverted;
+                        ma_uint32 framesToConvertThisIteration = pSound->processingCacheCap - framesConverted;
+                        if (framesToConvertThisIteration > tempCapInFrames) {
+                            framesToConvertThisIteration = tempCapInFrames;
+                        }
 
-            /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
-            MA_ASSERT(frameCountIn == framesJustRead);
-            totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
+                        result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToConvertThisIteration, &framesConverted);
+                        if (result != MA_SUCCESS) {
+                            break;
+                        }
 
-            if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
-                break;  /* Might have reached the end. */
+                        ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pSound->pProcessingCache, totalFramesConverted, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesConverted, dataSourceChannels, ma_dither_mode_none);
+                        totalFramesConverted += framesConverted;
+                    }
+
+                    framesJustRead = totalFramesConverted;
+                }
+
+                /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
+                if (result == MA_AT_END) {
+                    ma_sound_set_at_end(pSound, MA_TRUE);   /* This will be set to false in ma_sound_start(). */
+                }
+
+                MA_ASSERT(framesJustRead <= pSound->processingCacheCap);
+                pSound->processingCacheFramesRemaining = (ma_uint32)framesJustRead;
             }
         }
     }
@@ -78234,25 +78233,6 @@ static void ma_engine_node_process_pcm_frames__group(ma_node* pNode, const float
     ma_engine_node_process_pcm_frames__general((ma_engine_node*)pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
 }
 
-static ma_result ma_engine_node_get_required_input_frame_count__group(ma_node* pNode, ma_uint32 outputFrameCount, ma_uint32* pInputFrameCount)
-{
-    ma_uint64 inputFrameCount;
-
-    MA_ASSERT(pInputFrameCount != NULL);
-
-    /* Our pitch will affect this calculation. We need to update it. */
-    ma_engine_node_update_pitch_if_required((ma_engine_node*)pNode);
-
-    inputFrameCount = ma_engine_node_get_required_input_frame_count((ma_engine_node*)pNode, outputFrameCount);
-    if (inputFrameCount > 0xFFFFFFFF) {
-        inputFrameCount = 0xFFFFFFFF;    /* Will never happen because miniaudio will only ever process in relatively small chunks. */
-    }
-
-    *pInputFrameCount = (ma_uint32)inputFrameCount;
-
-    return MA_SUCCESS;
-}
-
 
 static ma_node_vtable g_ma_engine_node_vtable__sound =
 {
@@ -78266,7 +78246,7 @@ static ma_node_vtable g_ma_engine_node_vtable__sound =
 static ma_node_vtable g_ma_engine_node_vtable__group =
 {
     ma_engine_node_process_pcm_frames__group,
-    ma_engine_node_get_required_input_frame_count__group,
+    NULL,   /* onGetRequiredInputFrameCount */
     1,      /* Groups have one input bus. */
     1,      /* Groups have one output bus. */
     MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES /* The engine node does resampling so should let miniaudio know about it. */
