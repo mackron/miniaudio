@@ -6791,6 +6791,7 @@ MA_API ma_device_config_wasapi ma_device_config_wasapi_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_wasapi;
+MA_API ma_device_backend_vtable* ma_wasapi_get_vtable(void);
 /* END WASAPI */
 
 
@@ -6812,6 +6813,7 @@ MA_API ma_device_config_dsound ma_device_config_dsound_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_dsound;
+MA_API ma_device_backend_vtable* ma_dsound_get_vtable(void);
 /* END DSOUND */
 
 
@@ -6833,6 +6835,7 @@ MA_API ma_device_config_winmm ma_device_config_winmm_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_winmm;
+MA_API ma_device_backend_vtable* ma_winmm_get_vtable(void);
 /* END WINMM */
 
 
@@ -6883,6 +6886,7 @@ MA_API ma_device_config_coreaudio ma_device_config_coreaudio_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_coreaudio;
+MA_API ma_device_backend_vtable* ma_coreaudio_get_vtable(void);
 /* END COREAUDIO */
 
 
@@ -6908,6 +6912,7 @@ MA_API ma_device_config_pulseaudio ma_device_config_pulseaudio_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_pulseaudio;
+MA_API ma_device_backend_vtable* ma_pulseaudio_get_vtable(void);
 /* END PULSEAUDIO */
 
 
@@ -6933,6 +6938,7 @@ MA_API ma_device_config_alsa ma_device_config_alsa_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_alsa;
+MA_API ma_device_backend_vtable* ma_alsa_get_vtable(void);
 /* END ALSA */
 
 
@@ -6955,6 +6961,7 @@ MA_API ma_device_config_jack ma_device_config_jack_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_jack;
+MA_API ma_device_backend_vtable* ma_jack_get_vtable(void);
 /* END JACK */
 
 
@@ -6976,6 +6983,7 @@ MA_API ma_device_config_sndio ma_device_config_sndio_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_sndio;
+MA_API ma_device_backend_vtable* ma_sndio_get_vtable(void);
 /* END SNDIO */
 
 
@@ -6997,6 +7005,7 @@ MA_API ma_device_config_audio4 ma_device_config_audio4_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_audio4;
+MA_API ma_device_backend_vtable* ma_audio4_get_vtable(void);
 /* END AUDIO4 */
 
 
@@ -7018,6 +7027,7 @@ MA_API ma_device_config_oss ma_device_config_oss_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_oss;
+MA_API ma_device_backend_vtable* ma_oss_get_vtable(void);
 /* END OSS */
 
 
@@ -7106,6 +7116,7 @@ MA_API ma_device_config_aaudio ma_device_config_aaudio_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_aaudio;
+MA_API ma_device_backend_vtable* ma_aaudio_get_vtable(void);
 /* END AAUDIO */
 
 
@@ -7152,6 +7163,7 @@ MA_API ma_device_config_opensl ma_device_config_opensl_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_opensl;
+MA_API ma_device_backend_vtable* ma_opensl_get_vtable(void);
 /* END OPENSL */
 
 
@@ -7181,6 +7193,7 @@ MA_API ma_device_config_webaudio ma_device_config_webaudio_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_webaudio;
+MA_API ma_device_backend_vtable* ma_webaudio_get_vtable(void);
 /* END WEBAUDIO */
 
 
@@ -7202,6 +7215,7 @@ MA_API ma_device_config_null ma_device_config_null_init(void);
 
 
 extern ma_device_backend_vtable* ma_device_backend_null;
+MA_API ma_device_backend_vtable* ma_null_get_vtable(void);
 /* END NULL */
 
 
@@ -9966,8 +9980,13 @@ MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder
 
 /* Expose our decoding backend vtables so they can be plugged into a priority list. */
 extern ma_decoding_backend_vtable* ma_decoding_backend_wav;
+MA_API ma_decoding_backend_vtable* ma_wav_get_vtable(void);
+
 extern ma_decoding_backend_vtable* ma_decoding_backend_flac;
+MA_API ma_decoding_backend_vtable* ma_flac_get_vtable(void);
+
 extern ma_decoding_backend_vtable* ma_decoding_backend_mp3;
+MA_API ma_decoding_backend_vtable* ma_mp3_get_vtable(void);
 
 #endif  /* MA_NO_DECODING */
 
@@ -21057,6 +21076,11 @@ ma_device_backend_vtable* ma_device_backend_null = &ma_gDeviceBackendVTable_Null
 ma_device_backend_vtable* ma_device_backend_null = NULL;
 #endif
 
+MA_API ma_device_backend_vtable* ma_null_get_vtable(void)
+{
+    return ma_device_backend_null;
+}
+
 
 
 /*******************************************************************************
@@ -24911,6 +24935,12 @@ ma_device_backend_vtable* ma_device_backend_wasapi = &ma_gDeviceBackendVTable_WA
 ma_device_backend_vtable* ma_device_backend_wasapi = NULL;
 #endif
 
+MA_API ma_device_backend_vtable* ma_wasapi_get_vtable(void)
+{
+    return ma_device_backend_wasapi;
+}
+
+
 /******************************************************************************
 
 DirectSound Backend
@@ -26582,6 +26612,11 @@ ma_device_backend_vtable* ma_device_backend_dsound = &ma_gDeviceBackendVTable_DS
 ma_device_backend_vtable* ma_device_backend_dsound = NULL;
 #endif
 
+MA_API ma_device_backend_vtable* ma_dsound_get_vtable(void)
+{
+    return ma_device_backend_dsound;
+}
+
 
 
 /******************************************************************************
@@ -27667,6 +27702,11 @@ ma_device_backend_vtable* ma_device_backend_winmm = &ma_gDeviceBackendVTable_Win
 #else
 ma_device_backend_vtable* ma_device_backend_winmm = NULL;
 #endif
+
+MA_API ma_device_backend_vtable* ma_winmm_get_vtable(void)
+{
+    return ma_device_backend_winmm;
+}
 
 
 
@@ -30055,6 +30095,11 @@ ma_device_backend_vtable* ma_device_backend_alsa = &ma_gDeviceBackendVTable_ALSA
 #else
 ma_device_backend_vtable* ma_device_backend_alsa = NULL;
 #endif  /* MA_HAS_ALSA */
+
+MA_API ma_device_backend_vtable* ma_alsa_get_vtable(void)
+{
+    return ma_device_backend_alsa;
+}
 
 
 
@@ -32594,6 +32639,12 @@ ma_device_backend_vtable* ma_device_backend_pulseaudio = &ma_gDeviceBackendVTabl
 ma_device_backend_vtable* ma_device_backend_pulseaudio = NULL;
 #endif
 
+MA_API ma_device_backend_vtable* ma_pulseaudio_get_vtable(void)
+{
+    return ma_device_backend_pulseaudio;
+}
+
+
 
 /******************************************************************************
 
@@ -33376,6 +33427,11 @@ ma_device_backend_vtable* ma_device_backend_jack = &ma_gDeviceBackendVTable_JACK
 #else
 ma_device_backend_vtable* ma_device_backend_jack = NULL;
 #endif  /* MA_HAS_JACK */
+
+MA_API ma_device_backend_vtable* ma_jack_get_vtable(void)
+{
+    return ma_device_backend_jack;
+}
 
 
 
@@ -36852,6 +36908,11 @@ ma_device_backend_vtable* ma_device_backend_coreaudio = &ma_gDeviceBackendVTable
 ma_device_backend_vtable* ma_device_backend_coreaudio = NULL;
 #endif  /* MA_HAS_COREAUDIO */
 
+MA_API ma_device_backend_vtable* ma_coreaudio_get_vtable(void)
+{
+    return ma_device_backend_coreaudio;
+}
+
 
 
 /******************************************************************************
@@ -37962,6 +38023,11 @@ ma_device_backend_vtable* ma_device_backend_sndio = &ma_gDeviceBackendVTable_snd
 ma_device_backend_vtable* ma_device_backend_sndio = NULL;
 #endif  /* MA_HAS_SNDIO */
 
+MA_API ma_device_backend_vtable* ma_sndio_get_vtable(void)
+{
+    return ma_device_backend_sndio;
+}
+
 
 
 /******************************************************************************
@@ -38948,6 +39014,12 @@ ma_device_backend_vtable* ma_device_backend_audio4 = &ma_gDeviceBackendVTable_Au
 ma_device_backend_vtable* ma_device_backend_audio4 = NULL;
 #endif  /* MA_HAS_AUDIO4 */
 
+MA_API ma_device_backend_vtable* ma_audio4_get_vtable(void)
+{
+    return ma_device_backend_audio4;
+}
+
+
 
 /******************************************************************************
 
@@ -39891,7 +39963,10 @@ ma_device_backend_vtable* ma_device_backend_oss = &ma_gDeviceBackendVTable_OSS;
 ma_device_backend_vtable* ma_device_backend_oss = NULL;
 #endif  /* MA_HAS_OSS */
 
-
+MA_API ma_device_backend_vtable* ma_oss_get_vtable(void)
+{
+    return ma_device_backend_oss;
+}
 
 
 
@@ -41117,6 +41192,12 @@ ma_device_backend_vtable* ma_device_backend_aaudio = &ma_gDeviceBackendVTable_AA
 #else
 ma_device_backend_vtable* ma_device_backend_aaudio = NULL;
 #endif  /* AAudio */
+
+MA_API ma_device_backend_vtable* ma_aaudio_get_vtable(void)
+{
+    return ma_device_backend_aaudio;
+}
+
 
 
 /******************************************************************************
@@ -42367,6 +42448,12 @@ ma_device_backend_vtable* ma_device_backend_opensl = &ma_gDeviceBackendVTable_Op
 ma_device_backend_vtable* ma_device_backend_opensl = NULL;
 #endif  /* OpenSL|ES */
 
+MA_API ma_device_backend_vtable* ma_opensl_get_vtable(void)
+{
+    return ma_device_backend_opensl;
+}
+
+
 
 /******************************************************************************
 
@@ -43499,6 +43586,12 @@ ma_device_backend_vtable* ma_device_backend_webaudio = &ma_gDeviceBackendVTable_
 #else
 ma_device_backend_vtable* ma_device_backend_webaudio = NULL;
 #endif  /* MA_HAS_WEBAUDIO */
+
+MA_API ma_device_backend_vtable* ma_webaudio_get_vtable(void)
+{
+    return ma_device_backend_webaudio;
+}
+
 
 
 MA_API void ma_get_device_backend_info(ma_device_backend_vtable* pBackendVTable, ma_device_backend_info* pBackendInfo)
@@ -65228,6 +65321,12 @@ ma_decoding_backend_vtable* ma_decoding_backend_wav = &ma_gDecodingBackendVTable
 ma_decoding_backend_vtable* ma_decoding_backend_wav = NULL;
 #endif  /* ma_dr_wav_h */
 
+MA_API ma_decoding_backend_vtable* ma_wav_get_vtable(void)
+{
+    return ma_decoding_backend_wav;
+}
+
+
 /* FLAC */
 #ifdef ma_dr_flac_h
 
@@ -65862,6 +65961,12 @@ ma_decoding_backend_vtable* ma_decoding_backend_flac = &ma_gDecodingBackendVTabl
 #else
 ma_decoding_backend_vtable* ma_decoding_backend_flac = NULL;
 #endif  /* ma_dr_flac_h */
+
+MA_API ma_decoding_backend_vtable* ma_flac_get_vtable(void)
+{
+    return ma_decoding_backend_flac;
+}
+
 
 /* MP3 */
 #ifdef ma_dr_mp3_h
@@ -66551,6 +66656,12 @@ ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &ma_gDecodingBackendVTable
 #else
 ma_decoding_backend_vtable* ma_decoding_backend_mp3 = NULL;
 #endif  /* ma_dr_mp3_h */
+
+MA_API ma_decoding_backend_vtable* ma_mp3_get_vtable(void)
+{
+    return ma_decoding_backend_mp3;
+}
+
 
 /* Vorbis */
 #ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H

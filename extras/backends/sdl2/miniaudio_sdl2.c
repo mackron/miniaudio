@@ -685,6 +685,11 @@ ma_device_backend_vtable* ma_device_backend_sdl2 = &ma_gDeviceBackendVTable_SDL2
 ma_device_backend_vtable* ma_device_backend_sdl2 = NULL;
 #endif  /* MA_HAS_SDL2 */
 
+MA_API ma_device_backend_vtable* ma_sdl2_get_vtable(void)
+{
+    return ma_device_backend_sdl2;
+}
+
 
 MA_API ma_context_config_sdl2 ma_context_config_sdl2_init(void)
 {

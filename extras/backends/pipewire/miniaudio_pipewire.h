@@ -7,9 +7,6 @@
 extern "C" {
 #endif
 
-extern ma_device_backend_vtable* ma_device_backend_pipewire;
-
-
 typedef struct
 {
     int _unused;
@@ -26,6 +23,10 @@ typedef struct
 } ma_device_config_pipewire;
 
 MA_API ma_device_config_pipewire ma_device_config_pipewire_init(void);
+
+
+extern ma_device_backend_vtable* ma_device_backend_pipewire;
+MA_API ma_device_backend_vtable* ma_pipewire_get_vtable(void);
 
 #ifdef __cplusplus
 }

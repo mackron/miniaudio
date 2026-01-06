@@ -555,4 +555,9 @@ ma_decoding_backend_vtable* ma_decoding_backend_libopus = &ma_gDecodingBackendVT
 ma_decoding_backend_vtable* ma_decoding_backend_libopus = NULL;
 #endif
 
+MA_API ma_decoding_backend_vtable* ma_libopus_get_vtable(void)
+{
+    return ma_decoding_backend_libopus;
+}
+
 #endif  /* miniaudio_libopus_c */

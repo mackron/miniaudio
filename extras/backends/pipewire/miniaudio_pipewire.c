@@ -2895,6 +2895,12 @@ ma_device_backend_vtable* ma_device_backend_pipewire = &ma_gDeviceBackendVTable_
 ma_device_backend_vtable* ma_device_backend_pipewire = NULL;
 #endif  /* MA_HAS_PIPEWIRE */
 
+MA_API ma_device_backend_vtable* ma_pipewire_get_vtable(void)
+{
+    return ma_device_backend_pipewire;
+}
+
+
 MA_API ma_context_config_pipewire ma_context_config_pipewire_init(void)
 {
     ma_context_config_pipewire config;

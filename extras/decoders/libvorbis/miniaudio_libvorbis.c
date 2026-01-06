@@ -609,4 +609,9 @@ ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = &ma_gDecodingBackend
 ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = NULL;
 #endif
 
+MA_API ma_decoding_backend_vtable* ma_libvorbis_get_vtable(void)
+{
+    return ma_decoding_backend_libvorbis;
+}
+
 #endif /* miniaudio_libvorbis_c */

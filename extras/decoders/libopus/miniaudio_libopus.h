@@ -35,6 +35,7 @@ MA_API ma_result ma_libopus_get_length_in_pcm_frames(ma_libopus* pOpus, ma_uint6
 
 /* Decoding backend vtable. This is what you'll plug into ma_decoder_config.pBackendVTables. No user data required. */
 extern ma_decoding_backend_vtable* ma_decoding_backend_libopus;
+MA_API ma_decoding_backend_vtable* ma_libopus_get_vtable(void);
 
 #ifdef __cplusplus
 }

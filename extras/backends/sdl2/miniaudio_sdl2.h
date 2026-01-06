@@ -10,9 +10,6 @@ and device configs.
 extern "C" {
 #endif
 
-extern ma_device_backend_vtable* ma_device_backend_sdl2;
-
-
 typedef struct
 {
     int _unused;
@@ -27,6 +24,10 @@ typedef struct
 } ma_device_config_sdl2;
 
 MA_API ma_device_config_sdl2 ma_device_config_sdl2_init(void);
+
+
+extern ma_device_backend_vtable* ma_device_backend_sdl2;
+MA_API ma_device_backend_vtable* ma_sdl2_get_vtable(void);
 
 #ifdef __cplusplus
 }
