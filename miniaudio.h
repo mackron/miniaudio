@@ -69947,6 +69947,7 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(void)
     config.decodedSampleRate = 0;
     config.jobThreadCount    = 1;   /* A single miniaudio-managed job thread by default. */
     config.jobQueueCapacity  = MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY;
+    config.resampling        = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
 
     /* Flags. */
     config.flags = 0;
@@ -69957,7 +69958,6 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(void)
         config.jobThreadCount = 0;
     }
     #endif
-    config.resampling     = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
 
     return config;
 }
