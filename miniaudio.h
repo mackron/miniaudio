@@ -76498,7 +76498,7 @@ static void ma_sound_set_at_end(ma_sound* pSound, ma_bool32 atEnd)
 
     /*
     When this function is called the state of the sound will not yet be in a stopped state. This makes it confusing
-    because an end callback will intuitively expect ma_sound_is_started() to return false from inside the callback.
+    because an end callback will intuitively expect ma_sound_is_playing() to return false from inside the callback.
     I'm therefore no longer firing the callback here and will instead fire it manually in the *next* processing step
     when the state should be set to stopped as expected.
     */
