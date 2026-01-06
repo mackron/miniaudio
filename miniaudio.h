@@ -76496,12 +76496,20 @@ static void ma_sound_set_at_end(ma_sound* pSound, ma_bool32 atEnd)
     MA_ASSERT(pSound != NULL);
     ma_atomic_exchange_32(&pSound->atEnd, atEnd);
 
+    /*
+    When this function is called the state of the sound will not yet be in a stopped state. This makes it confusing
+    because an end callback will intuitively expect ma_sound_is_started() to return false from inside the callback.
+    I'm therefore no longer firing the callback here and will instead fire it manually in the *next* processing step
+    when the state should be set to stopped as expected.
+    */
+    #if 0
     /* Fire any callbacks or events. */
     if (atEnd) {
         if (pSound->endCallback != NULL) {
             pSound->endCallback(pSound->pEndCallbackUserData, pSound);
         }
     }
+    #endif
 }
 
 static ma_bool32 ma_sound_get_at_end(const ma_sound* pSound)
@@ -76847,6 +76855,11 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     /* If we're marked at the end we need to stop the sound and do nothing. */
     if (ma_sound_at_end(pSound)) {
         ma_sound_stop(pSound);
+
+        if (pSound->endCallback != NULL) {
+            pSound->endCallback(pSound->pEndCallbackUserData, pSound);
+        }
+
         *pFrameCountOut = 0;
         return;
     }
