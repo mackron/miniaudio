@@ -10362,6 +10362,7 @@ typedef struct
     ma_decoding_backend_vtable** ppDecodingBackendVTables;
     ma_uint32 decodingBackendCount;
     void** ppDecodingBackendUserData;
+    ma_resampler_config resampling;
 } ma_resource_manager_config;
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(void);
@@ -10994,6 +10995,7 @@ typedef struct
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disabled with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
     ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
+    ma_resampler_config resampling;
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags);
@@ -11008,7 +11010,7 @@ typedef struct
     ma_uint32 volumeSmoothTimeInPCMFrames;
     ma_mono_expansion_mode monoExpansionMode;
     ma_fader fader;
-    ma_linear_resampler resampler;                      /* For pitch shift. */
+    ma_resampler resampler;                             /* For pitch shift. */
     ma_spatializer spatializer;
     ma_panner panner;
     ma_gainer volumeGainer;                             /* This will only be used if volumeSmoothTimeInPCMFrames is > 0. */
@@ -11072,6 +11074,7 @@ typedef struct
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     const ma_sound_notifications* pNotifications;   /* A pointer to an object containing callbacks for when a sound has finished loading, reached the end, etc. A copy of this structure will be made internally. */
+    ma_resampler_config pitchResampling;
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine);
@@ -11144,6 +11147,8 @@ typedef struct
     ma_vfs* pResourceManagerVFS;                            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
     ma_engine_process_proc onProcess;                       /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
     void* pProcessUserData;                                 /* User data that's passed into onProcess. */
+    ma_resampler_config resourceManagerResampling;          /* The resampling config to use with the resource manager. */
+    ma_resampler_config pitchResampling;                    /* The resampling config for the pitch and Doppler effects. You will typically want this to be a fast resampler. For high quality stuff, it's recommended that you pre-resample. */
 } ma_engine_config;
 
 MA_API ma_engine_config ma_engine_config_init(void);
@@ -11173,6 +11178,7 @@ struct ma_engine
     ma_mono_expansion_mode monoExpansionMode;
     ma_engine_process_proc onProcess;
     void* pProcessUserData;
+    ma_resampler_config pitchResamplingConfig;
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -71175,6 +71181,7 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(void)
     config.decodedSampleRate = 0;
     config.jobThreadCount    = 1;   /* A single miniaudio-managed job thread by default. */
     config.jobQueueCapacity  = MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY;
+    config.resampling        = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
 
     /* Flags. */
     config.flags = 0;
@@ -71444,6 +71451,7 @@ static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_ma
     config.ppBackendVTables    = pResourceManager->config.ppDecodingBackendVTables;
     config.backendCount        = pResourceManager->config.decodingBackendCount;
     config.ppBackendUserData   = pResourceManager->config.ppDecodingBackendUserData;
+    config.resampling          = pResourceManager->config.resampling;
 
     return config;
 }
@@ -77774,6 +77782,7 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
     config.isPitchDisabled          = (flags & MA_SOUND_FLAG_NO_PITCH) != 0;
     config.isSpatializationDisabled = (flags & MA_SOUND_FLAG_NO_SPATIALIZATION) != 0;
     config.monoExpansionMode        = pEngine->monoExpansionMode;
+    config.resampling               = pEngine->pitchResamplingConfig;
 
     return config;
 }
@@ -77800,7 +77809,7 @@ static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 
     if (isUpdateRequired) {
         float basePitch = (float)pEngineNode->sampleRate / ma_engine_get_sample_rate(pEngineNode->pEngine);
-        ma_linear_resampler_set_rate_ratio(&pEngineNode->resampler, basePitch * pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
+        ma_resampler_set_rate_ratio(&pEngineNode->resampler, basePitch * pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
     }
 }
 
@@ -77960,7 +77969,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             ma_uint64 resampleFrameCountIn  = framesAvailableIn;
             ma_uint64 resampleFrameCountOut = framesAvailableOut;
 
-            ma_linear_resampler_process_pcm_frames(&pEngineNode->resampler, pRunningFramesIn, &resampleFrameCountIn, pWorkingBuffer, &resampleFrameCountOut);
+            ma_resampler_process_pcm_frames(&pEngineNode->resampler, pRunningFramesIn, &resampleFrameCountIn, pWorkingBuffer, &resampleFrameCountOut);
             isWorkingBufferValid = MA_TRUE;
 
             framesJustProcessedIn  = (ma_uint32)resampleFrameCountIn;
@@ -78296,9 +78305,10 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     ma_result result;
     size_t tempHeapSize;
     ma_node_config baseNodeConfig;
-    ma_linear_resampler_config resamplerConfig;
+    ma_resampler_config resamplerConfig;
     ma_spatializer_config spatializerConfig;
     ma_gainer_config gainerConfig;
+    ma_uint32 sampleRate;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
@@ -78317,6 +78327,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
 
     pHeapLayout->sizeInBytes = 0;
 
+    sampleRate  = (pConfig->sampleRate   > 0) ? pConfig->sampleRate  : ma_engine_get_sample_rate(pConfig->pEngine);
     channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
     channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
 
@@ -78336,10 +78347,13 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
 
 
     /* Resmapler. */
-    resamplerConfig = ma_linear_resampler_config_init(ma_format_f32, channelsIn, 1, 1); /* Input and output sample rates don't affect the calculation of the heap size. */
-    resamplerConfig.lpfOrder = 0;
+    resamplerConfig = pConfig->resampling;
+    resamplerConfig.format        = ma_format_f32;
+    resamplerConfig.channels      = channelsIn;
+    resamplerConfig.sampleRateIn  = sampleRate;
+    resamplerConfig.sampleRateOut = ma_engine_get_sample_rate(pConfig->pEngine);
 
-    result = ma_linear_resampler_get_heap_size(&resamplerConfig, &tempHeapSize);
+    result = ma_resampler_get_heap_size(&resamplerConfig, &tempHeapSize);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the size of the heap for the resampler. */
     }
@@ -78407,7 +78421,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     ma_result result;
     ma_engine_node_heap_layout heapLayout;
     ma_node_config baseNodeConfig;
-    ma_linear_resampler_config resamplerConfig;
+    ma_resampler_config resamplerConfig;
     ma_fader_config faderConfig;
     ma_spatializer_config spatializerConfig;
     ma_panner_config pannerConfig;
@@ -78482,10 +78496,13 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     */
 
     /* We'll always do resampling first. */
-    resamplerConfig = ma_linear_resampler_config_init(ma_format_f32, baseNodeConfig.pInputChannels[0], pEngineNode->sampleRate, ma_engine_get_sample_rate(pEngineNode->pEngine));
-    resamplerConfig.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
+    resamplerConfig = pConfig->resampling;
+    resamplerConfig.format        = ma_format_f32;
+    resamplerConfig.channels      = baseNodeConfig.pInputChannels[0];
+    resamplerConfig.sampleRateIn  = pEngineNode->sampleRate;
+    resamplerConfig.sampleRateOut = ma_engine_get_sample_rate(pEngineNode->pEngine);
 
-    result = ma_linear_resampler_init_preallocated(&resamplerConfig, ma_offset_ptr(pHeap, heapLayout.resamplerOffset), &pEngineNode->resampler);
+    result = ma_resampler_init_preallocated(&resamplerConfig, ma_offset_ptr(pHeap, heapLayout.resamplerOffset), &pEngineNode->resampler);
     if (result != MA_SUCCESS) {
         goto error1;
     }
@@ -78544,7 +78561,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
 
     /* No need for allocation callbacks here because we use a preallocated heap. */
 error3: ma_spatializer_uninit(&pEngineNode->spatializer, NULL);
-error2: ma_linear_resampler_uninit(&pEngineNode->resampler, NULL);
+error2: ma_resampler_uninit(&pEngineNode->resampler, NULL);
 error1: ma_node_uninit(&pEngineNode->baseNode, NULL);
 error0: return result;
 }
@@ -78593,7 +78610,7 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     }
 
     ma_spatializer_uninit(&pEngineNode->spatializer, pAllocationCallbacks);
-    ma_linear_resampler_uninit(&pEngineNode->resampler, pAllocationCallbacks);
+    ma_resampler_uninit(&pEngineNode->resampler, pAllocationCallbacks);
 
     /* Free the heap last. */
     if (pEngineNode->_ownsHeap) {
@@ -78621,8 +78638,12 @@ MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine)
 
     if (pEngine != NULL) {
         config.monoExpansionMode = pEngine->monoExpansionMode;
+        config.pitchResampling = pEngine->pitchResamplingConfig;
     } else {
         config.monoExpansionMode = ma_mono_expansion_mode_default;
+
+        config.pitchResampling = ma_resampler_config_init(ma_format_f32, 0, 0, 0, ma_resample_algorithm_linear);
+        config.pitchResampling.linear.lpfOrder = 0; /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
     }
 
     config.rangeEndInPCMFrames     = ~((ma_uint64)0);
@@ -78639,8 +78660,12 @@ MA_API ma_sound_group_config ma_sound_group_config_init(ma_engine* pEngine)
 
     if (pEngine != NULL) {
         config.monoExpansionMode = pEngine->monoExpansionMode;
+        config.pitchResampling   = pEngine->pitchResamplingConfig;
     } else {
         config.monoExpansionMode = ma_mono_expansion_mode_default;
+
+        config.pitchResampling = ma_resampler_config_init(ma_format_f32, 0, 0, 0, ma_resample_algorithm_linear);
+        config.pitchResampling.linear.lpfOrder = 0; /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
     }
 
     return config;
@@ -78652,8 +78677,12 @@ MA_API ma_engine_config ma_engine_config_init(void)
     ma_engine_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.listenerCount     = 1;   /* Always want at least one listener. */
-    config.monoExpansionMode = ma_mono_expansion_mode_default;
+    config.listenerCount             = 1;   /* Always want at least one listener. */
+    config.monoExpansionMode         = ma_mono_expansion_mode_default;
+    config.resourceManagerResampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear);
+
+    config.pitchResampling = ma_resampler_config_init(ma_format_f32, 0, 0, 0, ma_resample_algorithm_linear);
+    config.pitchResampling.linear.lpfOrder = 0; /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
     return config;
 }
@@ -78734,6 +78763,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     pEngine->defaultVolumeSmoothTimeInFrames = engineConfig.defaultVolumeSmoothTimeInFrames;
     pEngine->onProcess = engineConfig.onProcess;
     pEngine->pProcessUserData = engineConfig.pProcessUserData;
+    pEngine->pitchResamplingConfig = engineConfig.pitchResampling;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
     #if !defined(MA_NO_RESOURCE_MANAGER)
@@ -78916,6 +78946,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             resourceManagerConfig.decodedSampleRate = ma_engine_get_sample_rate(pEngine);
             ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
             resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
+            resourceManagerConfig.resampling        = engineConfig.resourceManagerResampling;
 
             /* The Emscripten build cannot use threads unless it's targeting pthreads. */
             #if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
@@ -80660,7 +80691,7 @@ MA_API ma_result ma_sound_get_data_format(const ma_sound* pSound, ma_format* pFo
         }
 
         if (pSampleRate != NULL) {
-            *pSampleRate = pSound->engineNode.resampler.config.sampleRateIn;
+            *pSampleRate = pSound->engineNode.resampler.sampleRateIn;
         }
 
         if (pChannelMap != NULL) {
