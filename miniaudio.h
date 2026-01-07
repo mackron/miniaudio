@@ -61915,7 +61915,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     14
-#define MA_DR_WAV_VERSION_REVISION  3
+#define MA_DR_WAV_VERSION_REVISION  4
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -82494,7 +82494,6 @@ MA_PRIVATE ma_bool32 ma_dr_wav__on_seek_memory(void* pUserData, int offset, ma_d
     ma_dr_wav* pWav = (ma_dr_wav*)pUserData;
     ma_int64 newCursor;
     MA_DR_WAV_ASSERT(pWav != NULL);
-    newCursor = pWav->memoryStream.currentReadPos;
     if (origin == MA_DR_WAV_SEEK_SET) {
         newCursor = 0;
     } else if (origin == MA_DR_WAV_SEEK_CUR) {
@@ -82548,7 +82547,6 @@ MA_PRIVATE ma_bool32 ma_dr_wav__on_seek_memory_write(void* pUserData, int offset
     ma_dr_wav* pWav = (ma_dr_wav*)pUserData;
     ma_int64 newCursor;
     MA_DR_WAV_ASSERT(pWav != NULL);
-    newCursor = pWav->memoryStreamWrite.currentWritePos;
     if (origin == MA_DR_WAV_SEEK_SET) {
         newCursor = 0;
     } else if (origin == MA_DR_WAV_SEEK_CUR) {
@@ -88932,6 +88930,7 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
                         }
                     }
                     blockSizeRemaining -= metadata.data.picture.pictureDataSize;
+                    (void)blockSizeRemaining;
                     metadata.data.picture.pPictureData = (const ma_uint8*)pPictureData;
                     if (metadata.data.picture.pictureDataOffset != 0 || metadata.data.picture.pPictureData != NULL) {
                         onMeta(pUserDataMD, &metadata);
@@ -94853,7 +94852,6 @@ static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc on
         {
             ma_dr_mp3_bs bs;
             ma_dr_mp3_L3_gr_info grInfo[4];
-            const ma_uint8* pTagData = pFirstFrameData;
             ma_dr_mp3_bs_init(&bs, pFirstFrameData + MA_DR_MP3_HDR_SIZE, firstFrameInfo.frame_bytes - MA_DR_MP3_HDR_SIZE);
             if (MA_DR_MP3_HDR_IS_CRC(pFirstFrameData)) {
                 ma_dr_mp3_bs_get_bits(&bs, 16);
@@ -94861,6 +94859,7 @@ static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc on
             if (ma_dr_mp3_L3_read_side_info(&bs, grInfo, pFirstFrameData) >= 0) {
                 ma_bool32 isXing = MA_FALSE;
                 ma_bool32 isInfo = MA_FALSE;
+                const ma_uint8* pTagData;
                 const ma_uint8* pTagDataBeg;
                 pTagDataBeg = pFirstFrameData + MA_DR_MP3_HDR_SIZE + (bs.pos/8);
                 pTagData    = pTagDataBeg;
@@ -94960,7 +94959,6 @@ static ma_bool32 ma_dr_mp3__on_seek_memory(void* pUserData, int byteOffset, ma_d
     ma_dr_mp3* pMP3 = (ma_dr_mp3*)pUserData;
     ma_int64 newCursor;
     MA_DR_MP3_ASSERT(pMP3 != NULL);
-    newCursor = pMP3->memory.currentReadPos;
     if (origin == MA_DR_MP3_SEEK_SET) {
         newCursor = 0;
     } else if (origin == MA_DR_MP3_SEEK_CUR) {
