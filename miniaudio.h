@@ -4182,9 +4182,13 @@ typedef enum
     MA_CHANNEL_AUX_29             = 49,
     MA_CHANNEL_AUX_30             = 50,
     MA_CHANNEL_AUX_31             = 51,
+
+    /* Count. */
+    MA_CHANNEL_POSITION_COUNT,
+
+    /* Aliases. */
     MA_CHANNEL_LEFT               = MA_CHANNEL_FRONT_LEFT,
     MA_CHANNEL_RIGHT              = MA_CHANNEL_FRONT_RIGHT,
-    MA_CHANNEL_POSITION_COUNT     = (MA_CHANNEL_AUX_31 + 1)
 } _ma_channel_position; /* Do not use `_ma_channel_position` directly. Use `ma_channel` instead. */
 
 typedef enum
