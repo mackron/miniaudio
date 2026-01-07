@@ -24858,6 +24858,17 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
             } else {
                 if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* No data available. */
+                } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Capture device invalidated. Attempting reinitialization.");
+
+                    result = ma_device_reroute__wasapi(pDevice, ma_device_type_capture);
+                    if (result != MA_SUCCESS) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Capture device invalidated and reinitialization failed. Stopping device.");
+                        ma_device_set_errored(pDevice);
+                        return result;
+                    }
+
+                    ma_device_start__wasapi(pDevice);
                 } else {
                     /* An error occurred and we need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.", (int)hr);
@@ -24886,6 +24897,17 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
             } else {
                 if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* Not enough data available. Nothing to do. */
+                } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Playback device invalidated. Attempting reinitialization.");
+
+                    result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
+                    if (result != MA_SUCCESS) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Playback device invalidated and reinitialization failed. Stopping device.");
+                        ma_device_set_errored(pDevice);
+                        return result;
+                    }
+
+                    ma_device_start__wasapi(pDevice);
                 } else {
                     /* Some error occurred. We'll need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.", (int)hr);
