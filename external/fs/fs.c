@@ -3,14 +3,6 @@
 
 #include "fs.h"
 
-/* BEG fs_platform_detection.c */
-#if defined(_WIN32)
-    #define FS_WIN32
-#else
-    #define FS_POSIX
-#endif
-/* END fs_platform_detection.c */
-
 #include <errno.h>
 
 /* BEG fs_common_macros.c */
@@ -18,6 +10,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+
+#if defined(__clang__) && defined(__has_attribute)
+    #if __has_attribute(suppress)
+        #define FS_SUPPRESS_CLANG_ANALYZER __attribute__((suppress))
+    #else
+        #define FS_SUPPRESS_CLANG_ANALYZER
+    #endif
+#else
+    #define FS_SUPPRESS_CLANG_ANALYZER
+#endif
 
 /* BEG fs_va_copy.c */
 #ifndef fs_va_copy
@@ -370,7 +372,7 @@ FS_API int fs_strnicmp(const char* str1, const char* str2, size_t count)
 
 
 /* BEG fs_result.c */
-FS_API const char* fs_result_to_string(fs_result result)
+FS_API const char* fs_result_description(fs_result result)
 {
     switch (result)
     {
@@ -831,72 +833,9 @@ code. These are the differences:
 Parameter ordering is the same as c89thread to make amalgamation easier.
 */
 
-/* BEG fs_thread_basic_types.c */
-#if defined(FS_POSIX)
-    #ifndef FS_USE_PTHREAD
-    #define FS_USE_PTHREAD
-    #endif
-
-    #ifndef FS_NO_PTHREAD_IN_HEADER
-        #include <pthread.h>
-        typedef pthread_t       fs_pthread_t;
-        typedef pthread_mutex_t fs_pthread_mutex_t;
-    #else
-        typedef fs_uintptr      fs_pthread_t;
-        typedef union           fs_pthread_mutex_t { char __data[40]; fs_uint64 __alignment; } fs_pthread_mutex_t;
-    #endif
-#endif
-/* END fs_thread_basic_types.c */
-
-
-/* BEG fs_thread_mtx.h */
-#if defined(FS_WIN32)
-    typedef struct
-    {
-        void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
-        int type;
-    } fs_mtx;
-#else
-    /*
-    We may need to force the use of a manual recursive mutex which will happen when compiling
-    on very old compilers, or with `-std=c89`.
-    */
-
-    /* If __STDC_VERSION__ is not defined it means we're compiling in C89 mode. */
-    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && !defined(__STDC_VERSION__)
-        #define FS_USE_MANUAL_RECURSIVE_MUTEX
-    #endif
-
-    /* This is for checking if PTHREAD_MUTEX_RECURSIVE is available. */
-    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && (!defined(__USE_UNIX98) && !defined(__USE_XOPEN2K8))
-        #define FS_USE_MANUAL_RECURSIVE_MUTEX
-    #endif
-
-    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
-        typedef struct
-        {
-            fs_pthread_mutex_t mutex;    /* The underlying pthread mutex. */
-            fs_pthread_mutex_t guard;    /* Guard for metadata (owner and recursionCount). */
-            fs_pthread_t owner;
-            int recursionCount;
-            int type;
-        } fs_mtx;
-    #else
-        typedef fs_pthread_mutex_t fs_mtx;
-    #endif
-#endif
-
-enum
-{
-    fs_mtx_plain     = 0x00000000,
-    fs_mtx_timed     = 0x00000001,
-    fs_mtx_recursive = 0x00000002
-};
-/* END fs_thread_mtx.h */
-
 /* BEG fs_thread_mtx.c */
 #if defined(FS_WIN32) && !defined(FS_USE_PTHREAD)
-static int fs_mtx_init(fs_mtx* mutex, int type)
+FS_API int fs_mtx_init(fs_mtx* mutex, int type)
 {
     HANDLE hMutex;
 
@@ -929,7 +868,7 @@ static int fs_mtx_init(fs_mtx* mutex, int type)
     return FS_SUCCESS;
 }
 
-static void fs_mtx_destroy(fs_mtx* mutex)
+FS_API void fs_mtx_destroy(fs_mtx* mutex)
 {
     if (mutex == NULL) {
         return;
@@ -938,7 +877,7 @@ static void fs_mtx_destroy(fs_mtx* mutex)
     CloseHandle((HANDLE)mutex->handle);
 }
 
-static int fs_mtx_lock(fs_mtx* mutex)
+FS_API int fs_mtx_lock(fs_mtx* mutex)
 {
     DWORD result;
 
@@ -954,7 +893,7 @@ static int fs_mtx_lock(fs_mtx* mutex)
     return FS_SUCCESS;
 }
 
-static int fs_mtx_unlock(fs_mtx* mutex)
+FS_API int fs_mtx_unlock(fs_mtx* mutex)
 {
     BOOL result;
 
@@ -975,7 +914,7 @@ static int fs_mtx_unlock(fs_mtx* mutex)
     return FS_SUCCESS;
 }
 #else
-static int fs_mtx_init(fs_mtx* mutex, int type)
+FS_API int fs_mtx_init(fs_mtx* mutex, int type)
 {
     int result;
 
@@ -1029,7 +968,7 @@ static int fs_mtx_init(fs_mtx* mutex, int type)
     #endif
 }
 
-static void fs_mtx_destroy(fs_mtx* mutex)
+FS_API void fs_mtx_destroy(fs_mtx* mutex)
 {
     if (mutex == NULL) {
         return;
@@ -1051,7 +990,7 @@ static void fs_mtx_destroy(fs_mtx* mutex)
     #endif
 }
 
-static int fs_mtx_lock(fs_mtx* mutex)
+FS_API int fs_mtx_lock(fs_mtx* mutex)
 {
     int result;
 
@@ -1123,7 +1062,7 @@ static int fs_mtx_lock(fs_mtx* mutex)
     #endif
 }
 
-static int fs_mtx_unlock(fs_mtx* mutex)
+FS_API int fs_mtx_unlock(fs_mtx* mutex)
 {
     int result;
 
@@ -1548,17 +1487,6 @@ static void fs_backend_uninit(const fs_backend* pBackend, fs* pFS)
         return;
     } else {
         pBackend->uninit(pFS);
-    }
-}
-
-static fs_result fs_backend_ioctl(const fs_backend* pBackend, fs* pFS, int command, void* pArgs)
-{
-    FS_ASSERT(pBackend != NULL);
-
-    if (pBackend->ioctl == NULL) {
-        return FS_NOT_IMPLEMENTED;
-    } else {
-        return pBackend->ioctl(pFS, command, pArgs);
     }
 }
 
@@ -2366,6 +2294,22 @@ static const char* fs_string_cstr(const fs_string* pString)
     return pString->stack;
 }
 
+static char* fs_string_cstr_mutable(fs_string* pString)
+{
+    FS_ASSERT(pString != NULL);
+    FS_ASSERT(pString->ref == NULL); /* Can't get a mutable string from a reference string. */
+
+    if (pString->ref != NULL) {
+        return NULL;
+    }
+
+    if (pString->heap != NULL) {
+        return pString->heap;
+    }
+
+    return pString->stack;
+}
+
 static size_t fs_string_len(const fs_string* pString)
 {
     return pString->len;
@@ -2670,6 +2614,10 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
         result = FS_SUCCESS;
     }
 
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
     *ppFS = pFS;
     return FS_SUCCESS;
 }
@@ -2717,15 +2665,6 @@ FS_API void fs_uninit(fs* pFS)
     fs_mtx_destroy(&pFS->archiveLock);
 
     fs_free(pFS, &pFS->allocationCallbacks);
-}
-
-FS_API fs_result fs_ioctl(fs* pFS, int request, void* pArg)
-{
-    if (pFS == NULL) {
-        return FS_INVALID_ARGS;
-    }
-
-    return fs_backend_ioctl(pFS->pBackend, pFS, request, pArg);
 }
 
 FS_API fs_result fs_remove(fs* pFS, const char* pFilePath, int options)
@@ -2800,7 +2739,7 @@ FS_API fs_result fs_rename(fs* pFS, const char* pOldPath, const char* pNewPath, 
 
         pMountPointNew = fs_find_best_write_mount_point(pFS, pNewPath, options, &realNewPath);
         if (pMountPointNew == NULL) {
-            fs_string_free(&realNewPath, fs_get_allocation_callbacks(pFS));
+            fs_string_free(&realOldPath, fs_get_allocation_callbacks(pFS));
             return FS_DOES_NOT_EXIST;   /* Couldn't find a mount point. */
         }
 
@@ -2897,7 +2836,6 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
                 }
 
                 FS_COPY_MEMORY(pRunningPathHeap, pRunningPathStack, runningPathLen);
-                pRunningPath = pRunningPathHeap;
             } else {
                 char* pNewRunningPathHeap;
 
@@ -2908,8 +2846,10 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath, int options)
                     return FS_OUT_OF_MEMORY;
                 }
 
-                pRunningPath = pNewRunningPathHeap;
+                pRunningPathHeap = pNewRunningPathHeap;
             }
+
+            pRunningPath = pRunningPathHeap;
         }
 
         FS_COPY_MEMORY(pRunningPath + runningPathLen, iSegment.pFullPath + iSegment.segmentOffset, iSegment.segmentLength);
@@ -3973,7 +3913,13 @@ FS_API fs_result fs_file_duplicate(fs_file* pFile, fs_file** ppDuplicate)
         return result;
     }
 
-    return fs_backend_file_duplicate(fs_get_backend_or_default(fs_file_get_fs(pFile)), pFile, *ppDuplicate);
+    result = fs_backend_file_duplicate(fs_get_backend_or_default(fs_file_get_fs(pFile)), pFile, *ppDuplicate);
+    if (result != FS_SUCCESS) {
+        fs_file_free(ppDuplicate);
+        return result;
+    }
+
+    return result;
 }
 
 FS_API void* fs_file_get_backend_data(fs_file* pFile)
@@ -5324,6 +5270,609 @@ FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, const vo
 }
 
 
+/* "FSSRLZ1\0" */
+#define FS_SERIALIZED_SIG_0 0x52535346
+#define FS_SERIALIZED_SIG_1 0x00315A4C
+
+static fs_result fs_serialize_directory(fs* pFS, const char* pDirectoryPath, const char* pBasePath, int options, fs_stream* pOutputStream, fs_stream* pTOCStream, fs_uint32* pTOCEntryCount, fs_uint64* pRunningFileOffset)
+{
+    fs_result result;
+    fs_iterator* pIterator;
+    char padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    FS_ASSERT(pTOCEntryCount != NULL);
+
+    for (pIterator = fs_first(pFS, pDirectoryPath, options); pIterator != NULL; pIterator = fs_next(pIterator)) {
+        fs_string path = fs_string_new();
+        int pathLen;
+        const char* pTrimmedPath;
+        size_t trimmedPathLen;
+        fs_uint32 fileFlags;
+        fs_uint64 fileSize;
+        fs_uint64 fileOffset;
+
+        *pTOCEntryCount += 1;
+
+        /* Flags. */
+        fileFlags = 0;
+        if (pIterator->info.directory) {
+            fileFlags |= 0x1;    /* Directory. */
+        }
+
+        result = fs_stream_write(pTOCStream, &fileFlags, 4, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+
+        /* Construct the full path. It's the full path, trimmed with the base path, that we store in the TOC. */
+        pathLen = fs_path_append(path.stack, sizeof(path.stack), pDirectoryPath, FS_NULL_TERMINATED, pIterator->pName, pIterator->nameLen);
+        if (pathLen < 0) {
+            return FS_ERROR;
+        }
+
+        path.len = (size_t)pathLen;
+
+        if (path.len > sizeof(path.stack)) {
+            result = fs_string_alloc(pathLen, fs_get_allocation_callbacks(pFS), &path);
+            if (result != FS_SUCCESS) {
+                return result;
+            }
+
+            fs_path_append(path.heap, path.len + 1, pDirectoryPath, FS_NULL_TERMINATED, pIterator->pName, pIterator->nameLen);
+        }
+
+        pTrimmedPath = fs_path_trim_base(fs_string_cstr(&path), fs_string_len(&path), pBasePath, FS_NULL_TERMINATED);
+        if (pTrimmedPath == NULL) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return FS_ERROR;
+        }
+
+        trimmedPathLen = strlen(pTrimmedPath);
+
+        /* Path Length. */
+        result = fs_stream_write(pTOCStream, &trimmedPathLen, 4, NULL);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        /* Path. */
+        result = fs_stream_write(pTOCStream, pTrimmedPath, trimmedPathLen, NULL);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        /* Null Terminator. */
+        result = fs_stream_write(pTOCStream, "\0", 1, NULL);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        /* Padding. */
+        result = fs_stream_write(pTOCStream, padding, FS_ALIGN(trimmedPathLen + 1, 8) - (trimmedPathLen + 1), NULL);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+
+        if (pIterator->info.directory) {
+            fileOffset = 0;
+            fileSize = 0;
+        } else {
+            fileOffset = *pRunningFileOffset;
+            fileSize = 0;
+
+            /* Open the file and transfer the data to the stream. */
+            {
+                fs_file* pFile;
+                char buffer[4096];
+                size_t bytesRead;
+
+                result = fs_file_open(pFS, fs_string_cstr(&path), FS_READ | options, &pFile);
+                if (result != FS_SUCCESS) {
+                    fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+                    return result;
+                }
+
+                for (;;) {
+                    result = fs_file_read(pFile, buffer, sizeof(buffer), &bytesRead);
+                    if (result != FS_SUCCESS && result != FS_AT_END) {
+                        fs_file_close(pFile);
+                        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+                        return result;
+                    }
+
+                    if (bytesRead == 0) {
+                        break;
+                    }
+
+                    result = fs_stream_write(pOutputStream, buffer, bytesRead, NULL);
+                    if (result != FS_SUCCESS) {
+                        fs_file_close(pFile);
+                        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+                        return result;
+                    }
+
+                    fileSize += bytesRead;
+
+                    if (result == FS_AT_END) {
+                        break;
+                    }
+                }
+
+                fs_file_close(pFile);
+                pFile = NULL;
+            }
+            *pRunningFileOffset += fileSize;
+
+            /* Add padding zeros to align the data to 8 bytes. */
+            result = fs_stream_write(pOutputStream, padding, FS_ALIGN(*pRunningFileOffset, 8) - *pRunningFileOffset, NULL);
+            if (result != FS_SUCCESS) {
+                fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+                return result;
+            }
+            *pRunningFileOffset = FS_ALIGN(*pRunningFileOffset, 8);
+        }
+
+
+        /* File Size. */
+        result = fs_stream_write(pTOCStream, &fileSize, 8, NULL);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        /* File Offset. */
+        result = fs_stream_write(pTOCStream, &fileOffset, 8, NULL);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+
+        /* If it was a directory we need to call this function recursively. */
+        if (pIterator->info.directory) {
+            result = fs_serialize_directory(pFS, fs_string_cstr(&path), pBasePath, options, pOutputStream, pTOCStream, pTOCEntryCount, pRunningFileOffset);
+            if (result != FS_SUCCESS) {
+                fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+                return result;
+            }
+        }
+
+
+        /* The full path is no longer needed. */
+        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+    }
+
+    return FS_SUCCESS;
+}
+
+FS_API fs_result fs_serialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pOutputStream)
+{
+    fs_result result;
+    fs_uint32 sig[2] = { FS_SERIALIZED_SIG_0, FS_SERIALIZED_SIG_1 };
+    fs_memory_stream toc;
+    fs_uint32 tocEntryCount = 0;    /* <-- Must be initialized to zero. */
+    fs_uint64 runningOffset = 0;    /* <-- Must be initialized to zero. */
+    fs_uint64 tocOffset;
+    fs_int64 initialPos;
+
+    if (pOutputStream == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    if (pDirectoryPath == NULL) {
+        pDirectoryPath = "";
+    }
+
+
+    /* Initialize the TOC stream. We fill out the TOC stream separately, and then at the end we append it to the end of the main stream. */
+    result = fs_memory_stream_init_write(fs_get_allocation_callbacks(pFS), &toc);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+
+    /*
+    We want our data to be aligned to 8 bytes, so we'll grab the initial position of the stream and write some padding
+    to get our initial aligment set up.
+    */
+    result = fs_stream_tell(pOutputStream, &initialPos);
+    if (result != FS_SUCCESS) {
+        fs_memory_stream_uninit(&toc);
+        return result;
+    }
+
+    result = fs_stream_write(pOutputStream, "\0\0\0\0\0\0\0\0", FS_ALIGN(initialPos, 8) - initialPos, NULL);
+    if (result != FS_SUCCESS) {
+        fs_memory_stream_uninit(&toc);
+        return result;
+    }
+
+
+    /* File Data. */
+    result = fs_serialize_directory(pFS, pDirectoryPath, pDirectoryPath, options, pOutputStream, (fs_stream*)&toc, &tocEntryCount, &runningOffset);
+    if (result != FS_SUCCESS) {
+        fs_memory_stream_uninit(&toc);
+        return result;
+    }
+
+    /* TOC. */
+    {
+        void* pTOCData;
+        size_t tocDataSize;
+
+        /* Grab the TOC offset for output later. */
+        tocOffset = runningOffset;
+
+        pTOCData = fs_memory_stream_take_ownership(&toc, &tocDataSize); /* <-- Should never fail. */
+        FS_ASSERT(pTOCData != NULL || tocDataSize == 0);
+
+        fs_memory_stream_uninit(&toc);
+
+        result = fs_stream_write(pOutputStream, pTOCData, tocDataSize, NULL);
+        fs_free(pTOCData, fs_get_allocation_callbacks(pFS));
+
+        if (result != FS_SUCCESS) {
+            fs_memory_stream_uninit(&toc);
+            return result;
+        }
+
+        runningOffset += tocDataSize;
+    }
+
+    /* Tail. */
+    {
+        char padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        fs_int64 baseOffset;
+        fs_uint32 reserved;
+
+        /* Padding to align to 8 bytes. */
+        result = fs_stream_write(pOutputStream, padding, FS_ALIGN(runningOffset, 8) - runningOffset, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+        runningOffset = FS_ALIGN(runningOffset, 8);
+
+
+        /*
+        We'll only be outputting 32 more bytes at this point:
+
+            Signature (8 bytes)
+            Base Offset (8 bytes)
+            TOC Offset (8 bytes)
+            TOC Entry Count (4 bytes)
+            Reserved (4 bytes)
+        */
+        baseOffset = -(fs_int64)(runningOffset + 32);
+
+        /* Signature. */
+        result = fs_stream_write(pOutputStream, sig, 8, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* Base Offset. */
+        result = fs_stream_write(pOutputStream, &baseOffset, 8, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* TOC Offset. */
+        result = fs_stream_write(pOutputStream, &tocOffset, 8, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* TOC Entry Count. */
+        result = fs_stream_write(pOutputStream, &tocEntryCount, 4, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* Reserved. */
+        reserved = 0;
+        result = fs_stream_write(pOutputStream, &reserved, 4, NULL);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+    }
+
+    return FS_SUCCESS;
+}
+
+
+
+static fs_result fs_stream_read_u32_le(fs_stream* pStream, fs_uint32* pResult)
+{
+    fs_result result;
+    fs_uint8 bytes[4];
+
+    result = fs_stream_read(pStream, bytes, 4, NULL);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    *pResult = ((fs_uint32)bytes[0] << 0) | ((fs_uint32)bytes[1] << 8) | ((fs_uint32)bytes[2] << 16) | ((fs_uint32)bytes[3] << 24);
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_stream_read_u64_le(fs_stream* pStream, fs_uint64* pResult)
+{
+    fs_result result;
+    fs_uint8 bytes[8];
+
+    result = fs_stream_read(pStream, bytes, 8, NULL);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    *pResult =
+        ((fs_uint64)bytes[0] <<  0) | ((fs_uint64)bytes[1] <<  8) | ((fs_uint64)bytes[2] << 16) | ((fs_uint64)bytes[3] << 24) |
+        ((fs_uint64)bytes[4] << 32) | ((fs_uint64)bytes[5] << 40) | ((fs_uint64)bytes[6] << 48) | ((fs_uint64)bytes[7] << 56);
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_stream_read_s64_le(fs_stream* pStream, fs_int64* pResult)
+{
+    fs_result result;
+    fs_uint64 temp;
+
+    result = fs_stream_read_u64_le(pStream, &temp);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    *pResult = (fs_int64)temp;
+
+    return FS_SUCCESS;
+}
+
+FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pInputStream)
+{
+    fs_result result;
+    fs_uint32 sig[2];
+    fs_int64 baseOffset;
+    fs_uint64 tocOffset;
+    fs_uint32 tocEntryCount;
+    fs_uint32 reserved;
+    fs_uint32 iEntry;
+
+    if (pInputStream == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    if (pDirectoryPath == NULL) {
+        pDirectoryPath = "";
+    }
+
+    /* First thing we need to do is read the tail. */
+    result = fs_stream_seek(pInputStream, -32, FS_SEEK_END);
+    if (result != FS_SUCCESS) {
+        return result;  /* Failed to seek to the tail. Either too small, or the stream does not support seeking from the end. */
+    }
+
+    /* Signature. */
+    result = fs_stream_read_u32_le(pInputStream, &sig[0]);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    result = fs_stream_read_u32_le(pInputStream, &sig[1]);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    if (sig[0] != FS_SERIALIZED_SIG_0 || sig[1] != FS_SERIALIZED_SIG_1) {
+        return FS_INVALID_DATA; /* Not a serialized stream. */
+    }
+
+    /* Base Offset (relative to end). */
+    result = fs_stream_read_s64_le(pInputStream, &baseOffset);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* TOC Offset (local, relative to base). */
+    result = fs_stream_read_u64_le(pInputStream, &tocOffset);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* TOC Entry Count. */
+    result = fs_stream_read_u32_le(pInputStream, &tocEntryCount);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* Reserved (set to zero). */
+    result = fs_stream_read_u32_le(pInputStream, &reserved);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* Now we can seek to the TOC. */
+    result = fs_stream_seek(pInputStream, baseOffset + (fs_int64)tocOffset, FS_SEEK_END);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* To restore the files we just iterate over the TOC and read. */
+    for (iEntry = 0; iEntry < tocEntryCount; iEntry += 1) {
+        fs_uint32 flags;
+        fs_uint32 localPathLen;
+        fs_string localPath;
+        fs_string fullPath;
+        int fullPathLen;
+        fs_uint64 fileSize;
+        fs_uint64 fileOffset;
+        fs_int64 currentOffset;
+        fs_file* pFile = NULL;
+
+        /* Flags. */
+        result = fs_stream_read_u32_le(pInputStream, &flags);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* Path Length. */
+        result = fs_stream_read_u32_le(pInputStream, &localPathLen);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* Path. */
+        result = fs_string_alloc(localPathLen + 1, fs_get_allocation_callbacks(pFS), &localPath);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        result = fs_stream_read(pInputStream, fs_string_cstr_mutable(&localPath), localPathLen + 1, NULL);    /* +1 to read the null terminator in the same call. */
+        if (result != FS_SUCCESS) {
+            fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        if (fs_string_cstr(&localPath)[localPathLen] != '\0') {
+            fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+            return FS_INVALID_DATA; /* Path is not null terminated. */
+        }
+
+        localPath.len = (size_t)localPathLen;
+
+        fullPath    = fs_string_new();
+        fullPathLen = fs_path_append(fullPath.stack, sizeof(fullPath.stack), pDirectoryPath, FS_NULL_TERMINATED, fs_string_cstr(&localPath), fs_string_len(&localPath));
+        if (fullPathLen < 0) {
+            fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+            return FS_ERROR;
+        }
+
+        fullPath.len = (size_t)fullPathLen;
+
+        if (fullPath.len > sizeof(fullPath.stack)) {
+            result = fs_string_alloc(fullPathLen, fs_get_allocation_callbacks(pFS), &fullPath);
+            if (result != FS_SUCCESS) {
+                fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+                return result;
+            }
+
+            fs_path_append(fullPath.heap, fullPath.len + 1, pDirectoryPath, FS_NULL_TERMINATED, fs_string_cstr(&localPath), fs_string_len(&localPath));
+        }
+
+        fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+
+
+        /* Padding. */
+        result = fs_stream_seek(pInputStream, FS_ALIGN(localPathLen + 1, 8) - (localPathLen + 1), FS_SEEK_CUR);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        /* File Size. */
+        result = fs_stream_read_u64_le(pInputStream, &fileSize);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        /* File Offset. */
+        result = fs_stream_read_u64_le(pInputStream, &fileOffset);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+
+        /* We've now read the TOC entry. We now have enough information to extract the data.  */
+        result = fs_stream_tell(pInputStream, &currentOffset);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+            return result;
+        }
+
+        if ((flags & 0x1) != 0) {
+            /* Directory. */
+            result = fs_mkdir(pFS, fs_string_cstr(&fullPath), options);
+            fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+
+            if (result != FS_SUCCESS && result != FS_ALREADY_EXISTS) {    
+                return result;
+            }
+        } else {
+            /* File. */
+            fs_uint64 bytesRemaining;
+
+            result = fs_file_open(pFS, fs_string_cstr(&fullPath), FS_WRITE | FS_TRUNCATE | options, &pFile);
+            fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+
+            if (result != FS_SUCCESS) {
+                return result;
+            }
+
+            /* Seek to the file data using base offset + local offset. */
+            result = fs_stream_seek(pInputStream, baseOffset + (fs_int64)fileOffset, FS_SEEK_END);
+            if (result != FS_SUCCESS) {
+                fs_file_close(pFile);
+                return result;
+            }
+
+            /* Copy the data across. */
+            bytesRemaining = fileSize;
+            while (bytesRemaining > 0) {
+                char buffer[4096];
+                size_t bytesRead;
+                fs_uint64 bytesToRead;
+
+                bytesToRead = bytesRemaining;
+                if (bytesToRead > sizeof(buffer)) {
+                    bytesToRead = sizeof(buffer);
+                }
+
+                result = fs_stream_read(pInputStream, buffer, (size_t)bytesToRead, &bytesRead); /* Safe cast to size_t because it's clamped to the capacity of `buffer`. */
+                if (result != FS_SUCCESS && result != FS_AT_END) {
+                    fs_file_close(pFile);
+                    return result;
+                }
+
+                if (bytesRead == 0) {
+                    break;
+                }
+
+                result = fs_file_write(pFile, buffer, bytesRead, NULL);
+                if (result != FS_SUCCESS) {
+                    fs_file_close(pFile);
+                    return result;
+                }
+
+                bytesRemaining -= bytesRead;
+
+                if (result == FS_AT_END) {
+                    break;
+                }
+            }
+
+            fs_file_close(pFile);
+            pFile = NULL;
+        }
+
+        /* We need to seek back to where we were in the TOC so we can continue processing. */
+        result = fs_stream_seek(pInputStream, currentOffset, FS_SEEK_SET);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+    }
+
+    return FS_SUCCESS;
+}
+
+
 /* BEG fs_backend_posix.c */
 #if !defined(_WIN32)    /* <-- Add any platforms that lack POSIX support here. */
     #define FS_SUPPORTS_POSIX
@@ -5367,15 +5916,6 @@ static fs_result fs_init_posix(fs* pFS, const void* pBackendConfig, fs_stream* p
 static void fs_uninit_posix(fs* pFS)
 {
     (void)pFS;
-}
-
-static fs_result fs_ioctl_posix(fs* pFS, int op, void* pArg)
-{
-    (void)pFS;
-    (void)op;
-    (void)pArg;
-
-    return FS_NOT_IMPLEMENTED;
 }
 
 static fs_result fs_remove_posix(fs* pFS, const char* pFilePath)
@@ -5933,7 +6473,6 @@ static fs_backend fs_posix_backend =
     fs_alloc_size_posix,
     fs_init_posix,
     fs_uninit_posix,
-    fs_ioctl_posix,
     fs_remove_posix,
     fs_rename_posix,
     fs_mkdir_posix,
@@ -6188,15 +6727,6 @@ static fs_result fs_init_win32(fs* pFS, const void* pBackendConfig, fs_stream* p
 static void fs_uninit_win32(fs* pFS)
 {
     (void)pFS;
-}
-
-static fs_result fs_ioctl_win32(fs* pFS, int op, void* pArg)
-{
-    (void)pFS;
-    (void)op;
-    (void)pArg;
-
-    return FS_NOT_IMPLEMENTED;
 }
 
 static fs_result fs_remove_win32(fs* pFS, const char* pFilePath)
@@ -6841,7 +7371,6 @@ static fs_backend fs_win32_backend =
     fs_alloc_size_win32,
     fs_init_win32,
     fs_uninit_win32,
-    fs_ioctl_win32,
     fs_remove_win32,
     fs_rename_win32,
     fs_mkdir_win32,
@@ -8402,7 +8931,8 @@ FS_API fs_result fs_memory_stream_read(fs_memory_stream* pStream, void* pDst, si
 
 FS_API fs_result fs_memory_stream_write(fs_memory_stream* pStream, const void* pSrc, size_t bytesToWrite, size_t* pBytesWritten)
 {
-    size_t newSize;
+    size_t writeEndPosition;
+    size_t newDataSize;
 
     if (pBytesWritten != NULL) {
         *pBytesWritten = 0;
@@ -8417,13 +8947,13 @@ FS_API fs_result fs_memory_stream_write(fs_memory_stream* pStream, const void* p
         return FS_INVALID_OPERATION;
     }
 
-    newSize = *pStream->pDataSize + bytesToWrite;
-    if (newSize > pStream->write.dataCap) {
-        /* Need to resize. */
+    /* Calculate where the write will end and resize if necessary. */
+    writeEndPosition = pStream->cursor + bytesToWrite;
+    if (writeEndPosition > pStream->write.dataCap) {
         void* pNewBuffer;
         size_t newCap;
 
-        newCap = FS_MAX(newSize, pStream->write.dataCap * 2);
+        newCap = FS_MAX(writeEndPosition, pStream->write.dataCap * 2);
         pNewBuffer = fs_realloc(*pStream->ppData, newCap, &pStream->allocationCallbacks);
         if (pNewBuffer == NULL) {
             return FS_OUT_OF_MEMORY;
@@ -8433,10 +8963,15 @@ FS_API fs_result fs_memory_stream_write(fs_memory_stream* pStream, const void* p
         pStream->write.dataCap = newCap;
     }
 
-    FS_ASSERT(newSize <= pStream->write.dataCap);
+    FS_ASSERT(writeEndPosition <= pStream->write.dataCap);
 
-    FS_COPY_MEMORY(FS_OFFSET_PTR(*pStream->ppData, *pStream->pDataSize), pSrc, bytesToWrite);
-    *pStream->pDataSize = newSize;
+    /* Write out the data, starting from our cursor. */
+    FS_COPY_MEMORY(FS_OFFSET_PTR(*pStream->ppData, pStream->cursor), pSrc, bytesToWrite);
+    pStream->cursor = writeEndPosition;
+
+    /* Update the data size if we wrote beyond the current end. */
+    newDataSize = FS_MAX(*pStream->pDataSize, writeEndPosition);
+    *pStream->pDataSize = newDataSize;
 
     if (pBytesWritten != NULL) {
         *pBytesWritten = bytesToWrite;  /* We always write all or nothing here. */
@@ -8456,8 +8991,6 @@ FS_API fs_result fs_memory_stream_seek(fs_memory_stream* pStream, fs_int64 offse
     if ((fs_uint64)FS_ABS(offset) > FS_SIZE_MAX) {
         return FS_INVALID_ARGS;  /* Trying to seek too far. This will never happen on 64-bit builds. */
     }
-
-    newCursor = pStream->cursor;
 
     if (origin == FS_SEEK_SET) {
         newCursor = 0;
@@ -8830,7 +9363,7 @@ static FS_ASAN fs_uint32 fs_strlen_limited(char const* s, fs_uint32 limit)
    return (fs_uint32)(sn - s);
 }
 
-FS_API_SPRINTF_DEF int fs_vsprintfcb(fs_sprintf_callback* callback, void* user, char* buf, char const* fmt, va_list va)
+FS_SUPPRESS_CLANG_ANALYZER FS_API_SPRINTF_DEF int fs_vsprintfcb(fs_sprintf_callback* callback, void* user, char* buf, char const* fmt, va_list va)
 {
    static char hex[] = "0123456789abcdefxp";
    static char hexu[] = "0123456789ABCDEFXP";
@@ -9883,7 +10416,7 @@ static char* fs_clamp_callback(const char* buf, void* user, size_t len)
       len = c->count;
 
    if (len) {
-      if (buf != c->buf) {
+      if (buf != c->buf && buf != NULL) {
          const char* s, *se;
          char* d;
          d = c->buf;

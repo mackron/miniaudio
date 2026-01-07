@@ -740,12 +740,6 @@ init
 uninit
     This is where you should do any cleanup. Do not close the stream here.
 
-ioctl
-    This function is optional. You can use this to implement custom IO control commands. Return
-    `FS_INVALID_OPERATION` if the command is not recognized. The format of the `pArg` parameter is
-    command specific. If the backend does not need to implement this function, it can be left as
-    `NULL` or return `FS_NOT_IMPLEMENTED`.
-
 remove
     This function is used to delete a file or directory. This is not recursive. If the path is
     a directory, the backend should return an error if it is not empty. Backends do not need to
@@ -939,6 +933,14 @@ see some random tags and stuff in this file. These are just used for doing a dum
 extern "C" {
 #endif
 
+/* BEG fs_platform_detection.c */
+#if defined(_WIN32)
+    #define FS_WIN32
+#else
+    #define FS_POSIX
+#endif
+/* END fs_platform_detection.c */
+
 /* BEG fs_compiler_compat.h */
 #include <stddef.h> /* For size_t. */
 #include <stdarg.h> /* For va_list. */
@@ -1060,6 +1062,75 @@ typedef unsigned int  fs_bool32;
 /* END fs_compiler_compat.h */
 
 
+/* BEG fs_thread_basic_types.h */
+#if defined(FS_POSIX)
+    #ifndef FS_USE_PTHREAD
+    #define FS_USE_PTHREAD
+    #endif
+
+    #ifndef FS_NO_PTHREAD_IN_HEADER
+        #include <pthread.h>
+        typedef pthread_t       fs_pthread_t;
+        typedef pthread_mutex_t fs_pthread_mutex_t;
+    #else
+        typedef fs_uintptr      fs_pthread_t;
+        typedef union           fs_pthread_mutex_t { char __data[40]; fs_uint64 __alignment; } fs_pthread_mutex_t;
+    #endif
+#endif
+/* END fs_thread_basic_types.h */
+
+
+/* BEG fs_thread_mtx.h */
+#if defined(FS_WIN32)
+    typedef struct
+    {
+        void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
+        int type;
+    } fs_mtx;
+#else
+    /*
+    We may need to force the use of a manual recursive mutex which will happen when compiling
+    on very old compilers, or with `-std=c89`.
+    */
+
+    /* If __STDC_VERSION__ is not defined it means we're compiling in C89 mode. */
+    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && !defined(__STDC_VERSION__)
+        #define FS_USE_MANUAL_RECURSIVE_MUTEX
+    #endif
+
+    /* This is for checking if PTHREAD_MUTEX_RECURSIVE is available. */
+    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && (!defined(__USE_UNIX98) && !defined(__USE_XOPEN2K8))
+        #define FS_USE_MANUAL_RECURSIVE_MUTEX
+    #endif
+
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+        typedef struct
+        {
+            fs_pthread_mutex_t mutex;    /* The underlying pthread mutex. */
+            fs_pthread_mutex_t guard;    /* Guard for metadata (owner and recursionCount). */
+            fs_pthread_t owner;
+            int recursionCount;
+            int type;
+        } fs_mtx;
+    #else
+        typedef fs_pthread_mutex_t fs_mtx;
+    #endif
+#endif
+
+enum
+{
+    fs_mtx_plain     = 0x00000000,
+    fs_mtx_timed     = 0x00000001,
+    fs_mtx_recursive = 0x00000002
+};
+
+FS_API int fs_mtx_init(fs_mtx* mutex, int type);
+FS_API void fs_mtx_destroy(fs_mtx* mutex);
+FS_API int fs_mtx_lock(fs_mtx* mutex);
+FS_API int fs_mtx_unlock(fs_mtx* mutex);
+/* END fs_thread_mtx.h */
+
+
 /* BEG fs_result.h */
 typedef enum
 {
@@ -1125,7 +1196,7 @@ typedef enum
     FS_HAS_MORE_OUTPUT               = 102  /* Some stream has more output data to be read, but there's not enough room in the output buffer. */
 } fs_result;
 
-FS_API const char* fs_result_to_string(fs_result result);
+FS_API const char* fs_result_description(fs_result result);
 /* END fs_result.h */
 
 
@@ -1160,6 +1231,7 @@ The stream vtable can support both reading and writing, but it doesn't need to s
 the same time. If one is not supported, simply leave the relevant `read` or `write` callback as
 `NULL`, or have them return FS_NOT_IMPLEMENTED.
 */
+
 typedef enum fs_seek_origin
 {
     FS_SEEK_SET = 0,
@@ -1229,6 +1301,7 @@ appended to the end of the data.
 For flexiblity in case the backend does not support cursor retrieval or positioning, the data will be read
 in fixed sized chunks.
 */
+
 typedef enum fs_format
 {
     FS_FORMAT_TEXT,
@@ -1443,6 +1516,42 @@ struct fs_iterator
     fs_file_info info;
 };
 
+
+/*
+Configuration structure for fs objects.
+
+Members
+-------
+pBackend
+    The backend to use. If NULL, the standard file system backend will be used.
+
+pBackendConfig
+    A pointer to a backend-specific configuration structure. This is passed directly to the
+    backend's init function. The documentation for your backend will tell you how to use this. Most
+    backends will allow you to set this to NULL.
+
+pStream
+    A stream to use for archive backends. This is required for any file-backed backend, such as ZIP
+    archives. If the backend does not need a stream, this can be NULL.
+
+pArchiveTypes
+    An array of archive types to register. This can be NULL if no archive types are to be
+    registered. Archive types are mapped to file extensions. See `fs_archive_type` for more
+    information.
+
+archiveTypeCount
+    The number of archive types in the `pArchiveTypes` array. Set this to 0 if `pArchiveTypes` is
+    NULL.
+
+onRefCountChanged
+    A callback that is fired when the reference count of a fs object changes.
+
+pRefCountChangedUserData
+    User data that is passed to the `onRefCountChanged` callback.
+
+pAllocationCallbacks
+    Custom allocation callbacks. If NULL, the standard malloc/realloc/free functions will be used.
+*/
 struct fs_config
 {
     const fs_backend* pBackend;
@@ -1464,7 +1573,6 @@ struct fs_backend
     size_t       (* alloc_size      )(const void* pBackendConfig);
     fs_result    (* init            )(fs* pFS, const void* pBackendConfig, fs_stream* pStream);              /* Return 0 on success or an errno result code on error. pBackendConfig is a pointer to a backend-specific struct. The documentation for your backend will tell you how to use this. You can usually pass in NULL for this. */
     void         (* uninit          )(fs* pFS);
-    fs_result    (* ioctl           )(fs* pFS, int op, void* pArg);                                          /* Optional. */
     fs_result    (* remove          )(fs* pFS, const char* pFilePath);
     fs_result    (* rename          )(fs* pFS, const char* pOldPath, const char* pNewPath);                  /* Return FS_DIFFERENT_DEVICE if the old and new paths are on different devices and would require a copy. */
     fs_result    (* mkdir           )(fs* pFS, const char* pPath);                                           /* This is not recursive. Return FS_ALREADY_EXISTS if directory already exists. Return FS_DOES_NOT_EXIST if a parent directory does not exist. */
@@ -1659,34 +1767,6 @@ See Also
 fs_init()
 */
 FS_API void fs_uninit(fs* pFS);
-
-
-/*
-Performs a control operation on the file system.
-
-This is backend-specific. Check the documentation for the backend you are using to see what
-operations are supported.
-
-
-Parameters
-----------
-pFS : (in)
-    A pointer to the file system object. Must not be NULL.
-
-op : (in)
-    The operation to perform. This is backend-specific.
-
-pArg : (in, optional)
-    An optional pointer to an argument struct. This is backend-specific. Can be NULL if the
-    operation does not require any arguments.
-
-
-Return Value
-------------
-Returns FS_SUCCESS on success; any other result code otherwise. May return FS_NOT_IMPLEMENTED if
-the operation is not supported by the backend.
-*/
-FS_API fs_result fs_ioctl(fs* pFS, int op, void* pArg);
 
 
 /*
@@ -3291,6 +3371,154 @@ FS_API fs_result fs_file_open_and_read(fs* pFS, const char* pFilePath, fs_format
 FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, const void* pData, size_t dataSize);
 
 
+/*
+Serializes a file system subdirectory to a stream.
+
+This function recursively serializes all files and directories within the specified directory
+to a binary stream. The serialized data can later be restored using `fs_deserialize()`.
+
+The directory parameter specifies which directory to serialize. This function is built on top of
+standard file iteration functions, i.e. `fs_first()`, `fs_next()`. The directory and options all
+work the same way as they do for `fs_first()`.
+
+It is possible for serialization to fail partway through, in which case the stream will contain
+partial data. It is the caller's responsibility to handle this case appropriately.
+
+When calculating offsets, it will use `fs_stream_tell()` to get the current position in the stream.
+Keep this in mind if you are appending this to the end of an existing stream. This may or may not
+be useful to you depending on your use case.
+
+The format is designed to be appendable to existing payloads using tools like `cat`. Offsets are
+stored relative to the end of the archive to support this use case. The Base Offset field in the
+tail specifies where file data begins relative to the end of the stream, and will always be a
+negative number. Each file's offset is then relative to this base offset. To seek to a file's data,
+you would add the file's offset to the base offset and then seek by that amount relative to the end
+of the stream.
+
+Below is the format:
+
+    |: MAIN STRUCTURE                               :|
+    |------------------------------------------------|
+    | n    | File Data                               |
+    |------|-----------------------------------------|
+    | n    | TOC Entries                             |
+    |------|-----------------------------------------|
+    | 8    | 'FSSRLZ1\0'                             |
+    | 8    | Base Offset (negative, relative to end) |
+    | 8    | TOC Offset (relative to Base Offset)    |
+    | 4    | TOC Entry Count                         |
+    | 4    | Reserved (set to zero)                  |
+    
+
+    |: TOC ENTRY                                    :|
+    |------------------------------------------------|
+    | 4    | File Flags                              |
+    | 4    | File Path Length                        |
+    | n    | File Path                               |
+    | 1    | '\0' (Null Terminator)                  |
+    | n    | Padding to 8-byte alignment             |
+    | 8    | File Size                               |
+    | 8    | File Offset (local, relative)           |
+
+
+    |: FILE FLAGS                                   :|
+    |------------------------------------------------|
+    | 0x1  | Directory                               |
+
+
+    Notes:
+    - The signature is located at the end of the stream. To parse, seek to the last 32 bytes, read
+      the signature, base offset, TOC offset and entry count, then calculate the absolute TOC offset
+      as Base Offset + TOC Offset and seek to that position, relative to the end, to read the TOC.
+      The base offset is always negative.
+    - Directories should be explicitly listed in the TOC, and also have the "Directory" flag set.
+    - Directories must be listed before any files that are contained within them.
+    - File Offset and TOC Offset are both local offsets relative to the Base Offset position. Sum
+      the offsets with the base offset, and then seek relative to the end.
+    - The Base Offset is relative to the end of the archive (negative value).
+    - File data is aligned to 8-byte boundaries.
+    - All multi-byte values are little-endian.
+    - File paths are stored using UTF-8 encoding.
+    - To calculate the padding between the null terminator and the next 8-byte aligned offset, round
+      the length of the file path plus one (for the null terminator) up to the next multiple of 8,
+      then subtract the length of the file path plus one.
+
+
+Parameters
+----------
+pFS : (in)
+    A pointer to the file system object. Must not be NULL.
+
+pDirectoryPath : (in, optional)
+    The path to the directory to serialize.
+
+options : (in)
+    Options for the serialization operation. These are passed in directly to `fs_first()` and
+    therefore have the same meaning. See `fs_first()` for details. These will also be passed into
+    `fs_file_open()` when opening files, combined with `FS_READ`.
+
+pOutputStream : (in)
+    A pointer to the output stream where the serialized data will be written. Must not be NULL.
+
+
+Return Value
+------------
+Returns FS_SUCCESS on success; any other result code otherwise.
+
+
+See Also
+--------
+fs_deserialize()
+fs_first()
+*/
+FS_API fs_result fs_serialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pOutputStream);
+
+/*
+Deserializes file system data from a stream.
+
+This function reads serialized file system data from a stream and recreates the files and
+directories in the specified subdirectory. The format of the data must match that produced by
+`fs_serialize()`.
+
+The subdirectory parameter specifies where to restore the serialized data. If NULL or empty, the
+data is restored to the file system root. The path is relative to the file system root.
+
+Existing files with the same name will be overwritten during deserialization. If the output
+directory already exists, it will not emptied before restoring the data.
+
+This function will not attempt to clean up any partially restored data if an error occurs during
+the process.
+
+
+Parameters
+----------
+pFS : (in)
+    A pointer to the file system object. Must not be NULL.
+
+pSubdirectoryPath : (in, optional)
+    The path to the subdirectory where the data should be restored. Can be NULL or empty to
+    restore to the filesystem root. The path should use forward slashes ('/') as separators.
+
+options : (in)
+    Options for the deserialization operation. These will be passed into `fs_file_open()` when
+    creating files. See `fs_file_open()` for details.
+
+pInputStream : (in)
+    A pointer to the input stream containing the serialized data. Must not be NULL.
+
+
+Return Value
+------------
+Returns FS_SUCCESS on success; any other result code otherwise.
+
+
+See Also
+--------
+fs_serialize()
+*/
+FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pInputStream);
+
+
 /* BEG fs_backend_posix.h */
 extern const fs_backend* FS_BACKEND_POSIX;
 /* END fs_backend_posix.h */
@@ -3417,6 +3645,7 @@ read and write from different locations from the same fs_memory_stream object, y
 seek before doing your read or write. You cannot read and write at the same time across
 multiple threads for the same fs_memory_stream object.
 */
+
 typedef struct fs_memory_stream fs_memory_stream;
 
 struct fs_memory_stream
