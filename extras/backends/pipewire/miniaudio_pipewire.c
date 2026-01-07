@@ -2229,8 +2229,13 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         pStreamState->channels   = channels;
         pStreamState->sampleRate = sampleRate;
 
-        for (iChannel = 0; iChannel < MA_MAX_CHANNELS; iChannel += 1) {
-            pStreamState->channelMap[iChannel] = ma_channel_from_pipewire(pChannelPositionsPA[iChannel]);
+        /* We should always get a channel map, but just to be safe we'll check for it, and if we don't get one back we'll use a default. */
+        if (pChannelPositionsPA != NULL) {
+            for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                pStreamState->channelMap[iChannel] = ma_channel_from_pipewire(pChannelPositionsPA[iChannel]);
+            }
+        } else {
+            ma_channel_map_init_standard(ma_standard_channel_map_alsa, pStreamState->channelMap, ma_countof(pStreamState->channelMap), channels);
         }
 
 
