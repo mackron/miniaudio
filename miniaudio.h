@@ -52308,11 +52308,11 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
     ma_channel* pChannelMapIn;
     ma_channel* pChannelMapOut;
 
-    if (pSpatializer == NULL) {
+    if (pSpatializer == NULL || pListener == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pChannelMapIn  = pSpatializer->pChannelMapIn;
+    pChannelMapIn = pSpatializer->pChannelMapIn;
     pChannelMapOut = pListener->config.pChannelMapOut;
 
     /* If we're not spatializing we need to run an optimized path. */
@@ -52359,23 +52359,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
         defined by the listener, so we'll grab that here too.
         */
-        if (pListener != NULL) {
-            listenerVel  = ma_spatializer_listener_get_velocity(pListener);
-            speedOfSound = pListener->config.speedOfSound;
-        } else {
-            listenerVel  = ma_vec3f_init_3f(0, 0, 0);
-            speedOfSound = MA_DEFAULT_SPEED_OF_SOUND;
-        }
+        listenerVel  = ma_spatializer_listener_get_velocity(pListener);
+        speedOfSound = pListener->config.speedOfSound;
 
-        if (pListener == NULL || ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
-            /* There's no listener or we're using relative positioning. */
+        if (ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
             relativePos = ma_spatializer_get_position(pSpatializer);
             relativeDir = ma_spatializer_get_direction(pSpatializer);
         } else {
             /*
-            We've found a listener and we're using absolute positioning. We need to transform the
-            sound's position and direction so that it's relative to listener. Later on we'll use
-            this for determining the factors to apply to each channel to apply the panning effect.
+            We're using absolute positioning. We need to transform the sound's position and
+            direction so that it's relative to listener. Later on we'll use this for determining
+            the factors to apply to each channel to apply the panning effect.
             */
             ma_spatializer_get_relative_position_and_direction(pSpatializer, pListener, &relativePos, &relativeDir);
         }
