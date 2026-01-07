@@ -982,10 +982,12 @@ static MA_INLINE void* ma_spa_pod_choice_get_values(const struct ma_spa_pod_choi
     return (void*)ma_offset_ptr(choice, sizeof(struct ma_spa_pod_choice));
 }
 
+#if 0
 static MA_INLINE ma_uint32 ma_spa_pod_array_get_length(const struct ma_spa_pod_array* array)
 {
     return (array->pod.size - sizeof(struct ma_spa_pod_array_body)) / array->body.child.size;
 }
+#endif
 
 static MA_INLINE void* ma_spa_pod_array_get_values(const struct ma_spa_pod_array* array)
 {
