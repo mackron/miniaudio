@@ -44790,7 +44790,13 @@ MA_API void* ma_context_get_backend_state(ma_context* pContext)
 
 MA_API void ma_context_get_backend_info(ma_context* pContext, ma_device_backend_info* pBackendInfo)
 {
-    if (pContext == NULL || pBackendInfo == NULL) {
+    if (pBackendInfo == NULL) {
+        return;
+    }
+
+    MA_ZERO_OBJECT(pBackendInfo);
+
+    if (pContext == NULL) {
         return;
     }
 
