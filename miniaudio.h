@@ -4314,9 +4314,13 @@ typedef enum
     MA_CHANNEL_AUX_29             = 49,
     MA_CHANNEL_AUX_30             = 50,
     MA_CHANNEL_AUX_31             = 51,
+
+    /* Count. */
+    MA_CHANNEL_POSITION_COUNT,
+
+    /* Aliases. */
     MA_CHANNEL_LEFT               = MA_CHANNEL_FRONT_LEFT,
     MA_CHANNEL_RIGHT              = MA_CHANNEL_FRONT_RIGHT,
-    MA_CHANNEL_POSITION_COUNT     = (MA_CHANNEL_AUX_31 + 1)
 } _ma_channel_position; /* Do not use `_ma_channel_position` directly. Use `ma_channel` instead. */
 
 typedef enum
@@ -52712,15 +52716,15 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                     a += d;
                 }
             }
+
+            pFramesOut = ma_offset_ptr(pFramesOut, interpolatedFrameCount * sizeof(float));
+            pFramesIn  = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * sizeof(float));
         }
+
+        frameCount -= interpolatedFrameCount;
 
         /* Make sure the timer is updated. */
         pGainer->t = (ma_uint32)ma_min(pGainer->t + interpolatedFrameCount, pGainer->config.smoothTimeInFrames);
-
-        /* Adjust our arguments so the next part can work normally. */
-        frameCount -= interpolatedFrameCount;
-        pFramesOut  = ma_offset_ptr(pFramesOut, interpolatedFrameCount * sizeof(float));
-        pFramesIn   = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * sizeof(float));
     }
 
     /* All we need to do here is apply the new gains using an optimized path. */
@@ -54148,12 +54152,15 @@ static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneI
 
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
-    ma_channel* pChannelMapIn  = pSpatializer->pChannelMapIn;
-    ma_channel* pChannelMapOut = pListener->config.pChannelMapOut;
+    ma_channel* pChannelMapIn;
+    ma_channel* pChannelMapOut;
 
-    if (pSpatializer == NULL) {
+    if (pSpatializer == NULL || pListener == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    pChannelMapIn = pSpatializer->pChannelMapIn;
+    pChannelMapOut = pListener->config.pChannelMapOut;
 
     /* If we're not spatializing we need to run an optimized path. */
     if (ma_atomic_load_i32(&pSpatializer->attenuationModel) == ma_attenuation_model_none) {
@@ -54199,23 +54206,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
         defined by the listener, so we'll grab that here too.
         */
-        if (pListener != NULL) {
-            listenerVel  = ma_spatializer_listener_get_velocity(pListener);
-            speedOfSound = pListener->config.speedOfSound;
-        } else {
-            listenerVel  = ma_vec3f_init_3f(0, 0, 0);
-            speedOfSound = MA_DEFAULT_SPEED_OF_SOUND;
-        }
+        listenerVel  = ma_spatializer_listener_get_velocity(pListener);
+        speedOfSound = pListener->config.speedOfSound;
 
-        if (pListener == NULL || ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
-            /* There's no listener or we're using relative positioning. */
+        if (ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
             relativePos = ma_spatializer_get_position(pSpatializer);
             relativeDir = ma_spatializer_get_direction(pSpatializer);
         } else {
             /*
-            We've found a listener and we're using absolute positioning. We need to transform the
-            sound's position and direction so that it's relative to listener. Later on we'll use
-            this for determining the factors to apply to each channel to apply the panning effect.
+            We're using absolute positioning. We need to transform the sound's position and
+            direction so that it's relative to listener. Later on we'll use this for determining
+            the factors to apply to each channel to apply the panning effect.
             */
             ma_spatializer_get_relative_position_and_direction(pSpatializer, pListener, &relativePos, &relativeDir);
         }
@@ -56250,7 +56251,7 @@ static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
         return MA_FALSE;
     }
 
-    if (channelPosition >= MA_CHANNEL_AUX_0 && channelPosition <= MA_CHANNEL_AUX_31) {
+    if (channelPosition >= MA_CHANNEL_AUX_0) {
         return MA_FALSE;
     }
 
@@ -72906,12 +72907,12 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pCursor)
 {
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
-
     if (pDataBuffer == NULL || pCursor == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     *pCursor = 0;
 
@@ -72946,12 +72947,12 @@ MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_res
 
 MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength)
 {
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
-
     if (pDataBuffer == NULL || pLength == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
         return MA_BUSY; /* Still loading. */
