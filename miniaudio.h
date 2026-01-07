@@ -27984,6 +27984,7 @@ typedef int                  (* ma_snd_pcm_open_proc)                          (
 typedef int                  (* ma_snd_pcm_close_proc)                         (ma_snd_pcm_t *pcm);
 typedef size_t               (* ma_snd_pcm_hw_params_sizeof_proc)              (void);
 typedef int                  (* ma_snd_pcm_hw_params_any_proc)                 (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
+typedef int                  (* ma_snd_pcm_hw_params_current_proc)             (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
 typedef int                  (* ma_snd_pcm_hw_params_set_format_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t val);
 typedef int                  (* ma_snd_pcm_hw_params_set_format_first_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_t *format);
 typedef void                 (* ma_snd_pcm_hw_params_get_format_mask_proc)     (ma_snd_pcm_hw_params_t *params, ma_snd_pcm_format_mask_t *mask);
@@ -28078,6 +28079,7 @@ typedef struct ma_context_state_alsa
     ma_snd_pcm_close_proc                          snd_pcm_close;
     ma_snd_pcm_hw_params_sizeof_proc               snd_pcm_hw_params_sizeof;
     ma_snd_pcm_hw_params_any_proc                  snd_pcm_hw_params_any;
+    ma_snd_pcm_hw_params_current_proc              snd_pcm_hw_params_current;
     ma_snd_pcm_hw_params_set_format_proc           snd_pcm_hw_params_set_format;
     ma_snd_pcm_hw_params_set_format_first_proc     snd_pcm_hw_params_set_format_first;
     ma_snd_pcm_hw_params_get_format_mask_proc      snd_pcm_hw_params_get_format_mask;
@@ -28628,6 +28630,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         pContextStateALSA->snd_pcm_close                          = (ma_snd_pcm_close_proc                          )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_close");
         pContextStateALSA->snd_pcm_hw_params_sizeof               = (ma_snd_pcm_hw_params_sizeof_proc               )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_sizeof");
         pContextStateALSA->snd_pcm_hw_params_any                  = (ma_snd_pcm_hw_params_any_proc                  )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_any");
+        pContextStateALSA->snd_pcm_hw_params_current              = (ma_snd_pcm_hw_params_current_proc              )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_current");
         pContextStateALSA->snd_pcm_hw_params_set_format           = (ma_snd_pcm_hw_params_set_format_proc           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_set_format");
         pContextStateALSA->snd_pcm_hw_params_set_format_first     = (ma_snd_pcm_hw_params_set_format_first_proc     )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_set_format_first");
         pContextStateALSA->snd_pcm_hw_params_get_format_mask      = (ma_snd_pcm_hw_params_get_format_mask_proc      )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_get_format_mask");
@@ -28700,6 +28703,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         ma_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
         ma_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;
         ma_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;
+        ma_snd_pcm_hw_params_current_proc              _snd_pcm_hw_params_current              = snd_pcm_hw_params_current;
         ma_snd_pcm_hw_params_set_format_proc           _snd_pcm_hw_params_set_format           = snd_pcm_hw_params_set_format;
         ma_snd_pcm_hw_params_set_format_first_proc     _snd_pcm_hw_params_set_format_first     = snd_pcm_hw_params_set_format_first;
         ma_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;
@@ -28769,6 +28773,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         pContextStateALSA->snd_pcm_close                          = _snd_pcm_close;
         pContextStateALSA->snd_pcm_hw_params_sizeof               = _snd_pcm_hw_params_sizeof;
         pContextStateALSA->snd_pcm_hw_params_any                  = _snd_pcm_hw_params_any;
+        pContextStateALSA->snd_pcm_hw_params_current              = _snd_pcm_hw_params_current;
         pContextStateALSA->snd_pcm_hw_params_set_format           = _snd_pcm_hw_params_set_format;
         pContextStateALSA->snd_pcm_hw_params_set_format_first     = _snd_pcm_hw_params_set_format_first;
         pContextStateALSA->snd_pcm_hw_params_get_format_mask      = _snd_pcm_hw_params_get_format_mask;
@@ -29353,15 +29358,32 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     /* Channels. */
     {
         unsigned int channels = pDescriptor->channels;
-        if (channels == 0) {
-            channels = MA_DEFAULT_CHANNELS;
+
+        /* If an explicit channel count was requested try using that directly. If this fails we'll fall back to set_channels_near(). */
+        resultALSA = -1;
+        if (channels != 0 && pContextStateALSA->snd_pcm_hw_params_test_channels(pPCM, pHWParams, channels) == 0) {
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels(pPCM, pHWParams, channels);
+            if (resultALSA < 0) {
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[ALSA] Failed to set channel count to %u. Falling back to snd_pcm_hw_params_set_channels_near().", channels);
+            }
         }
 
-        resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels_near(pPCM, pHWParams, &channels);
+        /* Fallback to set_channels_near() if we couldn't set the exact channel count. */
+        if (resultALSA < 0) {
+            if (channels == 0) {
+                channels = MA_DEFAULT_CHANNELS;
+            }
+
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels_near(pPCM, pHWParams, &channels);
+            if (resultALSA < 0) {
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set channel count with snd_pcm_hw_params_set_channels_near().");
+            }
+        }
+
+        /* If we get here and we still haven't been able to find a channel count just bomb out. */
         if (resultALSA < 0) {
             ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
             pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.");
             return ma_result_from_errno(-resultALSA);
         }
 
