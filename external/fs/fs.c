@@ -9363,7 +9363,7 @@ static FS_ASAN fs_uint32 fs_strlen_limited(char const* s, fs_uint32 limit)
    return (fs_uint32)(sn - s);
 }
 
-FS_SUPPRESS_CLANG_ANALYZER FS_API_SPRINTF_DEF int fs_vsprintfcb(fs_sprintf_callback* callback, void* user, char* buf, char const* fmt, va_list va)
+FS_API_SPRINTF_DEF int fs_vsprintfcb(fs_sprintf_callback* callback, void* user, char* buf, char const* fmt, va_list va)
 {
    static char hex[] = "0123456789abcdefxp";
    static char hexu[] = "0123456789ABCDEFXP";
@@ -10215,7 +10215,7 @@ FS_SUPPRESS_CLANG_ANALYZER FS_API_SPRINTF_DEF int fs_vsprintfcb(fs_sprintf_callb
                fs_cb_buf_clamp(i, lead[0]);
                lead[0] -= (char)i;
                while (i) {
-                  *bf++ = *sn++;
+                  FS_SUPPRESS_CLANG_ANALYZER *bf++ = *sn++;
                   --i;
                }
                fs_chk_cb_buf(1);
@@ -10279,7 +10279,7 @@ FS_SUPPRESS_CLANG_ANALYZER FS_API_SPRINTF_DEF int fs_vsprintfcb(fs_sprintf_callb
                i -= 4;
             })
             while (i) {
-               *bf++ = *s++;
+               FS_SUPPRESS_CLANG_ANALYZER *bf++ = *s++;
                --i;
             }
             fs_chk_cb_buf(1);
