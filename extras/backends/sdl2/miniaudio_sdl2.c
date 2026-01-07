@@ -434,6 +434,7 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
             }
 
             cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
+            (void)cbResult; /* Silence a static analysis warning. Want to keep this assignment in case we extend this logic later. */
         }
     }
 

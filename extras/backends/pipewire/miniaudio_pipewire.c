@@ -2090,6 +2090,8 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
                 cbResult = ma_context_enumerate_default_device_by_type__pipewire(pContext, ma_device_type_capture, callback, pUserData);
             }
         }
+
+        (void)cbResult; /* Silence a static analysis warning. Want to keep this assignment in case we extend this logic later. */
     }
 
 
