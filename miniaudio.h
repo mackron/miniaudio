@@ -6923,7 +6923,7 @@ MA_API ma_device_backend_vtable* ma_pulseaudio_get_vtable(void);
 /* BEG ALSA */
 typedef struct ma_context_config_alsa
 {
-    ma_bool32 useVerboseDeviceEnumeration;
+    int _unused;
 } ma_context_config_alsa;
 
 MA_API ma_context_config_alsa ma_context_config_alsa_init(void);
@@ -7979,11 +7979,6 @@ can then be set directly on the structure. Below are the members of the `ma_cont
     allocationCallbacks
         Structure containing custom allocation callbacks. Leaving this at defaults will cause it to use MA_MALLOC, MA_REALLOC and MA_FREE. These allocation
         callbacks will be used for anything tied to the context, including devices.
-
-    alsa.useVerboseDeviceEnumeration
-        ALSA will typically enumerate many different devices which can be intrusive and not user-friendly. To combat this, miniaudio will enumerate only unique
-        card/device pairs by default. The problem with this is that you lose a bit of flexibility and control. Setting alsa.useVerboseDeviceEnumeration makes
-        it so the ALSA backend includes all devices. Defaults to false.
 
     pulse.pApplicationName
         PulseAudio only. The application name to use when initializing the PulseAudio context with `pa_context_new()`.
@@ -28072,7 +28067,6 @@ static const char* g_maBlacklistedCaptureDeviceNamesALSA[] = {
 typedef struct ma_context_state_alsa
 {
     ma_mutex internalDeviceEnumLock;
-    ma_bool32 useVerboseDeviceEnumeration;
 
     ma_handle asoundSO;
     ma_snd_lib_error_set_handler_proc              snd_lib_error_set_handler;
@@ -28295,7 +28289,6 @@ static ma_bool32 ma_is_device_blacklisted__alsa(ma_device_type deviceType, const
     }
 }
 
-
 static const char* ma_find_char(const char* str, char c, int* index)
 {
     int i = 0;
@@ -28318,6 +28311,7 @@ static const char* ma_find_char(const char* str, char c, int* index)
     return NULL;
 }
 
+#if 0
 static ma_bool32 ma_is_device_name_in_hw_format__alsa(const char* hwid)
 {
     /* This function is just checking whether or not hwid is in "hw:%d,%d" format. */
@@ -28438,7 +28432,7 @@ static ma_bool32 ma_does_id_exist_in_list__alsa(ma_device_id* pUniqueIDs, ma_uin
 
     return MA_FALSE;
 }
-
+#endif
 
 static ma_context_state_alsa* ma_context_get_backend_state__alsa(ma_context* pContext)
 {
@@ -28724,8 +28718,6 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
     }
     #endif
 
-    pContextStateALSA->useVerboseDeviceEnumeration = pContextConfigALSA->useVerboseDeviceEnumeration;
-
     result = ma_mutex_init(&pContextStateALSA->internalDeviceEnumLock);
     if (result != MA_SUCCESS) {
         ma_free(pContextStateALSA, ma_context_get_allocation_callbacks(pContext));
@@ -28819,7 +28811,6 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
     ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
     char** ppDeviceHints;
     ma_device_id* pUniqueIDs = NULL;
-    ma_uint32 uniqueIDCount = 0;
     char** ppNextDeviceHint;
     ma_bool32 hasEnumeratedDefaultPlaybackDevice = MA_FALSE;
     ma_bool32 hasEnumeratedDefaultCaptureDevice = MA_FALSE;
@@ -28842,7 +28833,6 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         char* IOID = pContextStateALSA->snd_device_name_get_hint(*ppNextDeviceHint, "IOID");
         ma_device_type deviceType = ma_device_type_playback;
         ma_bool32 stopEnumeration = MA_FALSE;
-        char hwid[sizeof(pUniqueIDs->alsa)];
         ma_device_info deviceInfo;
 
         if ((IOID == NULL || ma_strcmp(IOID, "Output") == 0)) {
@@ -28852,50 +28842,10 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             deviceType = ma_device_type_capture;
         }
 
-        if (NAME != NULL) {
-            if (pContextStateALSA->useVerboseDeviceEnumeration) {
-                /* Verbose mode. Use the name exactly as-is. */
-                ma_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
-            } else {
-                /* Simplified mode. Use ":%d,%d" format. */
-                if (ma_convert_device_name_to_hw_format__alsa(pContextStateALSA, hwid, sizeof(hwid), NAME) == 0) {
-                    /*
-                    At this point, hwid looks like "hw:0,0". In simplified enumeration mode, we actually want to strip off the
-                    plugin name so it looks like ":0,0". The reason for this is that this special format is detected at device
-                    initialization time and is used as an indicator to try to use the most appropriate plugin depending on the
-                    device type and sharing mode.
-                    */
-                    char* dst = hwid;
-                    char* src = hwid+2;
-                    while ((*dst++ = *src++));
-                } else {
-                    /* Conversion to "hw:%d,%d" failed. Just use the name as-is. */
-                    ma_strncpy_s(hwid, sizeof(hwid), NAME, (size_t)-1);
-                }
-
-                if (ma_does_id_exist_in_list__alsa(pUniqueIDs, uniqueIDCount, hwid)) {
-                    goto next_device;   /* The device has already been enumerated. Move on to the next one. */
-                } else {
-                    /* The device has not yet been enumerated. Make sure it's added to our list so that it's not enumerated again. */
-                    size_t newCapacity = sizeof(*pUniqueIDs) * (uniqueIDCount + 1);
-                    ma_device_id* pNewUniqueIDs = (ma_device_id*)ma_realloc(pUniqueIDs, newCapacity, ma_context_get_allocation_callbacks(pContext));
-                    if (pNewUniqueIDs == NULL) {
-                        goto next_device;   /* Failed to allocate memory. */
-                    }
-
-                    pUniqueIDs = pNewUniqueIDs;
-                    MA_COPY_MEMORY(pUniqueIDs[uniqueIDCount].alsa, hwid, sizeof(hwid));
-                    uniqueIDCount += 1;
-                }
-            }
-        } else {
-            MA_ZERO_MEMORY(hwid, sizeof(hwid));
-        }
-
         MA_ZERO_OBJECT(&deviceInfo);
 
         /* ID. */
-        ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), hwid, (size_t)-1);
+        ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), NAME, (size_t)-1);
 
         /*
         Defualt.
@@ -28923,15 +28873,10 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         /*
         Name.
 
-        DESC is the friendly name. We treat this slightly differently depending on whether or not we are using verbose
-        device enumeration. In verbose mode we want to take the entire description so that the end-user can distinguish
-        between the subdevices of each card/dev pair. In simplified mode, however, we only want the first part of the
-        description.
-
-        The value in DESC seems to be split into two lines, with the first line being the name of the device and the
-        second line being a description of the device. I don't like having the description be across two lines because
-        it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the second line
-        being put into parentheses. In simplified mode I'm just stripping the second line entirely.
+        DESC is the friendly name. It seems to be split into two lines, with the first line being the name of the device
+        and the second line being a description of the device. I don't like having the description be across two lines
+        because it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the
+        second line being put into parentheses.
         */
         if (DESC != NULL) {
             int lfPos;
@@ -28939,16 +28884,11 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             if (line2 != NULL) {
                 line2 += 1; /* Skip past the new-line character. */
 
-                if (pContextStateALSA->useVerboseDeviceEnumeration) {
-                    /* Verbose mode. Put the second line in brackets. */
-                    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, lfPos);
-                    ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), " (");
-                    ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), line2);
-                    ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), ")");
-                } else {
-                    /* Simplified mode. Strip the second line entirely. */
-                    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, lfPos);
-                }
+                /* Put the second line in brackets. */
+                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, lfPos);
+                ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), " (");
+                ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), line2);
+                ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), ")");
             } else {
                 /* There's no second line. Just copy the whole description. */
                 ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, (size_t)-1);
