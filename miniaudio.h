@@ -28149,14 +28149,12 @@ typedef struct ma_device_state_alsa
 {
     ma_snd_pcm_t* pPCMPlayback;
     ma_snd_pcm_t* pPCMCapture;
-    void* pIntermediaryBufferPlayback;
-    void* pIntermediaryBufferCapture;
-    struct pollfd* pPollDescriptorsPlayback;
-    struct pollfd* pPollDescriptorsCapture;
+    void* pIntermediaryBuffer;          /* Used as a scratch buffer for read() and write(). */
+    int wakeupfd;                       /* eventfd for waking up from poll() when the device is stopped. */
+    struct pollfd* pPollDescriptors;    /* One array for wakeup, playback and capture. */
+    int pollDescriptorCount;
     int pollDescriptorCountPlayback;
     int pollDescriptorCountCapture;
-    int wakeupfdPlayback;   /* eventfd for waking up from poll() when the playback device is stopped. */
-    int wakeupfdCapture;    /* eventfd for waking up from poll() when the capture device is stopped. */
     ma_bool8 isUsingMMapPlayback;
     ma_bool8 isUsingMMapCapture;
 } ma_device_state_alsa;
@@ -28436,126 +28434,6 @@ static ma_bool32 ma_does_id_exist_in_list__alsa(ma_device_id* pUniqueIDs, ma_uin
     }
 
     return MA_FALSE;
-}
-
-
-static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_context_state_alsa* pContextStateALSA, ma_share_mode shareMode, ma_device_type deviceType, const ma_device_id* pDeviceID, int openMode, ma_snd_pcm_t** ppPCM)
-{
-    ma_snd_pcm_t* pPCM;
-    ma_snd_pcm_stream_t stream;
-
-    MA_ASSERT(pContextStateALSA != NULL);
-    MA_ASSERT(ppPCM != NULL);
-
-    *ppPCM = NULL;
-    pPCM = NULL;
-
-    stream = (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE;
-
-    if (pDeviceID == NULL) {
-        ma_bool32 isDeviceOpen;
-        size_t i;
-
-        /*
-        We're opening the default device. I don't know if trying anything other than "default" is necessary, but it makes
-        me feel better to try as hard as we can get to get _something_ working.
-        */
-        const char* defaultDeviceNames[] = {
-            "default",
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL
-        };
-
-        if (shareMode == ma_share_mode_exclusive) {
-            defaultDeviceNames[1] = "hw";
-            defaultDeviceNames[2] = "hw:0";
-            defaultDeviceNames[3] = "hw:0,0";
-        } else {
-            if (deviceType == ma_device_type_playback) {
-                defaultDeviceNames[1] = "dmix";
-                defaultDeviceNames[2] = "dmix:0";
-                defaultDeviceNames[3] = "dmix:0,0";
-            } else {
-                defaultDeviceNames[1] = "dsnoop";
-                defaultDeviceNames[2] = "dsnoop:0";
-                defaultDeviceNames[3] = "dsnoop:0,0";
-            }
-            defaultDeviceNames[4] = "hw";
-            defaultDeviceNames[5] = "hw:0";
-            defaultDeviceNames[6] = "hw:0,0";
-        }
-
-        isDeviceOpen = MA_FALSE;
-        for (i = 0; i < ma_countof(defaultDeviceNames); ++i) {
-            if (defaultDeviceNames[i] != NULL && defaultDeviceNames[i][0] != '\0') {
-                if (pContextStateALSA->snd_pcm_open(&pPCM, defaultDeviceNames[i], stream, openMode) == 0) {
-                    isDeviceOpen = MA_TRUE;
-                    break;
-                }
-            }
-        }
-
-        if (!isDeviceOpen) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_open() failed when trying to open an appropriate default device.");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-        }
-    } else {
-        /*
-        We're trying to open a specific device. There's a few things to consider here:
-
-        miniaudio recognizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
-        an ID of this format is specified, it indicates to miniaudio that it can try different combinations of plugins ("hw", "dmix", etc.) until it
-        finds an appropriate one that works. This comes in very handy when trying to open a device in shared mode ("dmix"), vs exclusive mode ("hw").
-        */
-
-        /* May end up needing to make small adjustments to the ID, so make a copy. */
-        ma_device_id deviceID = *pDeviceID;
-        int resultALSA = -ENODEV;
-        char hwid[256];
-
-        if (deviceID.alsa[0] != ':') {
-            /* The ID is not in ":0,0" format. Use the ID exactly as-is. */
-            ma_strcpy_s(hwid, sizeof(hwid), deviceID.alsa);
-            resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, hwid, stream, openMode);
-        } else {
-            /* The ID is in ":0,0" format. Try different plugins depending on the shared mode. */
-            if (deviceID.alsa[1] == '\0') {
-                deviceID.alsa[0] = '\0';  /* An ID of ":" should be converted to "". */
-            }
-
-            if (shareMode == ma_share_mode_shared) {
-                if (deviceType == ma_device_type_playback) {
-                    ma_strcpy_s(hwid, sizeof(hwid), "dmix");
-                } else {
-                    ma_strcpy_s(hwid, sizeof(hwid), "dsnoop");
-                }
-
-                if (ma_strcat_s(hwid, sizeof(hwid), deviceID.alsa) == 0) {
-                    resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, hwid, stream, openMode);
-                }
-            }
-
-            /* If at this point we still don't have an open device it means we're either preferencing exclusive mode or opening with "dmix"/"dsnoop" failed. */
-            if (resultALSA != 0) {
-                ma_strcpy_s(hwid, sizeof(hwid), "hw");
-                if (ma_strcat_s(hwid, sizeof(hwid), deviceID.alsa) == 0) {
-                    resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, hwid, stream, openMode);
-                }
-            }
-        }
-
-        if (resultALSA < 0) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_open() failed when trying to open \"%s\".", hwid);
-            return ma_result_from_errno(-resultALSA);
-        }
-    }
-
-    *ppPCM = pPCM;
-    return MA_SUCCESS;
 }
 
 
@@ -29077,15 +28955,13 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         Retrieving the data format requires us to open the device.
         */
         {
-            ma_result result;
             ma_snd_pcm_t* pPCM;
             ma_snd_pcm_hw_params_t* pHWParams;
             ma_uint32 iFormat;
             ma_uint32 iChannel;
 
             /* For detailed info we need to open the device. */
-            result = ma_context_open_pcm__alsa(pContext, pContextStateALSA, ma_share_mode_shared, deviceType, &deviceInfo.id, 0, &pPCM);
-            if (result != MA_SUCCESS) {
+            if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, 0) != 0) {
                 goto next_device;
             }
 
@@ -29238,9 +29114,9 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
 }
 
 
+
 static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, const ma_device_config_alsa* pDeviceConfigALSA, ma_device_descriptor* pDescriptor, ma_device_type deviceType)
 {
-    ma_result result;
     int resultALSA;
     ma_snd_pcm_t* pPCM;
     ma_bool32 isUsingMMap;
@@ -29252,18 +29128,19 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
     int openMode;
+    size_t paramsMemorySize;
+    void* pParamsMemory;    /* One allocation for both hardware and software params. */
     ma_snd_pcm_hw_params_t* pHWParams;
     ma_snd_pcm_sw_params_t* pSWParams;
     ma_snd_pcm_uframes_t bufferBoundary;
-    int pollDescriptorCount;
-    struct pollfd* pPollDescriptors;
-    int wakeupfd;
-    void* pIntermediaryBuffer;
+    const char* pDeviceNames[16];
+    size_t iDeviceName = 0;
+    size_t deviceNameCount;
 
     MA_ASSERT(pContextStateALSA != NULL);
-    MA_ASSERT(pDeviceStateALSA != NULL);
+    MA_ASSERT(pDeviceStateALSA  != NULL);
     MA_ASSERT(pDeviceConfigALSA != NULL);
-    MA_ASSERT(deviceType != ma_device_type_duplex); /* This function should only be called for playback _or_ capture, never duplex. */
+    MA_ASSERT(deviceType        != ma_device_type_duplex); /* This function should only be called for playback _or_ capture, never duplex. */
 
     formatALSA = ma_convert_ma_format_to_alsa_format(pDescriptor->format);
 
@@ -29278,435 +29155,372 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
         openMode |= MA_SND_PCM_NO_AUTO_FORMAT;
     }
 
-    result = ma_context_open_pcm__alsa(pContext, pContextStateALSA, pDescriptor->shareMode, deviceType, pDescriptor->pDeviceID, openMode, &pPCM);
-    if (result != MA_SUCCESS) {
-        return result;
+
+    /* When a device ID is specified we'll use that exact name, otherwise we'll use a list of default devices to try. */
+    MA_ZERO_MEMORY(pDeviceNames, sizeof(pDeviceNames));
+    iDeviceName = 0;
+
+    if (pDescriptor->pDeviceID == NULL || pDescriptor->pDeviceID->alsa[0] == '\0') {
+        /* Using default device. */    
+        pDeviceNames[iDeviceName++] = "default";
+        pDeviceNames[iDeviceName++] = "sysdefault";
+
+        if (pDescriptor->shareMode == ma_share_mode_exclusive) {
+            pDeviceNames[iDeviceName++] = "hw";
+        } else {
+            if (deviceType == ma_device_type_playback) {
+                pDeviceNames[iDeviceName++] = "dmix";
+            } else {
+                pDeviceNames[iDeviceName++] = "dsnoop";
+            }
+        }
+    } else {
+        /* Using a specific device. */
+        pDeviceNames[iDeviceName++] = pDescriptor->pDeviceID->alsa;
     }
 
+    deviceNameCount = iDeviceName;
 
-    /* Hardware parameters. */
-    pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(pContextStateALSA->snd_pcm_hw_params_sizeof(), ma_context_get_allocation_callbacks(pContext));
-    if (pHWParams == NULL) {
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to allocate memory for hardware parameters.");
+
+    /* Allocate memory for our hardware and software params. We do this with a single allocation. */
+    paramsMemorySize  = 0;
+    paramsMemorySize += ma_align_64(pContextStateALSA->snd_pcm_hw_params_sizeof());
+    paramsMemorySize += ma_align_64(pContextStateALSA->snd_pcm_sw_params_sizeof());
+
+    pParamsMemory = ma_calloc(paramsMemorySize, ma_context_get_allocation_callbacks(pContext));
+    if (pParamsMemory == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    resultALSA = pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
-    if (resultALSA < 0) {
-        ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.");
-        return ma_result_from_errno(-resultALSA);
-    }
+    pHWParams = (ma_snd_pcm_hw_params_t*)pParamsMemory;
+    pSWParams = (ma_snd_pcm_sw_params_t*)ma_offset_ptr(pParamsMemory, ma_align_64(pContextStateALSA->snd_pcm_hw_params_sizeof()));
 
-    /* MMAP Mode. Try using interleaved MMAP access. If this fails, fall back to standard readi/writei. */
-    isUsingMMap = MA_FALSE;
-#if 0   /* NOTE: MMAP mode temporarily disabled. */
-    if (deviceType != ma_device_type_capture) {    /* <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome. */
-        if (!pConfig->alsa.noMMap) {
-            if (pContextStateALSA->snd_pcm_hw_params_set_access(pPCM, pHWParams, MA_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
-                pDeviceStateALSA->isUsingMMap = MA_TRUE;
+    for (iDeviceName = 0; iDeviceName < deviceNameCount; iDeviceName += 1) {
+        const char* pDeviceName = pDeviceNames[iDeviceName];
+
+        resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, pDeviceName, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode);
+        if (resultALSA < 0) {
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_open() failed for device \"%s\".", pDeviceName);
+            continue;
+        }
+
+        resultALSA = pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
+        if (resultALSA < 0) {
+            pContextStateALSA->snd_pcm_close(pPCM);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters for device \"%s\". snd_pcm_hw_params_any() failed.", pDeviceName);
+            continue;
+        }
+
+        /* MMAP Mode. Try using interleaved MMAP access. If this fails, fall back to standard readi/writei. */
+        isUsingMMap = MA_FALSE;
+    #if 0   /* NOTE: MMAP mode temporarily disabled. */
+        if (deviceType != ma_device_type_capture) {    /* <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome. */
+            if (!pConfig->alsa.noMMap) {
+                if (pContextStateALSA->snd_pcm_hw_params_set_access(pPCM, pHWParams, MA_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
+                    pDeviceStateALSA->isUsingMMap = MA_TRUE;
+                }
             }
         }
-    }
-#endif
+    #endif
 
-    if (!isUsingMMap) {
-        resultALSA = pContextStateALSA->snd_pcm_hw_params_set_access(pPCM, pHWParams, MA_SND_PCM_ACCESS_RW_INTERLEAVED);
-        if (resultALSA < 0) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.");
-            return ma_result_from_errno(-resultALSA);
+        if (!isUsingMMap) {
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_access(pPCM, pHWParams, MA_SND_PCM_ACCESS_RW_INTERLEAVED);
+            if (resultALSA < 0) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED for device \"%s\". snd_pcm_hw_params_set_access() failed.", pDeviceName);
+                continue;
+            }
         }
-    }
 
-    /*
-    Most important properties first. The documentation for OSS (yes, I know this is ALSA!) recommends format, channels, then sample rate. I can't
-    find any documentation for ALSA specifically, so I'm going to copy the recommendation for OSS.
-    */
+        /* The configuration order is the same as what aplay does: format, channels, sample rate, periods. */
 
-    /* Format. */
-    {
-        /*
-        At this point we should have a list of supported formats, so now we need to find the best one. We first check if the requested format is
-        supported, and if so, use that one. If it's not supported, we just run though a list of formats and try to find the best one.
-        */
-        if (formatALSA == MA_SND_PCM_FORMAT_UNKNOWN || pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, formatALSA) != 0) {
-            /* We're either requesting the native format or the specified format is not supported. */
-            size_t iFormat;
+        /* Format. */
+        {
+            /*
+            At this point we should have a list of supported formats, so now we need to find the best one. We first check if the requested format is
+            supported, and if so, use that one. If it's not supported, we just run though a list of formats and try to find the best one.
+            */
+            if (formatALSA == MA_SND_PCM_FORMAT_UNKNOWN || pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, formatALSA) != 0) {
+                /* We're either requesting the native format or the specified format is not supported. */
+                size_t iFormat;
 
-            formatALSA = MA_SND_PCM_FORMAT_UNKNOWN;
-            for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); ++iFormat) {
-                if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(g_maFormatPriorities[iFormat])) == 0) {
-                    formatALSA = ma_convert_ma_format_to_alsa_format(g_maFormatPriorities[iFormat]);
-                    break;
+                formatALSA = MA_SND_PCM_FORMAT_UNKNOWN;
+                for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); ++iFormat) {
+                    if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(g_maFormatPriorities[iFormat])) == 0) {
+                        formatALSA = ma_convert_ma_format_to_alsa_format(g_maFormatPriorities[iFormat]);
+                        break;
+                    }
+                }
+
+                if (formatALSA == MA_SND_PCM_FORMAT_UNKNOWN) {
+                    pContextStateALSA->snd_pcm_close(pPCM);
+                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. The device \"%s\" does not support any miniaudio formats.", pDeviceName);
+                    continue;
                 }
             }
 
-            if (formatALSA == MA_SND_PCM_FORMAT_UNKNOWN) {
-                ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, formatALSA);
+            if (resultALSA < 0) {
                 pContextStateALSA->snd_pcm_close(pPCM);
-                ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. The device does not support any miniaudio formats.");
-                return MA_FORMAT_NOT_SUPPORTED;
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_hw_params_set_format() failed for device \"%s\".", pDeviceName);
+                continue;
+            }
+
+            internalFormat = ma_format_from_alsa(formatALSA);
+            if (internalFormat == ma_format_unknown) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] The chosen format used by device \"%s\" is not supported by miniaudio.", pDeviceName);
+                continue;
             }
         }
 
-        resultALSA = pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, formatALSA);
-        if (resultALSA < 0) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
+        /* Channels. */
+        {
+            unsigned int channels = pDescriptor->channels;
 
-        internalFormat = ma_format_from_alsa(formatALSA);
-        if (internalFormat == ma_format_unknown) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] The chosen format is not supported by miniaudio.");
-            return MA_FORMAT_NOT_SUPPORTED;
-        }
-    }
+            /* If an explicit channel count was requested try using that directly. If this fails we'll fall back to set_channels_near(). */
+            resultALSA = -1;
+            if (channels != 0 && pContextStateALSA->snd_pcm_hw_params_test_channels(pPCM, pHWParams, channels) == 0) {
+                resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels(pPCM, pHWParams, channels);
+                if (resultALSA < 0) {
+                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[ALSA] Failed to set channel count for device \"%s\" to %u. Falling back to snd_pcm_hw_params_set_channels_near().", pDeviceName, channels);
+                }
+            }
 
-    /* Channels. */
-    {
-        unsigned int channels = pDescriptor->channels;
-
-        /* If an explicit channel count was requested try using that directly. If this fails we'll fall back to set_channels_near(). */
-        resultALSA = -1;
-        if (channels != 0 && pContextStateALSA->snd_pcm_hw_params_test_channels(pPCM, pHWParams, channels) == 0) {
-            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels(pPCM, pHWParams, channels);
+            /* Fallback to set_channels_near() if we couldn't set the exact channel count. */
             if (resultALSA < 0) {
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[ALSA] Failed to set channel count to %u. Falling back to snd_pcm_hw_params_set_channels_near().", channels);
-            }
-        }
+                if (channels == 0) {
+                    channels = MA_DEFAULT_CHANNELS;
+                }
 
-        /* Fallback to set_channels_near() if we couldn't set the exact channel count. */
-        if (resultALSA < 0) {
-            if (channels == 0) {
-                channels = MA_DEFAULT_CHANNELS;
+                resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels_near(pPCM, pHWParams, &channels);
+                if (resultALSA < 0) {
+                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set channel count for device \"%s\" with snd_pcm_hw_params_set_channels_near().", pDeviceName);
+                }
             }
 
-            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels_near(pPCM, pHWParams, &channels);
+            /* If we get here and we still haven't been able to find a channel count just bomb out. */
             if (resultALSA < 0) {
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set channel count with snd_pcm_hw_params_set_channels_near().");
+                pContextStateALSA->snd_pcm_close(pPCM);
+                continue;
+            }
+
+            internalChannels = (ma_uint32)channels;
+        }
+
+        /* Sample Rate */
+        {
+            unsigned int sampleRate;
+
+            /*
+            It appears there's either a bug in ALSA, a bug in some drivers, or I'm doing something silly; but having resampling enabled causes
+            problems with some device configurations when used in conjunction with MMAP access mode. To fix this problem we need to disable
+            resampling.
+
+            To reproduce this problem, open the "plug:dmix" device, and set the sample rate to 44100. Internally, it looks like dmix uses a
+            sample rate of 48000. The hardware parameters will get set correctly with no errors, but it looks like the 44100 -> 48000 resampling
+            doesn't work properly - but only with MMAP access mode. You will notice skipping/crackling in the audio, and it'll run at a slightly
+            faster rate.
+
+            miniaudio has built-in support for sample rate conversion (albeit low quality at the moment), so disabling resampling should be fine
+            for us. The only problem is that it won't be taking advantage of any kind of hardware-accelerated resampling and it won't be very
+            good quality until I get a chance to improve the quality of miniaudio's software sample rate conversion.
+
+            I don't currently know if the dmix plugin is the only one with this error. Indeed, this is the only one I've been able to reproduce
+            this error with. In the future, we may want to restrict the disabling of resampling to only known bad plugins.
+            */
+            pContextStateALSA->snd_pcm_hw_params_set_rate_resample(pPCM, pHWParams, 0);
+
+            sampleRate = pDescriptor->sampleRate;
+            if (sampleRate == 0) {
+                sampleRate = MA_DEFAULT_SAMPLE_RATE;
+            }
+
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_rate_near(pPCM, pHWParams, &sampleRate, 0);
+            if (resultALSA < 0) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_hw_params_set_rate_near() failed for device \"%s\".", pDeviceName);
+                continue;
+            }
+
+            internalSampleRate = (ma_uint32)sampleRate;
+        }
+
+        /* Periods. */
+        {
+            ma_uint32 periods = pDescriptor->periodCount;
+
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_periods_near(pPCM, pHWParams, &periods, NULL);
+            if (resultALSA < 0) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set period count for device \"%s\". snd_pcm_hw_params_set_periods_near() failed.", pDeviceName);
+                continue;
+            }
+
+            internalPeriods = periods;
+        }
+
+        /* Buffer Size */
+        {
+            ma_snd_pcm_uframes_t actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate) * internalPeriods;
+
+            resultALSA = pContextStateALSA->snd_pcm_hw_params_set_buffer_size_near(pPCM, pHWParams, &actualBufferSizeInFrames);
+            if (resultALSA < 0) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set buffer size for device \"%s\". snd_pcm_hw_params_set_buffer_size() failed.", pDeviceName);
+                continue;
+            }
+
+            internalPeriodSizeInFrames = actualBufferSizeInFrames / internalPeriods;
+        }
+
+        /* Apply hardware parameters. */
+        resultALSA = pContextStateALSA->snd_pcm_hw_params(pPCM, pHWParams);
+        if (resultALSA < 0) {
+            pContextStateALSA->snd_pcm_close(pPCM);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set hardware parameters for device \"%s\". snd_pcm_hw_params() failed.", pDeviceName);
+            continue;
+        }
+
+
+        /* Software parameters. */
+        resultALSA = pContextStateALSA->snd_pcm_sw_params_current(pPCM, pSWParams);
+        if (resultALSA < 0) {
+            pContextStateALSA->snd_pcm_close(pPCM);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize software parameters for device \"%s\". snd_pcm_sw_params_current() failed.", pDeviceName);
+            continue;
+        }
+
+        resultALSA = pContextStateALSA->snd_pcm_sw_params_set_avail_min(pPCM, pSWParams, ma_prev_power_of_2(internalPeriodSizeInFrames));
+        if (resultALSA < 0) {
+            pContextStateALSA->snd_pcm_close(pPCM);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed for device \"%s\".", pDeviceName);
+            continue;
+        }
+
+        resultALSA = pContextStateALSA->snd_pcm_sw_params_get_boundary(pSWParams, &bufferBoundary);
+        if (resultALSA < 0) {
+            bufferBoundary = internalPeriodSizeInFrames * internalPeriods;
+        }
+
+        if (deviceType == ma_device_type_playback && !isUsingMMap) {   /* Only playback devices in writei/readi mode need a start threshold. */
+            /*
+            Subtle detail here with the start threshold. When in playback-only mode (no full-duplex) we can set the start threshold to
+            the size of a period. But for full-duplex we need to set it such that it is at least two periods.
+            */
+            resultALSA = pContextStateALSA->snd_pcm_sw_params_set_start_threshold(pPCM, pSWParams, internalPeriodSizeInFrames*2);
+            if (resultALSA < 0) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device \"%s\". snd_pcm_sw_params_set_start_threshold() failed.", pDeviceName);
+                continue;
+            }
+
+            resultALSA = pContextStateALSA->snd_pcm_sw_params_set_stop_threshold(pPCM, pSWParams, bufferBoundary);
+            if (resultALSA < 0) { /* Set to boundary to loop instead of stop in the event of an xrun. */
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set stop threshold for playback device \"%s\". snd_pcm_sw_params_set_stop_threshold() failed.", pDeviceName);
+                continue;
             }
         }
 
-        /* If we get here and we still haven't been able to find a channel count just bomb out. */
+        resultALSA = pContextStateALSA->snd_pcm_sw_params(pPCM, pSWParams);
         if (resultALSA < 0) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
             pContextStateALSA->snd_pcm_close(pPCM);
-            return ma_result_from_errno(-resultALSA);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set software parameters for device \"%s\". snd_pcm_sw_params() failed.", pDeviceName);
+            continue;
         }
 
-        internalChannels = (ma_uint32)channels;
-    }
 
-    /* Sample Rate */
-    {
-        unsigned int sampleRate;
+        /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
+        {
+            if (pDeviceConfigALSA->assumeDefaultChannelLayout) {
+                ma_snd_pcm_chmap_t* pChmap = NULL;
+                if (pContextStateALSA->snd_pcm_get_chmap != NULL) {
+                    pChmap = pContextStateALSA->snd_pcm_get_chmap(pPCM);
+                }
 
-        /*
-        It appears there's either a bug in ALSA, a bug in some drivers, or I'm doing something silly; but having resampling enabled causes
-        problems with some device configurations when used in conjunction with MMAP access mode. To fix this problem we need to disable
-        resampling.
+                if (pChmap != NULL) {
+                    ma_uint32 iChannel;
 
-        To reproduce this problem, open the "plug:dmix" device, and set the sample rate to 44100. Internally, it looks like dmix uses a
-        sample rate of 48000. The hardware parameters will get set correctly with no errors, but it looks like the 44100 -> 48000 resampling
-        doesn't work properly - but only with MMAP access mode. You will notice skipping/crackling in the audio, and it'll run at a slightly
-        faster rate.
+                    /* There are cases where the returned channel map can have a different channel count than was returned by snd_pcm_hw_params_set_channels_near(). */
+                    if (pChmap->channels >= internalChannels) {
+                        /* Drop excess channels. */
+                        for (iChannel = 0; iChannel < internalChannels; ++iChannel) {
+                            internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
+                        }
+                    } else {
+                        ma_uint32 i;
 
-        miniaudio has built-in support for sample rate conversion (albeit low quality at the moment), so disabling resampling should be fine
-        for us. The only problem is that it won't be taking advantage of any kind of hardware-accelerated resampling and it won't be very
-        good quality until I get a chance to improve the quality of miniaudio's software sample rate conversion.
+                        /*
+                        Excess channels use defaults. Do an initial fill with defaults, overwrite the first pChmap->channels, validate to ensure there are no duplicate
+                        channels. If validation fails, fall back to defaults.
+                        */
+                        ma_bool32 isValid = MA_TRUE;
 
-        I don't currently know if the dmix plugin is the only one with this error. Indeed, this is the only one I've been able to reproduce
-        this error with. In the future, we may want to restrict the disabling of resampling to only known bad plugins.
-        */
-        pContextStateALSA->snd_pcm_hw_params_set_rate_resample(pPCM, pHWParams, 0);
+                        /* Fill with defaults. */
+                        ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
 
-        sampleRate = pDescriptor->sampleRate;
-        if (sampleRate == 0) {
-            sampleRate = MA_DEFAULT_SAMPLE_RATE;
-        }
+                        /* Overwrite first pChmap->channels channels. */
+                        for (iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
+                            internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
+                        }
 
-        resultALSA = pContextStateALSA->snd_pcm_hw_params_set_rate_near(pPCM, pHWParams, &sampleRate, 0);
-        if (resultALSA < 0) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
-
-        internalSampleRate = (ma_uint32)sampleRate;
-    }
-
-    /* Periods. */
-    {
-        ma_uint32 periods = pDescriptor->periodCount;
-
-        resultALSA = pContextStateALSA->snd_pcm_hw_params_set_periods_near(pPCM, pHWParams, &periods, NULL);
-        if (resultALSA < 0) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
-
-        internalPeriods = periods;
-    }
-
-    /* Buffer Size */
-    {
-        ma_snd_pcm_uframes_t actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate) * internalPeriods;
-
-        resultALSA = pContextStateALSA->snd_pcm_hw_params_set_buffer_size_near(pPCM, pHWParams, &actualBufferSizeInFrames);
-        if (resultALSA < 0) {
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
-
-        internalPeriodSizeInFrames = actualBufferSizeInFrames / internalPeriods;
-    }
-
-    /* Apply hardware parameters. */
-    resultALSA = pContextStateALSA->snd_pcm_hw_params(pPCM, pHWParams);
-    if (resultALSA < 0) {
-        ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.");
-        return ma_result_from_errno(-resultALSA);
-    }
-
-    ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-    pHWParams = NULL;
-
-
-    /* Software parameters. */
-    pSWParams = (ma_snd_pcm_sw_params_t*)ma_calloc(pContextStateALSA->snd_pcm_sw_params_sizeof(), ma_context_get_allocation_callbacks(pContext));
-    if (pSWParams == NULL) {
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to allocate memory for software parameters.");
-        return MA_OUT_OF_MEMORY;
-    }
-
-    resultALSA = pContextStateALSA->snd_pcm_sw_params_current(pPCM, pSWParams);
-    if (resultALSA < 0) {
-        ma_free(pSWParams, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.");
-        return ma_result_from_errno(-resultALSA);
-    }
-
-    resultALSA = pContextStateALSA->snd_pcm_sw_params_set_avail_min(pPCM, pSWParams, ma_prev_power_of_2(internalPeriodSizeInFrames));
-    if (resultALSA < 0) {
-        ma_free(pSWParams, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.");
-        return ma_result_from_errno(-resultALSA);
-    }
-
-    resultALSA = pContextStateALSA->snd_pcm_sw_params_get_boundary(pSWParams, &bufferBoundary);
-    if (resultALSA < 0) {
-        bufferBoundary = internalPeriodSizeInFrames * internalPeriods;
-    }
-
-    if (deviceType == ma_device_type_playback && !isUsingMMap) {   /* Only playback devices in writei/readi mode need a start threshold. */
-        /*
-        Subtle detail here with the start threshold. When in playback-only mode (no full-duplex) we can set the start threshold to
-        the size of a period. But for full-duplex we need to set it such that it is at least two periods.
-        */
-        resultALSA = pContextStateALSA->snd_pcm_sw_params_set_start_threshold(pPCM, pSWParams, internalPeriodSizeInFrames*2);
-        if (resultALSA < 0) {
-            ma_free(pSWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
-
-        resultALSA = pContextStateALSA->snd_pcm_sw_params_set_stop_threshold(pPCM, pSWParams, bufferBoundary);
-        if (resultALSA < 0) { /* Set to boundary to loop instead of stop in the event of an xrun. */
-            ma_free(pSWParams, ma_context_get_allocation_callbacks(pContext));
-            pContextStateALSA->snd_pcm_close(pPCM);
-            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set stop threshold for playback device. snd_pcm_sw_params_set_stop_threshold() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
-    }
-
-    resultALSA = pContextStateALSA->snd_pcm_sw_params(pPCM, pSWParams);
-    if (resultALSA < 0) {
-        ma_free(pSWParams, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.");
-        return ma_result_from_errno(-resultALSA);
-    }
-
-    ma_free(pSWParams, ma_context_get_allocation_callbacks(pContext));
-    pSWParams = NULL;
-
-
-    /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
-    {
-        if (pDeviceConfigALSA->assumeDefaultChannelLayout) {
-            ma_snd_pcm_chmap_t* pChmap = NULL;
-            if (pContextStateALSA->snd_pcm_get_chmap != NULL) {
-                pChmap = pContextStateALSA->snd_pcm_get_chmap(pPCM);
-            }
-
-            if (pChmap != NULL) {
-                ma_uint32 iChannel;
-
-                /* There are cases where the returned channel map can have a different channel count than was returned by snd_pcm_hw_params_set_channels_near(). */
-                if (pChmap->channels >= internalChannels) {
-                    /* Drop excess channels. */
-                    for (iChannel = 0; iChannel < internalChannels; ++iChannel) {
-                        internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
-                    }
-                } else {
-                    ma_uint32 i;
-
-                    /*
-                    Excess channels use defaults. Do an initial fill with defaults, overwrite the first pChmap->channels, validate to ensure there are no duplicate
-                    channels. If validation fails, fall back to defaults.
-                    */
-                    ma_bool32 isValid = MA_TRUE;
-
-                    /* Fill with defaults. */
-                    ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
-
-                    /* Overwrite first pChmap->channels channels. */
-                    for (iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
-                        internalChannelMap[iChannel] = ma_convert_alsa_channel_position_to_ma_channel(pChmap->pos[iChannel]);
-                    }
-
-                    /* Validate. */
-                    for (i = 0; i < internalChannels && isValid; ++i) {
-                        ma_uint32 j;
-                        for (j = i+1; j < internalChannels; ++j) {
-                            if (internalChannelMap[i] == internalChannelMap[j]) {
-                                isValid = MA_FALSE;
-                                break;
+                        /* Validate. */
+                        for (i = 0; i < internalChannels && isValid; ++i) {
+                            ma_uint32 j;
+                            for (j = i+1; j < internalChannels; ++j) {
+                                if (internalChannelMap[i] == internalChannelMap[j]) {
+                                    isValid = MA_FALSE;
+                                    break;
+                                }
                             }
+                        }
+
+                        /* If our channel map is invalid, fall back to defaults. */
+                        if (!isValid) {
+                            ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
                         }
                     }
 
-                    /* If our channel map is invalid, fall back to defaults. */
-                    if (!isValid) {
-                        ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
-                    }
+                    free(pChmap);
+                    pChmap = NULL;
+                } else {
+                    /* Could not retrieve the channel map. Fall back to a hard-coded assumption. */
+                    ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
                 }
-
-                free(pChmap);
-                pChmap = NULL;
             } else {
-                /* Could not retrieve the channel map. Fall back to a hard-coded assumption. */
+                /* The caller has requested that we always use the default ALSA channel layout. */
                 ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
             }
-        } else {
-            /* The caller has requested that we always use the default ALSA channel layout. */
-            ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
         }
+
+
+        /* If we've made it this far it means we successfully initialized the PCM object. */
+        if (deviceType == ma_device_type_capture) {
+            pDeviceStateALSA->pPCMCapture         = pPCM;
+            pDeviceStateALSA->isUsingMMapCapture  = isUsingMMap;
+        } else {
+            pDeviceStateALSA->pPCMPlayback        = pPCM;
+            pDeviceStateALSA->isUsingMMapPlayback = isUsingMMap;
+        }
+
+        pDescriptor->format             = internalFormat;
+        pDescriptor->channels           = internalChannels;
+        pDescriptor->sampleRate         = internalSampleRate;
+        ma_channel_map_copy(pDescriptor->channelMap, internalChannelMap, ma_min(internalChannels, MA_MAX_CHANNELS));
+        pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
+        pDescriptor->periodCount        = internalPeriods;
+
+        ma_free(pParamsMemory, ma_context_get_allocation_callbacks(pContext));
+        return MA_SUCCESS;
     }
 
-
-    /* Now that we know our internal data format and period size we can allocate an intermediary buffer. */
-    pIntermediaryBuffer = ma_malloc(ma_get_bytes_per_frame(internalFormat, internalChannels) * internalPeriodSizeInFrames, ma_context_get_allocation_callbacks(pContext));
-    if (pIntermediaryBuffer == NULL) {
-        pContextStateALSA->snd_pcm_close(pPCM);
-    }
-
-
-    /*
-    We need to retrieve the poll descriptors so we can use poll() to wait for data to become
-    available for reading or writing. There's no well defined maximum for this so we're just going
-    to allocate this on the heap.
-    */
-    pollDescriptorCount = pContextStateALSA->snd_pcm_poll_descriptors_count(pPCM);
-    if (pollDescriptorCount <= 0) {
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.");
-        return MA_ERROR;
-    }
-
-    pPollDescriptors = (struct pollfd*)ma_malloc(sizeof(*pPollDescriptors) * (pollDescriptorCount + 1), ma_context_get_allocation_callbacks(pContext));   /* +1 because we want room for the wakeup descriptor. */
-    if (pPollDescriptors == NULL) {
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to allocate memory for poll descriptors.");
-        return MA_OUT_OF_MEMORY;
-    }
-
-    /*
-    We need an eventfd to wakeup from poll() and avoid a deadlock in situations where the driver
-    never returns from writei() and readi(). This has been observed with the "pulse" device.
-    */
-    wakeupfd = eventfd(0, 0);
-    if (wakeupfd < 0) {
-        ma_free(pPollDescriptors, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to create eventfd for poll wakeup.");
-        return ma_result_from_errno(errno);
-    }
-
-    /* We'll place the wakeup fd at the start of the buffer. */
-    pPollDescriptors[0].fd      = wakeupfd;
-    pPollDescriptors[0].events  = POLLIN;    /* We only care about waiting to read from the wakeup file descriptor. */
-    pPollDescriptors[0].revents = 0;
-
-    /* We can now extract the PCM poll descriptors which we place after the wakeup descriptor. */
-    pollDescriptorCount = pContextStateALSA->snd_pcm_poll_descriptors(pPCM, pPollDescriptors + 1, pollDescriptorCount);    /* +1 because we want to place these descriptors after the wakeup descriptor. */
-    if (pollDescriptorCount <= 0) {
-        close(wakeupfd);
-        ma_free(pPollDescriptors, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.");
-        return MA_ERROR;
-    }
-
-    /* We're done. Prepare the device. */
-    resultALSA = pContextStateALSA->snd_pcm_prepare(pPCM);
-    if (resultALSA < 0) {
-        close(wakeupfd);
-        ma_free(pPollDescriptors, ma_context_get_allocation_callbacks(pContext));
-        pContextStateALSA->snd_pcm_close(pPCM);
-        ma_free(pIntermediaryBuffer, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to prepare device.");
-        return ma_result_from_errno(-resultALSA);
-    }
-
-    if (deviceType == ma_device_type_capture) {
-        pDeviceStateALSA->pPCMCapture                 = pPCM;
-        pDeviceStateALSA->pIntermediaryBufferCapture  = pIntermediaryBuffer;
-        pDeviceStateALSA->isUsingMMapCapture          = isUsingMMap;
-        pDeviceStateALSA->pollDescriptorCountCapture  = pollDescriptorCount;
-        pDeviceStateALSA->pPollDescriptorsCapture     = pPollDescriptors;
-        pDeviceStateALSA->wakeupfdCapture             = wakeupfd;
-    } else {
-        pDeviceStateALSA->pPCMPlayback                = pPCM;
-        pDeviceStateALSA->pIntermediaryBufferPlayback = pIntermediaryBuffer;
-        pDeviceStateALSA->isUsingMMapPlayback         = isUsingMMap;
-        pDeviceStateALSA->pollDescriptorCountPlayback = pollDescriptorCount;
-        pDeviceStateALSA->pPollDescriptorsPlayback    = pPollDescriptors;
-        pDeviceStateALSA->wakeupfdPlayback            = wakeupfd;
-    }
-
-    pDescriptor->format             = internalFormat;
-    pDescriptor->channels           = internalChannels;
-    pDescriptor->sampleRate         = internalSampleRate;
-    ma_channel_map_copy(pDescriptor->channelMap, internalChannelMap, ma_min(internalChannels, MA_MAX_CHANNELS));
-    pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
-    pDescriptor->periodCount        = internalPeriods;
-
-    return MA_SUCCESS;
+    /* Getting here means we failed to initialize the device. */
+    ma_free(pParamsMemory, ma_context_get_allocation_callbacks(pContext));
+    return MA_ERROR;
 }
+
+static void ma_device_uninit__alsa(ma_device* pDevice);
 
 static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -29715,6 +29529,9 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     ma_device_config_alsa defaultConfigALSA;
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    int pollDescriptorCountPlayback = 0;
+    int pollDescriptorCountCapture  = 0;
+    int resultALSA;
 
     MA_ASSERT(pContextStateALSA != NULL);
 
@@ -29735,18 +29552,101 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
-            ma_free(pDeviceStateALSA, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit__alsa(pDevice);
             return result;
+        }
+
+        pollDescriptorCountCapture = pContextStateALSA->snd_pcm_poll_descriptors_count(pDeviceStateALSA->pPCMCapture);
+        if (pollDescriptorCountCapture <= 0) {
+            ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.");
+            ma_device_uninit__alsa(pDevice);
+            return MA_ERROR;
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
-            ma_free(pDeviceStateALSA, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit__alsa(pDevice);
             return result;
         }
+
+        pollDescriptorCountPlayback = pContextStateALSA->snd_pcm_poll_descriptors_count(pDeviceStateALSA->pPCMPlayback);
+        if (pollDescriptorCountPlayback <= 0) {
+            ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.");
+            ma_device_uninit__alsa(pDevice);
+            return MA_ERROR;
+        }
     }
+
+    /*
+    We need an array of poll descriptors to check for when data is available. We query these from ALSA, but we also want to
+    include an extra one specifically for waking up for the purpose of our wakeup() callback.
+    */
+    pDeviceStateALSA->pollDescriptorCount = 1 + pollDescriptorCountCapture + pollDescriptorCountPlayback;
+
+    pDeviceStateALSA->pPollDescriptors = (struct pollfd*)ma_calloc(sizeof(struct pollfd) * pDeviceStateALSA->pollDescriptorCount, ma_device_get_allocation_callbacks(pDevice));
+    if (pDeviceStateALSA->pPollDescriptors == NULL) {
+        ma_device_uninit__alsa(pDevice);
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pDeviceStateALSA->wakeupfd = eventfd(0, 0);
+    if (pDeviceStateALSA->wakeupfd < 0) {
+        ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to create eventfd for poll wakeup.");
+        ma_device_uninit__alsa(pDevice);
+        return MA_ERROR;
+    }
+
+    pDeviceStateALSA->pPollDescriptors[0].fd      = pDeviceStateALSA->wakeupfd;
+    pDeviceStateALSA->pPollDescriptors[0].events  = POLLIN;
+    pDeviceStateALSA->pPollDescriptors[0].revents = 0;
+
+    if (pollDescriptorCountCapture > 0) {
+        resultALSA = pContextStateALSA->snd_pcm_poll_descriptors(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPollDescriptors + 1, pollDescriptorCountCapture);
+        if (resultALSA < 0) {
+            ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.");
+            ma_device_uninit__alsa(pDevice);
+            return MA_ERROR;
+        }
+
+        pDeviceStateALSA->pollDescriptorCountCapture = pollDescriptorCountCapture;
+    }
+
+    if (pollDescriptorCountPlayback > 0) {
+        resultALSA = pContextStateALSA->snd_pcm_poll_descriptors(pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pPollDescriptors + 1 + pollDescriptorCountCapture, pollDescriptorCountPlayback);
+        if (resultALSA < 0) {
+            ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.");
+            ma_device_uninit__alsa(pDevice);
+            return MA_ERROR;
+        }
+
+        pDeviceStateALSA->pollDescriptorCountPlayback = pollDescriptorCountPlayback;
+    }
+
+
+    /* Now we need a scratch buffer for snd_pcm_read() and snd_pcm_write(). */
+    {
+        ma_uint32 intermediaryBufferSizeCapture  = 0;
+        ma_uint32 intermediaryBufferSizePlayback = 0;
+        ma_uint32 intermediaryBufferSize;
+
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
+        }
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
+        }
+
+        intermediaryBufferSize = ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback);
+        
+        pDeviceStateALSA->pIntermediaryBuffer = ma_calloc(intermediaryBufferSize, ma_device_get_allocation_callbacks(pDevice));
+        if (pDeviceStateALSA->pIntermediaryBuffer == NULL) {
+            ma_device_uninit__alsa(pDevice);
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
 
     *ppDeviceState = pDeviceStateALSA;
 
@@ -29760,16 +29660,16 @@ static void ma_device_uninit__alsa(ma_device* pDevice)
 
     if (pDeviceStateALSA->pPCMCapture) {
         pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMCapture);
-        close(pDeviceStateALSA->wakeupfdCapture);
-        ma_free(pDeviceStateALSA->pPollDescriptorsCapture, ma_device_get_allocation_callbacks(pDevice));
-        ma_free(pDeviceStateALSA->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
     }
-
     if (pDeviceStateALSA->pPCMPlayback) {
         pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMPlayback);
-        close(pDeviceStateALSA->wakeupfdPlayback);
-        ma_free(pDeviceStateALSA->pPollDescriptorsPlayback, ma_device_get_allocation_callbacks(pDevice));
-        ma_free(pDeviceStateALSA->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
+    }
+
+    ma_free(pDeviceStateALSA->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateALSA->pPollDescriptors, ma_device_get_allocation_callbacks(pDevice));
+
+    if (pDeviceStateALSA->wakeupfd >= 0) {
+        close(pDeviceStateALSA->wakeupfd);
     }
 
     ma_free(pDeviceStateALSA, ma_device_get_allocation_callbacks(pDevice));
@@ -29834,16 +29734,6 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         } else {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing capture device successful.");
         }
-
-        /* Clear the wakeupfd. */
-        resultPoll = poll(pDeviceStateALSA->pPollDescriptorsCapture, 1, 0);
-        if (resultPoll > 0) {
-            ma_uint64 t;
-            resultRead = read(pDeviceStateALSA->pPollDescriptorsCapture[0].fd, &t, sizeof(t));
-            if (resultRead != sizeof(t)) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Failed to read from capture wakeupfd. read() = %d", resultRead);
-            }
-        }
     }
 
     if (pDeviceStateALSA->pPCMPlayback != NULL) {
@@ -29858,197 +29748,154 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         } else {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device successful.");
         }
+    }
 
-        /* Clear the wakeupfd. */
-        resultPoll = poll(pDeviceStateALSA->pPollDescriptorsPlayback, 1, 0);
-        if (resultPoll > 0) {
-            ma_uint64 t;
-            resultRead = read(pDeviceStateALSA->pPollDescriptorsPlayback[0].fd, &t, sizeof(t));
-            if (resultRead != sizeof(t)) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Failed to read from playback wakeupfd. read() = %d", resultRead);
-            }
+    /* Clear the wakeupfd. */
+    resultPoll = poll(pDeviceStateALSA->pPollDescriptors, 1, 0);
+    if (resultPoll > 0) {
+        ma_uint64 t;
+        resultRead = read(pDeviceStateALSA->pPollDescriptors[0].fd, &t, sizeof(t));
+        if (resultRead != sizeof(t)) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Failed to read from wakeupfd. read() = %d", resultRead);
         }
     }
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_snd_pcm_t* pPCM, struct pollfd* pPollDescriptors, int pollDescriptorCount, short requiredEvent, int timeout, ma_bool32* pIsDataAvailable)
-{
-    MA_ASSERT(pIsDataAvailable != NULL);
-
-    *pIsDataAvailable = MA_FALSE;
-
-    for (;;) {
-        unsigned short revents;
-        int resultALSA;
-        int resultPoll = poll(pPollDescriptors, pollDescriptorCount, timeout);
-        if (resultPoll < 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] poll() failed.");
-
-            /*
-            There have been reports that poll() is returning an error randomly and that instead of
-            returning an error, simply trying again will work. I'm experimenting with adopting this
-            advice.
-            */
-            continue;
-            /*return ma_result_from_errno(errno);*/
-        }
-
-        /*
-        Before checking the ALSA poll descriptor flag we need to check if the wakeup descriptor
-        has had it's POLLIN flag set. If so, we need to actually read the data and then exit the
-        function. The wakeup descriptor will be the first item in the descriptors buffer.
-        */
-        if ((pPollDescriptors[0].revents & POLLIN) != 0) {
-            ma_uint64 t;
-            int resultRead = read(pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
-            if (resultRead < 0) {
-                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] read() failed.");
-                return ma_result_from_errno(errno);
-            }
-
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] POLLIN set for wakeupfd");
-            return MA_DEVICE_NOT_STARTED;
-        }
-
-        /*
-        Getting here means that some data should be able to be read. We need to use ALSA to
-        translate the revents flags for us.
-        */
-        resultALSA = pContextStateALSA->snd_pcm_poll_descriptors_revents(pPCM, pPollDescriptors + 1, pollDescriptorCount - 1, &revents);   /* +1, -1 to ignore the wakeup descriptor. */
-        if (resultALSA < 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_poll_descriptors_revents() failed.");
-            return ma_result_from_errno(-resultALSA);
-        }
-
-        if ((revents & POLLERR) != 0) {
-            ma_snd_pcm_state_t state = pContextStateALSA->snd_pcm_state(pPCM);
-            if (state == MA_SND_PCM_STATE_XRUN) {
-                /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
-            } else {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d", pContextStateALSA->snd_pcm_state(pPCM));
-            }
-        }
-
-        if ((revents & requiredEvent) == requiredEvent) {
-            *pIsDataAvailable = MA_TRUE;
-            break;  /* We're done. Data available for reading or writing. */
-        }
-
-        /* In non-blocking mode we don't want to keep looping while we wait for data. */
-        if (timeout == 0) {
-            break;
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_wait_read__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, int timeout, ma_bool32* pIsDataAvailable)
-{
-    return ma_device_wait__alsa(pDevice, pContextStateALSA, pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPollDescriptorsCapture, pDeviceStateALSA->pollDescriptorCountCapture + 1, POLLIN, timeout, pIsDataAvailable); /* +1 to account for the wakeup descriptor. */
-}
-
-static ma_result ma_device_wait_write__alsa(ma_device* pDevice, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, int timeout, ma_bool32* pIsDataAvailable)
-{
-    return ma_device_wait__alsa(pDevice, pContextStateALSA, pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pPollDescriptorsPlayback, pDeviceStateALSA->pollDescriptorCountPlayback + 1, POLLOUT, timeout, pIsDataAvailable); /* +1 to account for the wakeup descriptor. */
-}
-
-static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, int timeout)
+static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
-    ma_snd_pcm_sframes_t resultALSA = 0;
-    
-    MA_ASSERT(pFramesOut != NULL);
-    MA_ASSERT(pFramesRead != NULL);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    int timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? -1 : 0;
+    int resultALSA;
+    int resultPoll;
+    unsigned short revents;
 
-    *pFramesRead = 0;
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
+    }
 
-    for (;;) {
-        ma_result result;
-        ma_bool32 isDataAvailable;
+    /*
+    There have been reports that poll() is returning an error randomly and that instead of
+    returning an error, simply trying again will work. I'm experimenting with adopting this
+    advice.
+    */
+    do {
+        resultPoll = poll(pDeviceStateALSA->pPollDescriptors, pDeviceStateALSA->pollDescriptorCount, timeout);
+    } while (resultPoll < 0 && errno == EINTR);
 
-        /* The first thing to do is wait for data to become available for reading. This will return an error code if the device has been stopped. */
-        result = ma_device_wait_read__alsa(pDevice, pContextStateALSA, pDeviceStateALSA, timeout, &isDataAvailable);
-        if (result != MA_SUCCESS) {
-            return result;
+    if (resultPoll < 0) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] poll() failed.");
+        return MA_ERROR;
+    }
+
+    if (resultPoll == 0) {
+        return MA_SUCCESS;  /* Timeout. */
+    }
+
+    /* Check if the wakeup fd was triggered before checking anything else. */
+    if ((pDeviceStateALSA->pPollDescriptors[0].revents & POLLIN) != 0) {
+        ma_uint64 t;
+        int resultRead = read(pDeviceStateALSA->pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
+        if (resultRead < 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] read() failed.");
+            return ma_result_from_errno(errno);
         }
 
-        if (isDataAvailable) {
-            resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pFramesOut, frameCount);
-            if (resultALSA >= 0) {
-                break;  /* Success. */
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] POLLIN set for wakeupfd");
+        return MA_SUCCESS;
+    }
+
+    /* First check the capture side. */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        resultALSA = pContextStateALSA->snd_pcm_poll_descriptors_revents(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPollDescriptors + 1, pDeviceStateALSA->pollDescriptorCountCapture, &revents);
+        if (resultALSA < 0) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] snd_pcm_poll_descriptors_revents() failed for capture.");
+            return MA_ERROR;
+        }
+
+        if ((revents & POLLERR) != 0) {
+            ma_snd_pcm_state_t state = pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMCapture);
+            if (state == MA_SND_PCM_STATE_XRUN) {
+                /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Capture xrun detected.");
             } else {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d", pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMCapture));
+            }
+        }
+
+        if ((revents & POLLIN) != 0) {
+            resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pIntermediaryBuffer, pDevice->capture.internalPeriodSizeInFrames);
+            if (resultALSA >= 0) {
+                /* Success. Process the data. */
+                ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateALSA->pIntermediaryBuffer, (ma_uint32)resultALSA);
+            } else {
+                /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
                 if (resultALSA == -EAGAIN) {
                     /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (read)");*/
-                    continue;   /* Try again. */
+
+                    /* Do nothing. */
                 } else if (resultALSA == -EPIPE) {
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (read)");
 
-                    /* Overrun. Recover and try again. If this fails we need to return an error. */
+                    /* Overrun. Recover. If this fails we need to return an error. */
                     resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMCapture, resultALSA, MA_TRUE);
                     if (resultALSA < 0) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after overrun.");
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover capture device after overrun.");
                         return ma_result_from_errno((int)-resultALSA);
                     }
 
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMCapture);
                     if (resultALSA < 0) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.");
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start capture device after overrun.");
                         return ma_result_from_errno((int)-resultALSA);
                     }
-
-                    continue;   /* Try reading again. */
+                } else {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Unexpected error when reading from capture device. errno = %d.", (int)-resultALSA);
+                    return ma_result_from_errno((int)-resultALSA);
                 }
             }
         }
     }
 
-    if (pFramesRead != NULL) {
-        *pFramesRead = resultALSA;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFramesIn, ma_uint32 frameCount, ma_uint32* pFramesWritten, int timeout)
-{
-    ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
-    ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
-    ma_snd_pcm_sframes_t resultALSA = 0;
-    
-    MA_ASSERT(pFramesIn != NULL);
-    MA_ASSERT(pFramesWritten != NULL);
-
-    *pFramesWritten = 0;
-
-    for (;;) {
-        ma_result result;
-        ma_bool32 isDataAvailable;
-
-        /* The first thing to do is wait for space to become available for writing. This will return an error code if the device has been stopped. */
-        result = ma_device_wait_write__alsa(pDevice, pContextStateALSA, pDeviceStateALSA, timeout, &isDataAvailable);
-        if (result != MA_SUCCESS) {
-            return result;
+    /* Now check the playback side. */
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        resultALSA = pContextStateALSA->snd_pcm_poll_descriptors_revents(pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pPollDescriptors + 1 + pDeviceStateALSA->pollDescriptorCountCapture, pDeviceStateALSA->pollDescriptorCountPlayback, &revents);
+        if (resultALSA < 0) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] snd_pcm_poll_descriptors_revents() failed for playback.");
+            return MA_ERROR;
         }
 
-        if (isDataAvailable) {
-            resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pFramesIn, frameCount);
-            if (resultALSA >= 0) {
-                break;  /* Success. */
+        if ((revents & POLLERR) != 0) {
+            ma_snd_pcm_state_t state = pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMPlayback);
+            if (state == MA_SND_PCM_STATE_XRUN) {
+                /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Playback xrun detected");
             } else {
-                if (resultALSA == -EAGAIN) {
-                    /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (write)");*/
-                    continue;   /* Try again. */
-                } else if (resultALSA == -EPIPE) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (write)");
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d", pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMPlayback));
+            }
+        }
 
-                    /* Underrun. Recover and try again. If this fails we need to return an error. */
-                    resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);    /* MA_TRUE=silent (don't print anything on error). */
+        if ((revents & POLLOUT) != 0) {
+            resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames);
+            if (resultALSA >= 0) {
+                /* Success. Process the data. */
+                ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBuffer, NULL, (ma_uint32)resultALSA);
+            } else {
+                /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
+                if (resultALSA == -EAGAIN) {
+                    /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (read)");*/
+
+                    /* Do nothing. */
+                } else if (resultALSA == -EPIPE) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (read)");
+
+                    /* Underrun. Recover. If this fails we need to return an error. */
+                    resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);
                     if (resultALSA < 0) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.");
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover playback device after underrun.");
                         return ma_result_from_errno((int)-resultALSA);
                     }
 
@@ -30061,54 +29908,15 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFramesIn
                     */
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
                     if (resultALSA < 0) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.");
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device after underrun.");
                         return ma_result_from_errno((int)-resultALSA);
                     }
-
-                    continue;   /* Try writing again. */
+                } else {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Unexpected error when writing to playback device. errno = %d.", (int)-resultALSA);
+                    return ma_result_from_errno((int)-resultALSA);
                 }
             }
         }
-    }
-
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = resultALSA;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode blockingMode)
-{
-    ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_result result;
-    int timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? -1 : 0;
-
-    if (!ma_device_is_started(pDevice)) {
-        return MA_DEVICE_NOT_STARTED;
-    }
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_uint32 framesRead;
-
-        result = ma_device_read__alsa(pDevice, pDeviceStateALSA->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames, &framesRead, timeout);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateALSA->pIntermediaryBufferCapture, framesRead);
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_uint32 framesWritten;
-
-        result = ma_device_write__alsa(pDevice, pDeviceStateALSA->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, &framesWritten, timeout);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBufferPlayback, NULL, framesWritten);
     }
 
     return MA_SUCCESS;
@@ -30124,14 +29932,7 @@ static void ma_device_wakeup__alsa(ma_device* pDevice)
 
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Waking up...");
 
-    /* Write to an eventfd to trigger a wakeup from poll() and abort any reading or writing. */
-    if (pDeviceStateALSA->pPollDescriptorsCapture != NULL) {
-        resultWrite = write(pDeviceStateALSA->wakeupfdCapture, &t, sizeof(t));
-    }
-    if (pDeviceStateALSA->pPollDescriptorsPlayback != NULL) {
-        resultWrite = write(pDeviceStateALSA->wakeupfdPlayback, &t, sizeof(t));
-    }
-
+    resultWrite = write(pDeviceStateALSA->wakeupfd, &t, sizeof(t));
     if (resultWrite < 0) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] write() failed.");
         return;
