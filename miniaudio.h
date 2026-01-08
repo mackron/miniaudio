@@ -28937,6 +28937,8 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
     ma_device_id* pUniqueIDs = NULL;
     ma_uint32 uniqueIDCount = 0;
     char** ppNextDeviceHint;
+    ma_bool32 hasEnumeratedDefaultPlaybackDevice = MA_FALSE;
+    ma_bool32 hasEnumeratedDefaultCaptureDevice = MA_FALSE;
 
     MA_ASSERT(pContextStateALSA != NULL);
     MA_ASSERT(callback != NULL);
@@ -29008,18 +29010,31 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
 
         MA_ZERO_OBJECT(&deviceInfo);
 
+        /* ID. */
+        ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), hwid, (size_t)-1);
+
         /*
         Defualt.
         
         There's no good way to determine whether or not a device is the default with ALSA. We're just going to do
         something simple and just use the name of "default" as the indicator.
         */
-        if (ma_strcmp(deviceInfo.id.alsa, "default") == 0) {
-            deviceInfo.isDefault = MA_TRUE;
+        if ((deviceType == ma_device_type_playback && !hasEnumeratedDefaultPlaybackDevice) || (deviceType == ma_device_type_capture && !hasEnumeratedDefaultCaptureDevice)) {
+            /*  */ if (ma_strcmp(deviceInfo.id.alsa, "default") == 0) {
+                deviceInfo.isDefault = MA_TRUE;
+            } else if (ma_strcmp(deviceInfo.id.alsa, "sysdefault") == 0) {
+                deviceInfo.isDefault = MA_TRUE;
+            }
         }
 
-        /* ID. */
-        ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), hwid, (size_t)-1);
+        if (deviceInfo.isDefault) {
+            if (deviceType == ma_device_type_playback) {
+                hasEnumeratedDefaultPlaybackDevice = MA_TRUE;
+            }
+            if (deviceType == ma_device_type_capture) {
+                hasEnumeratedDefaultCaptureDevice = MA_TRUE;
+            }
+        }
 
         /*
         Name.
