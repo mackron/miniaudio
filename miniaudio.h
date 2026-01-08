@@ -27982,6 +27982,7 @@ typedef void (* ma_snd_lib_error_handler_t)(const char* file, int line, const ch
 typedef int                  (* ma_snd_lib_error_set_handler_proc)             (ma_snd_lib_error_handler_t handler);
 typedef int                  (* ma_snd_pcm_open_proc)                          (ma_snd_pcm_t **pcm, const char *name, ma_snd_pcm_stream_t stream, int mode);
 typedef int                  (* ma_snd_pcm_close_proc)                         (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_link_proc)                          (ma_snd_pcm_t* pcm1, ma_snd_pcm_t* pcm2);
 typedef size_t               (* ma_snd_pcm_hw_params_sizeof_proc)              (void);
 typedef int                  (* ma_snd_pcm_hw_params_any_proc)                 (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
 typedef int                  (* ma_snd_pcm_hw_params_current_proc)             (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params);
@@ -28077,6 +28078,7 @@ typedef struct ma_context_state_alsa
     ma_snd_lib_error_set_handler_proc              snd_lib_error_set_handler;
     ma_snd_pcm_open_proc                           snd_pcm_open;
     ma_snd_pcm_close_proc                          snd_pcm_close;
+    ma_snd_pcm_link_proc                           snd_pcm_link;
     ma_snd_pcm_hw_params_sizeof_proc               snd_pcm_hw_params_sizeof;
     ma_snd_pcm_hw_params_any_proc                  snd_pcm_hw_params_any;
     ma_snd_pcm_hw_params_current_proc              snd_pcm_hw_params_current;
@@ -28157,6 +28159,7 @@ typedef struct ma_device_state_alsa
     int pollDescriptorCountCapture;
     ma_bool8 isUsingMMapPlayback;
     ma_bool8 isUsingMMapCapture;
+    ma_bool8 isLinked;                  /* Only relevant for duplex mode. Used to indicate that the capture and playback PCMs are linked with snd_pcm_link(). */
 } ma_device_state_alsa;
 
 
@@ -28506,6 +28509,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         pContextStateALSA->snd_lib_error_set_handler              = (ma_snd_lib_error_set_handler_proc              )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_lib_error_set_handler");
         pContextStateALSA->snd_pcm_open                           = (ma_snd_pcm_open_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_open");
         pContextStateALSA->snd_pcm_close                          = (ma_snd_pcm_close_proc                          )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_close");
+        pContextStateALSA->snd_pcm_link                           = (ma_snd_pcm_link_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_link");
         pContextStateALSA->snd_pcm_hw_params_sizeof               = (ma_snd_pcm_hw_params_sizeof_proc               )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_sizeof");
         pContextStateALSA->snd_pcm_hw_params_any                  = (ma_snd_pcm_hw_params_any_proc                  )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_any");
         pContextStateALSA->snd_pcm_hw_params_current              = (ma_snd_pcm_hw_params_current_proc              )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_hw_params_current");
@@ -28579,6 +28583,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         ma_snd_lib_error_set_handler_proc              _snd_lib_error_set_handler              = snd_lib_error_set_handler;
         ma_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
         ma_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
+        ma_snd_pcm_link_proc                           _snd_pcm_link                           = snd_pcm_link;
         ma_snd_pcm_hw_params_sizeof_proc               _snd_pcm_hw_params_sizeof               = snd_pcm_hw_params_sizeof;
         ma_snd_pcm_hw_params_any_proc                  _snd_pcm_hw_params_any                  = snd_pcm_hw_params_any;
         ma_snd_pcm_hw_params_current_proc              _snd_pcm_hw_params_current              = snd_pcm_hw_params_current;
@@ -28649,6 +28654,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         pContextStateALSA->snd_lib_error_set_handler              = _snd_lib_error_set_handler;
         pContextStateALSA->snd_pcm_open                           = _snd_pcm_open;
         pContextStateALSA->snd_pcm_close                          = _snd_pcm_close;
+        pContextStateALSA->snd_pcm_link                           = _snd_pcm_link;
         pContextStateALSA->snd_pcm_hw_params_sizeof               = _snd_pcm_hw_params_sizeof;
         pContextStateALSA->snd_pcm_hw_params_any                  = _snd_pcm_hw_params_any;
         pContextStateALSA->snd_pcm_hw_params_current              = _snd_pcm_hw_params_current;
@@ -29648,6 +29654,15 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     }
 
 
+    /* Link the PCMs in duplex mode. */
+    if (deviceType == ma_device_type_duplex) {
+        resultALSA = pContextStateALSA->snd_pcm_link(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPCMPlayback);
+        if (resultALSA == 0) {
+            pDeviceStateALSA->isLinked = MA_TRUE;
+        }
+    }
+
+
     *ppDeviceState = pDeviceStateALSA;
 
     return MA_SUCCESS;
@@ -29689,21 +29704,23 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
         }
     }
 
-    if (pDeviceStateALSA->pPCMPlayback != NULL) {
-        /*        
-        When data is written to the device we wait for the device to get ready to receive data with poll(). In my testing
-        I have observed that poll() can sometimes block forever unless the device is started explicitly with snd_pcm_start()
-        or some data is written with snd_pcm_writei().
+    if (ma_device_get_type(pDevice) != ma_device_type_duplex || !pDeviceStateALSA->isLinked) { /* <-- In duplex mode the PCMs are linked which means the playback side will be started when the capture side starts. */
+        if (pDeviceStateALSA->pPCMPlayback != NULL) {
+            /*        
+            When data is written to the device we wait for the device to get ready to receive data with poll(). In my testing
+            I have observed that poll() can sometimes block forever unless the device is started explicitly with snd_pcm_start()
+            or some data is written with snd_pcm_writei().
 
-        To resolve this I've decided to do an explicit start with snd_pcm_start(). The problem with this is that the device
-        is started without any data in the internal buffer which will result in an immediate underrun. If instead we were
-        to call into snd_pcm_writei() in an attempt to prevent the underrun, we would run the risk of a weird deadlock
-        issue as documented inside ma_device_write__alsa().
-        */
-        resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
-        if (resultALSA < 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device.");
-            return ma_result_from_errno(-resultALSA);
+            To resolve this I've decided to do an explicit start with snd_pcm_start(). The problem with this is that the device
+            is started without any data in the internal buffer which will result in an immediate underrun. If instead we were
+            to call into snd_pcm_writei() in an attempt to prevent the underrun, we would run the risk of a weird deadlock
+            issue as documented inside ma_device_write__alsa().
+            */
+            resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
+            if (resultALSA < 0) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device.");
+                return ma_result_from_errno(-resultALSA);
+            }
         }
     }
 
@@ -29716,11 +29733,6 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     int resultPoll;
     int resultRead;
-
-    /*
-    The stop callback will get called on the worker thread after read/write__alsa() has returned. At this point there is
-    a small chance that our wakeupfd has not been cleared. We'll clear that out now if applicable.
-    */
 
     if (pDeviceStateALSA->pPCMCapture != NULL) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping capture device...");
@@ -29736,17 +29748,19 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         }
     }
 
-    if (pDeviceStateALSA->pPCMPlayback != NULL) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping playback device...");
-        pContextStateALSA->snd_pcm_drop(pDeviceStateALSA->pPCMPlayback);
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping playback device successful.");
+    if (ma_device_get_type(pDevice) != ma_device_type_duplex && pDeviceStateALSA->isLinked) { /* <-- In duplex mode the PCMs are linked which means the playback side will be stopped when the capture side starts. */
+        if (pDeviceStateALSA->pPCMPlayback != NULL) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping playback device...");
+            pContextStateALSA->snd_pcm_drop(pDeviceStateALSA->pPCMPlayback);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping playback device successful.");
 
-        /* We need to prepare the device again, otherwise we won't be able to restart the device. */
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device...");
-        if (pContextStateALSA->snd_pcm_prepare(pDeviceStateALSA->pPCMPlayback) < 0) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device failed.");
-        } else {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device successful.");
+            /* We need to prepare the device again, otherwise we won't be able to restart the device. */
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device...");
+            if (pContextStateALSA->snd_pcm_prepare(pDeviceStateALSA->pPCMPlayback) < 0) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device failed.");
+            } else {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device successful.");
+            }
         }
     }
 
