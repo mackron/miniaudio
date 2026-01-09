@@ -20083,7 +20083,7 @@ Timing
             struct timespec newTime;
             clock_gettime(MA_CLOCK_ID, &newTime);
 
-            pTimer->counter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+            pTimer->counter = ((ma_int64) newTime.tv_sec * 1000000000) + newTime.tv_nsec;
         }
 
         static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
@@ -20094,7 +20094,7 @@ Timing
             struct timespec newTime;
             clock_gettime(MA_CLOCK_ID, &newTime);
 
-            newTimeCounter = (newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+            newTimeCounter = ((ma_uint64) newTime.tv_sec * 1000000000) + newTime.tv_nsec;
             oldTimeCounter = pTimer->counter;
 
             return (newTimeCounter - oldTimeCounter) / 1000000000.0;
@@ -20105,7 +20105,7 @@ Timing
             struct timeval newTime;
             gettimeofday(&newTime, NULL);
 
-            pTimer->counter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
+            pTimer->counter = ((ma_int64) newTime.tv_sec * 1000000) + newTime.tv_usec;
         }
 
         static MA_INLINE double ma_timer_get_time_in_seconds(ma_timer* pTimer)
@@ -20116,7 +20116,7 @@ Timing
             struct timeval newTime;
             gettimeofday(&newTime, NULL);
 
-            newTimeCounter = (newTime.tv_sec * 1000000) + newTime.tv_usec;
+            newTimeCounter = ((ma_uint64) newTime.tv_sec * 1000000) + newTime.tv_usec;
             oldTimeCounter = pTimer->counter;
 
             return (newTimeCounter - oldTimeCounter) / 1000000.0;
