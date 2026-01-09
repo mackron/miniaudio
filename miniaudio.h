@@ -27975,6 +27975,7 @@ typedef struct
 typedef void (* ma_snd_lib_error_handler_t)(const char* file, int line, const char* function, int err, const char* fmt, ...);
 
 typedef int                  (* ma_snd_lib_error_set_handler_proc)             (ma_snd_lib_error_handler_t handler);
+typedef const char*          (* ma_snd_strerror_proc)                          (int errnum);
 typedef int                  (* ma_snd_pcm_open_proc)                          (ma_snd_pcm_t **pcm, const char *name, ma_snd_pcm_stream_t stream, int mode);
 typedef int                  (* ma_snd_pcm_close_proc)                         (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_link_proc)                          (ma_snd_pcm_t* pcm1, ma_snd_pcm_t* pcm2);
@@ -28070,6 +28071,7 @@ typedef struct ma_context_state_alsa
 
     ma_handle asoundSO;
     ma_snd_lib_error_set_handler_proc              snd_lib_error_set_handler;
+    ma_snd_strerror_proc                           snd_strerror;
     ma_snd_pcm_open_proc                           snd_pcm_open;
     ma_snd_pcm_close_proc                          snd_pcm_close;
     ma_snd_pcm_link_proc                           snd_pcm_link;
@@ -28501,6 +28503,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         }
 
         pContextStateALSA->snd_lib_error_set_handler              = (ma_snd_lib_error_set_handler_proc              )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_lib_error_set_handler");
+        pContextStateALSA->snd_strerror                           = (ma_snd_strerror_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_strerror");
         pContextStateALSA->snd_pcm_open                           = (ma_snd_pcm_open_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_open");
         pContextStateALSA->snd_pcm_close                          = (ma_snd_pcm_close_proc                          )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_close");
         pContextStateALSA->snd_pcm_link                           = (ma_snd_pcm_link_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_link");
@@ -28575,6 +28578,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
     {
         /* The system below is just for type safety. */
         ma_snd_lib_error_set_handler_proc              _snd_lib_error_set_handler              = snd_lib_error_set_handler;
+        ma_snd_strerror_proc                           _snd_strerror                           = snd_strerror;
         ma_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
         ma_snd_pcm_close_proc                          _snd_pcm_close                          = snd_pcm_close;
         ma_snd_pcm_link_proc                           _snd_pcm_link                           = snd_pcm_link;
@@ -28646,6 +28650,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         ma_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
 
         pContextStateALSA->snd_lib_error_set_handler              = _snd_lib_error_set_handler;
+        pContextStateALSA->snd_strerror                           = _snd_strerror;
         pContextStateALSA->snd_pcm_open                           = _snd_pcm_open;
         pContextStateALSA->snd_pcm_close                          = _snd_pcm_close;
         pContextStateALSA->snd_pcm_link                           = _snd_pcm_link;
@@ -28905,9 +28910,10 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             ma_snd_pcm_hw_params_t* pHWParams;
             ma_uint32 iFormat;
             ma_uint32 iChannel;
+            int openMode = 0; /*MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;*/
 
             /* For detailed info we need to open the device. */
-            if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, 0) != 0) {
+            if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode) != 0) {
                 goto next_device;
             }
 
@@ -28922,7 +28928,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             if (resultALSA < 0) {
                 ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
                 pContextStateALSA->snd_pcm_close(pPCM);
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.");
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters for device \"%s\". snd_pcm_hw_params_any() failed. %s.", deviceInfo.id.alsa, pContextStateALSA->snd_strerror(resultALSA));
                 goto next_device;
             }
 
@@ -29078,7 +29084,6 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     void* pParamsMemory;    /* One allocation for both hardware and software params. */
     ma_snd_pcm_hw_params_t* pHWParams;
     ma_snd_pcm_sw_params_t* pSWParams;
-    ma_snd_pcm_uframes_t bufferBoundary;
     const char* pDeviceNames[16];
     size_t iDeviceName = 0;
     size_t deviceNameCount;
@@ -29344,27 +29349,25 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
             continue;
         }
 
-        resultALSA = pContextStateALSA->snd_pcm_sw_params_get_boundary(pSWParams, &bufferBoundary);
-        if (resultALSA < 0) {
-            bufferBoundary = internalPeriodSizeInFrames * internalPeriods;
-        }
+        /*
+        miniaudio uses an explicit snd_pcm_start() to start the PCM. From the ALSA documentation:
 
-        if (deviceType == ma_device_type_playback && !isUsingMMap) {   /* Only playback devices in writei/readi mode need a start threshold. */
-            /*
-            Subtle detail here with the start threshold. When in playback-only mode (no full-duplex) we can set the start threshold to
-            the size of a period. But for full-duplex we need to set it such that it is at least two periods.
-            */
-            resultALSA = pContextStateALSA->snd_pcm_sw_params_set_start_threshold(pPCM, pSWParams, internalPeriodSizeInFrames*2);
+            If you want to use explicit start (snd_pcm_start), you can set this value greater than the ring buffer
+            size (in frames). For that simply using a large constant such as LONG_MAX or the boundary value is not
+            a bad idea.
+
+        We'll just set the threshold to 0xFFFFFFFF.
+
+        The reason we want explicitness when starting is mainly just duplex mode. We want to pre-fill the buffer
+        with silence, but we also want to link the playback PCM to capture PCM and use the capture side as the
+        master. The playback side should not auto-start during this pre-filling, but should instead be delayed to
+        the explicit snd_pcm_start().
+        */
+        if (deviceType == ma_device_type_playback) {
+            resultALSA = pContextStateALSA->snd_pcm_sw_params_set_start_threshold(pPCM, pSWParams, 0xFFFFFFFF);
             if (resultALSA < 0) {
                 pContextStateALSA->snd_pcm_close(pPCM);
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device \"%s\". snd_pcm_sw_params_set_start_threshold() failed.", pDeviceName);
-                continue;
-            }
-
-            resultALSA = pContextStateALSA->snd_pcm_sw_params_set_stop_threshold(pPCM, pSWParams, bufferBoundary);
-            if (resultALSA < 0) { /* Set to boundary to loop instead of stop in the event of an xrun. */
-                pContextStateALSA->snd_pcm_close(pPCM);
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set stop threshold for playback device \"%s\". snd_pcm_sw_params_set_stop_threshold() failed.", pDeviceName);
                 continue;
             }
         }
@@ -29636,6 +29639,32 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     int resultALSA;
 
+    /*
+    For playback at this point we should have nothing in the internal buffers. We want to output a full
+    buffer of silence to the playback device, and since the buffer should be empty, this should be
+    effectively non-blocking.
+    */
+    if (pDeviceStateALSA->pPCMPlayback != NULL) {
+        ma_uint8 buffer[4096];
+        ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        ma_uint32 framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
+        ma_uint32 framesWritten = 0;
+
+        MA_ZERO_MEMORY(buffer, sizeof(buffer));
+
+        while (framesWritten < framesToWrite) {
+            ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
+
+            /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
+            if (framesToWriteThisIteration == 0) {
+                break;
+            }
+
+            pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, buffer, framesToWriteThisIteration);
+            framesWritten += framesToWriteThisIteration;
+        }
+    }
+
     if (pDeviceStateALSA->pPCMCapture != NULL) {
         resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMCapture);
         if (resultALSA < 0) {
@@ -29646,16 +29675,6 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
 
     if (ma_device_get_type(pDevice) != ma_device_type_duplex || !pDeviceStateALSA->isLinked) { /* <-- In duplex mode the PCMs are linked which means the playback side will be started when the capture side starts. */
         if (pDeviceStateALSA->pPCMPlayback != NULL) {
-            /*        
-            When data is written to the device we wait for the device to get ready to receive data with poll(). In my testing
-            I have observed that poll() can sometimes block forever unless the device is started explicitly with snd_pcm_start()
-            or some data is written with snd_pcm_writei().
-
-            To resolve this I've decided to do an explicit start with snd_pcm_start(). The problem with this is that the device
-            is started without any data in the internal buffer which will result in an immediate underrun. If instead we were
-            to call into snd_pcm_writei() in an attempt to prevent the underrun, we would run the risk of a weird deadlock
-            issue as documented inside ma_device_write__alsa().
-            */
             resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
             if (resultALSA < 0) {
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device.");
@@ -29675,6 +29694,16 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     int resultRead;
 
     if (pDeviceStateALSA->pPCMCapture != NULL) {
+        /*
+        In the playback case we drain, but it's a bit different for capture. It is still true that the tail can
+        be trimmed, but I think it's less of an issue because the person doing the recording has more control
+        over when they actually stop recording. But a more practical concern I have is that when this function
+        is called, the device will be in a stopping status, and I don't like the idea of the miniaudio data
+        callback being fired when in a non-started state.
+
+        Maybe draining can be done at a higher level in the cross-platform section with a crude sleep equal to
+        the length of the internal buffer?
+        */
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping capture device...");
         pContextStateALSA->snd_pcm_drop(pDeviceStateALSA->pPCMCapture);
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping capture device successful.");
@@ -29688,11 +29717,28 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         }
     }
 
-    if (ma_device_get_type(pDevice) != ma_device_type_duplex && pDeviceStateALSA->isLinked) { /* <-- In duplex mode the PCMs are linked which means the playback side will be stopped when the capture side starts. */
+    if (ma_device_get_type(pDevice) != ma_device_type_duplex || !pDeviceStateALSA->isLinked) { /* <-- In duplex mode the PCMs are linked which means the playback side will be stopped when the capture side starts. */
         if (pDeviceStateALSA->pPCMPlayback != NULL) {
+            /*
+            When stopping we prefer to drain because if someone is playing a sound and then decides to stop the
+            device after the last part of the sound has been sent to the device, draining will ensure the tail
+            is actually played through the speakers. If we drop instead of drain, the tail will get trimmed.
+
+            However, there's a problem. `snd_pcm_drain()` is a blocking call, and I have not one single bit of
+            confidence that ALSA won't have a bug that results in `snd_pcm_drain()` get stuck in an infinite
+            hang. I'm going to bet $1 I'll have a bug report about the device hanging when stopping the device,
+            and it'll be right here in `snd_pcm_drain()`. If this happens we'll just do some kind of hack with
+            `snd_pcm_avail()` and a sleeping loop.
+            */
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Draining playback device...");
+            pContextStateALSA->snd_pcm_drain(pDeviceStateALSA->pPCMPlayback);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Draining playback device successful.");
+
+            #if 0
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping playback device...");
             pContextStateALSA->snd_pcm_drop(pDeviceStateALSA->pPCMPlayback);
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping playback device successful.");
+            #endif
 
             /* We need to prepare the device again, otherwise we won't be able to restart the device. */
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device...");
@@ -29853,13 +29899,6 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
                         return ma_result_from_errno((int)-resultALSA);
                     }
 
-                    /*
-                    In my testing I have had a situation where writei() does not automatically restart the device even though I've set it
-                    up as such in the software parameters. What will happen is writei() will block indefinitely even though the number of
-                    frames is well beyond the auto-start threshold. To work around this I've needed to add an explicit start here. Not sure
-                    if this is me just being stupid and not recovering the device properly, but this definitely feels like something isn't
-                    quite right here.
-                    */
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
                     if (resultALSA < 0) {
                         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device after underrun.");
