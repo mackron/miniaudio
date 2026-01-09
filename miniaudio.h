@@ -28912,110 +28912,116 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             ma_uint32 iChannel;
             int openMode = 0; /*MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;*/
 
-            /* For detailed info we need to open the device. */
-            if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode) != 0) {
-                goto next_device;
-            }
-
-            /* We need to initialize a HW parameters object in order to know what formats are supported. */
-            pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(pContextStateALSA->snd_pcm_hw_params_sizeof(), ma_context_get_allocation_callbacks(pContext));
-            if (pHWParams == NULL) {
-                pContextStateALSA->snd_pcm_close(pPCM);
-                goto next_device;   /* Out of memory. */
-            }
-
-            resultALSA = pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
-            if (resultALSA < 0) {
-                ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-                pContextStateALSA->snd_pcm_close(pPCM);
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters for device \"%s\". snd_pcm_hw_params_any() failed. %s.", deviceInfo.id.alsa, pContextStateALSA->snd_strerror(resultALSA));
-                goto next_device;
-            }
-
             /*
-            Some ALSA devices can support many permutations of formats, channels and rates. We only support
-            a fixed number of permutations which means we need to employ some strategies to ensure the best
-            combinations are returned. An example is the "pulse" device which can do its own data conversion
-            in software and as a result can support any combination of format, channels and rate.
+            For detailed info we need to open the device. I can think of two reasons why opening might fail:
 
-            We want to ensure that the first data formats are the best. We have a list of favored sample
-            formats and sample rates, so these will be the basis of our iteration.
+                1) The device is disabled or physically unplugged.
+                2) The device is a hardware device and is already opened in exclusive mode
+
+            When this happens we're still going to enumerate the device, but we're going to just not fill out
+            the detailed info.
             */
+            if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode) == 0) {
+                /* We need to initialize a HW parameters object in order to know what formats are supported. */
+                pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(pContextStateALSA->snd_pcm_hw_params_sizeof(), ma_context_get_allocation_callbacks(pContext));
+                if (pHWParams == NULL) {
+                    pContextStateALSA->snd_pcm_close(pPCM);
+                    goto next_device;   /* Out of memory. */
+                }
 
-            /* Formats. We just iterate over our standard formats and test them, making sure we reset the configuration space each iteration. */
-            for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
-                ma_format format = g_maFormatPriorities[iFormat];
+                resultALSA = pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
+                if (resultALSA < 0) {
+                    ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
+                    pContextStateALSA->snd_pcm_close(pPCM);
+                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters for device \"%s\". snd_pcm_hw_params_any() failed. %s.", deviceInfo.id.alsa, pContextStateALSA->snd_strerror(resultALSA));
+                    goto next_device;
+                }
 
                 /*
-                For each format we need to make sure we reset the configuration space so we don't return
-                channel counts and rates that aren't compatible with a format.
+                Some ALSA devices can support many permutations of formats, channels and rates. We only support
+                a fixed number of permutations which means we need to employ some strategies to ensure the best
+                combinations are returned. An example is the "pulse" device which can do its own data conversion
+                in software and as a result can support any combination of format, channels and rate.
+
+                We want to ensure that the first data formats are the best. We have a list of favored sample
+                formats and sample rates, so these will be the basis of our iteration.
                 */
-                pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
 
-                /* Test the format first. If this fails it means the format is not supported and we can skip it. */
-                if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format)) == 0) {
-                    /* The format is supported. */
-                    unsigned int minChannels;
-                    unsigned int maxChannels;
+                /* Formats. We just iterate over our standard formats and test them, making sure we reset the configuration space each iteration. */
+                for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
+                    ma_format format = g_maFormatPriorities[iFormat];
 
                     /*
-                    The configuration space needs to be restricted to this format so we can get an accurate
-                    picture of which sample rates and channel counts are support with this format.
+                    For each format we need to make sure we reset the configuration space so we don't return
+                    channel counts and rates that aren't compatible with a format.
                     */
-                    pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
+                    pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
 
-                    /* Now we need to check for supported channels. */
-                    pContextStateALSA->snd_pcm_hw_params_get_channels_min(pHWParams, &minChannels);
-                    pContextStateALSA->snd_pcm_hw_params_get_channels_max(pHWParams, &maxChannels);
+                    /* Test the format first. If this fails it means the format is not supported and we can skip it. */
+                    if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format)) == 0) {
+                        /* The format is supported. */
+                        unsigned int minChannels;
+                        unsigned int maxChannels;
 
-                    if (minChannels > MA_MAX_CHANNELS) {
-                        continue;   /* Too many channels. */
-                    }
-                    if (maxChannels < MA_MIN_CHANNELS) {
-                        continue;   /* Not enough channels. */
-                    }
+                        /*
+                        The configuration space needs to be restricted to this format so we can get an accurate
+                        picture of which sample rates and channel counts are support with this format.
+                        */
+                        pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
 
-                    /*
-                    Make sure the channel count is clamped. This is mainly intended for the max channels
-                    because some devices can report an unbound maximum.
-                    */
-                    minChannels = ma_clamp(minChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
-                    maxChannels = ma_clamp(maxChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
+                        /* Now we need to check for supported channels. */
+                        pContextStateALSA->snd_pcm_hw_params_get_channels_min(pHWParams, &minChannels);
+                        pContextStateALSA->snd_pcm_hw_params_get_channels_max(pHWParams, &maxChannels);
 
-                    if (minChannels == MA_MIN_CHANNELS && maxChannels == MA_MAX_CHANNELS) {
-                        /* The device supports all channels. Don't iterate over every single one. Instead just set the channels to 0 which means all channels are supported. */
-                        ma_context_iterate_rates_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, 0, 0, &deviceInfo);    /* Intentionally setting the channel count to 0 as that means all channels are supported. */
-                    } else {
-                        /* The device only supports a specific set of channels. We need to iterate over all of them. */
-                        for (iChannel = minChannels; iChannel <= maxChannels; iChannel += 1) {
-                            /* Test the channel before applying it to the configuration space. */
-                            unsigned int channels = iChannel;
+                        if (minChannels > MA_MAX_CHANNELS) {
+                            continue;   /* Too many channels. */
+                        }
+                        if (maxChannels < MA_MIN_CHANNELS) {
+                            continue;   /* Not enough channels. */
+                        }
 
-                            /* Make sure our channel range is reset before testing again or else we'll always fail the test. */
-                            pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
-                            pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
+                        /*
+                        Make sure the channel count is clamped. This is mainly intended for the max channels
+                        because some devices can report an unbound maximum.
+                        */
+                        minChannels = ma_clamp(minChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
+                        maxChannels = ma_clamp(maxChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
 
-                            if (pContextStateALSA->snd_pcm_hw_params_test_channels(pPCM, pHWParams, channels) == 0) {
-                                /* The channel count is supported. */
+                        if (minChannels == MA_MIN_CHANNELS && maxChannels == MA_MAX_CHANNELS) {
+                            /* The device supports all channels. Don't iterate over every single one. Instead just set the channels to 0 which means all channels are supported. */
+                            ma_context_iterate_rates_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, 0, 0, &deviceInfo);    /* Intentionally setting the channel count to 0 as that means all channels are supported. */
+                        } else {
+                            /* The device only supports a specific set of channels. We need to iterate over all of them. */
+                            for (iChannel = minChannels; iChannel <= maxChannels; iChannel += 1) {
+                                /* Test the channel before applying it to the configuration space. */
+                                unsigned int channels = iChannel;
 
-                                /* The configuration space now needs to be restricted to the channel count before extracting the sample rate. */
-                                pContextStateALSA->snd_pcm_hw_params_set_channels(pPCM, pHWParams, channels);
+                                /* Make sure our channel range is reset before testing again or else we'll always fail the test. */
+                                pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
+                                pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
 
-                                /* Only after the configuration space has been restricted to the specific channel count should we iterate over our sample rates. */
-                                ma_context_iterate_rates_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, 0, &deviceInfo);
-                            } else {
-                                /* The channel count is not supported. Skip. */
+                                if (pContextStateALSA->snd_pcm_hw_params_test_channels(pPCM, pHWParams, channels) == 0) {
+                                    /* The channel count is supported. */
+
+                                    /* The configuration space now needs to be restricted to the channel count before extracting the sample rate. */
+                                    pContextStateALSA->snd_pcm_hw_params_set_channels(pPCM, pHWParams, channels);
+
+                                    /* Only after the configuration space has been restricted to the specific channel count should we iterate over our sample rates. */
+                                    ma_context_iterate_rates_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, 0, &deviceInfo);
+                                } else {
+                                    /* The channel count is not supported. Skip. */
+                                }
                             }
                         }
+                    } else {
+                        /* The format is not supported. Skip. */
                     }
-                } else {
-                    /* The format is not supported. Skip. */
                 }
+
+                ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
+
+                pContextStateALSA->snd_pcm_close(pPCM);
             }
-
-            ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-
-            pContextStateALSA->snd_pcm_close(pPCM);
         }
 
         if (!ma_is_device_blacklisted__alsa(deviceType, NAME)) {
