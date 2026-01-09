@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--detailed-info] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--periods [count]] [--period-size [frames]] [--detailed-info] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -478,6 +478,8 @@ int main(int argc, char** argv)
     ma_format deviceFormat = ma_format_unknown;
     ma_uint32 deviceChannels = 0;
     ma_uint32 deviceSampleRate = 0;
+    ma_uint32 devicePeriods = 0;
+    ma_uint32 devicePeriodSizeInFrames = 0;
     ma_device_config deviceConfig;
     ma_waveform_type waveformType = ma_waveform_type_sine;
     ma_noise_type noiseType = ma_noise_type_white;
@@ -531,6 +533,24 @@ int main(int argc, char** argv)
         if (strcmp(argv[iarg], "--rate") == 0) {
             if (iarg + 1 < argc) {
                 deviceSampleRate = (ma_uint32)atoi(argv[iarg + 1]);
+                iarg += 1;
+            }
+
+            continue;
+        }
+
+        if (strcmp(argv[iarg], "--periods") == 0) {
+            if (iarg + 1 < argc) {
+                devicePeriods = (ma_uint32)atoi(argv[iarg + 1]);
+                iarg += 1;
+            }
+
+            continue;
+        }
+
+        if (strcmp(argv[iarg], "--period-size") == 0) {
+            if (iarg + 1 < argc) {
+                devicePeriodSizeInFrames = (ma_uint32)atoi(argv[iarg + 1]);
                 iarg += 1;
             }
 
@@ -617,14 +637,16 @@ int main(int argc, char** argv)
     }
 
     deviceConfig = ma_device_config_init(deviceType);
-    deviceConfig.threadingMode        = threadingMode;
-    deviceConfig.playback.format      = deviceFormat;
-    deviceConfig.playback.channels    = deviceChannels;
-    deviceConfig.capture.format       = deviceFormat;
-    deviceConfig.capture.channels     = deviceChannels;
-    deviceConfig.sampleRate           = deviceSampleRate;
-    deviceConfig.dataCallback         = on_data;
-    deviceConfig.notificationCallback = on_notification;
+    deviceConfig.threadingMode            = threadingMode;
+    deviceConfig.playback.format          = deviceFormat;
+    deviceConfig.playback.channels        = deviceChannels;
+    deviceConfig.capture.format           = deviceFormat;
+    deviceConfig.capture.channels         = deviceChannels;
+    deviceConfig.sampleRate               = deviceSampleRate;
+    deviceConfig.periods                  = devicePeriods;
+    deviceConfig.periodSizeInFrames       = devicePeriodSizeInFrames;
+    deviceConfig.dataCallback             = on_data;
+    deviceConfig.notificationCallback     = on_notification;
 
     if (playbackDeviceIndex != -1) {
         if (playbackDeviceIndex < (int)g_State.playbackDeviceCount) {
