@@ -29319,7 +29319,22 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
 
         /* Buffer Size */
         {
-            ma_snd_pcm_uframes_t actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate) * internalPeriods;
+            ma_snd_pcm_uframes_t actualBufferSizeInFrames;
+
+            /*
+            Down below when we configure our software parameters we'll be setting snd_pcm_sw_params_set_avail_min() to
+            a value equal to a single period. The ALSA documentation says the following:
+
+                The valid values for ‘val’ are determined by the specific hardware. Most PC sound cards can only accept
+                power of 2 frame counts (i.e. 512, 1024, 2048). You cannot use this as a high resolution timer - it is
+                limited to how often the sound card hardware raises an interrupt.
+
+            For this reason I'm going to be forcing periods to a power of 2. I've noticed in practice that this does
+            indeed seem to make an actual real-world difference. If I set it to, say, 96 frames per period, I will fairly
+            frequently get horrible glitching in duplex mode, almost as if the buffer is stuck straddling the end of a
+            buffer. So far I've had no such issues when setting to something like 64.
+            */
+            actualBufferSizeInFrames = ma_prev_power_of_2(ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate)) * internalPeriods;
 
             resultALSA = pContextStateALSA->snd_pcm_hw_params_set_buffer_size_near(pPCM, pHWParams, &actualBufferSizeInFrames);
             if (resultALSA < 0) {
@@ -29348,7 +29363,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
             continue;
         }
 
-        resultALSA = pContextStateALSA->snd_pcm_sw_params_set_avail_min(pPCM, pSWParams, ma_prev_power_of_2(internalPeriodSizeInFrames));
+        resultALSA = pContextStateALSA->snd_pcm_sw_params_set_avail_min(pPCM, pSWParams, internalPeriodSizeInFrames);
         if (resultALSA < 0) {
             pContextStateALSA->snd_pcm_close(pPCM);
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed for device \"%s\".", pDeviceName);
