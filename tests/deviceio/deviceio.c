@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -510,6 +510,15 @@ int main(int argc, char** argv)
         if (strcmp(argv[iarg], "--capture-device") == 0) {
             if (iarg + 1 < argc) {
                 captureDeviceIndex = atoi(argv[iarg + 1]);
+                iarg += 1;
+            }
+
+            continue;
+        }
+
+        if (strcmp(argv[iarg], "--channels") == 0) {
+            if (iarg + 1 < argc) {
+                deviceChannels = (ma_uint32)atoi(argv[iarg + 1]);
                 iarg += 1;
             }
 
