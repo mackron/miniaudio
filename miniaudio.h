@@ -13240,7 +13240,7 @@ static MA_INLINE void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
 
 static MA_INLINE unsigned int ma_prev_power_of_2(unsigned int x)
 {
-    return ma_next_power_of_2(x) >> 1;
+    return ma_next_power_of_2(x + 1) >> 1;
 }
 
 static MA_INLINE unsigned int ma_round_to_power_of_2(unsigned int x)
