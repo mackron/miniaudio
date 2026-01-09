@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--detailed-info] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -317,23 +317,25 @@ void print_enabled_backends(void)
     printf("\n");
 }
 
-ma_result print_device_info(const ma_device_info* pDeviceInfo)
+ma_result print_device_info(const ma_device_info* pDeviceInfo, ma_bool32 printDetailedInfo)
 {
-    ma_uint32 iFormat;
-
     MA_ASSERT(pDeviceInfo != NULL);
 
     printf("%s\n", pDeviceInfo->name);
-    printf("    Default:      %s\n", (pDeviceInfo->isDefault) ? "Yes" : "No");
-    printf("    Format Count: %d\n", pDeviceInfo->nativeDataFormatCount);
-    for (iFormat = 0; iFormat < pDeviceInfo->nativeDataFormatCount; ++iFormat) {
-        printf("        %s, %d, %d\n", ma_get_format_name(pDeviceInfo->nativeDataFormats[iFormat].format), pDeviceInfo->nativeDataFormats[iFormat].channels, pDeviceInfo->nativeDataFormats[iFormat].sampleRate);
+    if (printDetailedInfo) {
+        ma_uint32 iFormat;
+
+        printf("    Default:      %s\n", (pDeviceInfo->isDefault) ? "Yes" : "No");
+        printf("    Format Count: %d\n", pDeviceInfo->nativeDataFormatCount);
+        for (iFormat = 0; iFormat < pDeviceInfo->nativeDataFormatCount; ++iFormat) {
+            printf("        %s, %d, %d\n", ma_get_format_name(pDeviceInfo->nativeDataFormats[iFormat].format), pDeviceInfo->nativeDataFormats[iFormat].channels, pDeviceInfo->nativeDataFormats[iFormat].sampleRate);
+        }
     }
 
     return MA_SUCCESS;
 }
 
-ma_result enumerate_devices(void)
+ma_result enumerate_devices(ma_bool32 printDetailedInfo)
 {
     ma_result result;
     ma_uint32 iDevice;
@@ -347,7 +349,7 @@ ma_result enumerate_devices(void)
     printf("----------------\n");
     for (iDevice = 0; iDevice < g_State.playbackDeviceCount; iDevice += 1) {
         printf("%d: ", iDevice);
-        print_device_info(&g_State.pPlaybackDevices[iDevice]);
+        print_device_info(&g_State.pPlaybackDevices[iDevice], printDetailedInfo);
     }
     printf("\n");
 
@@ -355,7 +357,7 @@ ma_result enumerate_devices(void)
     printf("---------------\n");
     for (iDevice = 0; iDevice < g_State.captureDeviceCount; iDevice += 1) {
         printf("%d: ", iDevice);
-        print_device_info(&g_State.pCaptureDevices[iDevice]);
+        print_device_info(&g_State.pCaptureDevices[iDevice], printDetailedInfo);
     }
     printf("\n");
 
@@ -486,6 +488,7 @@ int main(int argc, char** argv)
     ma_bool32 enumerate = MA_TRUE;
     ma_bool32 interactive = MA_TRUE;
     ma_device_backend_info backendInfo;
+    ma_bool32 printDetailedInfo = MA_FALSE;
 
     /* Default to a sine wave if nothing is passed into the command line. */
     waveformType = ma_waveform_type_sine;
@@ -522,6 +525,20 @@ int main(int argc, char** argv)
                 iarg += 1;
             }
 
+            continue;
+        }
+
+        if (strcmp(argv[iarg], "--rate") == 0) {
+            if (iarg + 1 < argc) {
+                deviceSampleRate = (ma_uint32)atoi(argv[iarg + 1]);
+                iarg += 1;
+            }
+
+            continue;
+        }
+
+        if (strcmp(argv[iarg], "--detailed-info") == 0) {
+            printDetailedInfo = MA_TRUE;
             continue;
         }
 
@@ -580,7 +597,7 @@ int main(int argc, char** argv)
 
     /* Enumerate if required. */
     if (enumerate || playbackDeviceIndex != -1 || captureDeviceIndex != -1) {
-        enumerate_devices();
+        enumerate_devices(printDetailedInfo);
     }
 
     /*
