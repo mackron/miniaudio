@@ -29469,7 +29469,28 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     return MA_ERROR;
 }
 
-static void ma_device_uninit__alsa(ma_device* pDevice);
+static void ma_device_uninit_internal__alsa(ma_device* pDevice, ma_device_state_alsa* pDeviceStateALSA)
+{
+    ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
+
+    MA_ASSERT(pDeviceStateALSA != NULL);
+
+    if (pDeviceStateALSA->pPCMCapture) {
+        pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMCapture);
+    }
+    if (pDeviceStateALSA->pPCMPlayback) {
+        pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMPlayback);
+    }
+
+    ma_free(pDeviceStateALSA->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateALSA->pPollDescriptors, ma_device_get_allocation_callbacks(pDevice));
+
+    if (pDeviceStateALSA->wakeupfd >= 0) {
+        close(pDeviceStateALSA->wakeupfd);
+    }
+
+    ma_free(pDeviceStateALSA, ma_device_get_allocation_callbacks(pDevice));
+}
 
 static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -29501,14 +29522,14 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return result;
         }
 
         pollDescriptorCountCapture = pContextStateALSA->snd_pcm_poll_descriptors_count(pDeviceStateALSA->pPCMCapture);
         if (pollDescriptorCountCapture <= 0) {
             ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.");
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_ERROR;
         }
     }
@@ -29516,14 +29537,14 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return result;
         }
 
         pollDescriptorCountPlayback = pContextStateALSA->snd_pcm_poll_descriptors_count(pDeviceStateALSA->pPCMPlayback);
         if (pollDescriptorCountPlayback <= 0) {
             ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.");
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_ERROR;
         }
     }
@@ -29536,14 +29557,14 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
 
     pDeviceStateALSA->pPollDescriptors = (struct pollfd*)ma_calloc(sizeof(struct pollfd) * pDeviceStateALSA->pollDescriptorCount, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateALSA->pPollDescriptors == NULL) {
-        ma_device_uninit__alsa(pDevice);
+        ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
         return MA_OUT_OF_MEMORY;
     }
 
     pDeviceStateALSA->wakeupfd = eventfd(0, 0);
     if (pDeviceStateALSA->wakeupfd < 0) {
         ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to create eventfd for poll wakeup.");
-        ma_device_uninit__alsa(pDevice);
+        ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
         return MA_ERROR;
     }
 
@@ -29555,7 +29576,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
         resultALSA = pContextStateALSA->snd_pcm_poll_descriptors(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pPollDescriptors + 1, pollDescriptorCountCapture);
         if (resultALSA < 0) {
             ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.");
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_ERROR;
         }
 
@@ -29566,7 +29587,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
         resultALSA = pContextStateALSA->snd_pcm_poll_descriptors(pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pPollDescriptors + 1 + pollDescriptorCountCapture, pollDescriptorCountPlayback);
         if (resultALSA < 0) {
             ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.");
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_ERROR;
         }
 
@@ -29591,7 +29612,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
         
         pDeviceStateALSA->pIntermediaryBuffer = ma_calloc(intermediaryBufferSize, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateALSA->pIntermediaryBuffer == NULL) {
-            ma_device_uninit__alsa(pDevice);
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_OUT_OF_MEMORY;
         }
     }
@@ -29613,24 +29634,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
 
 static void ma_device_uninit__alsa(ma_device* pDevice)
 {
-    ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
-    ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
-
-    if (pDeviceStateALSA->pPCMCapture) {
-        pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMCapture);
-    }
-    if (pDeviceStateALSA->pPCMPlayback) {
-        pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMPlayback);
-    }
-
-    ma_free(pDeviceStateALSA->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
-    ma_free(pDeviceStateALSA->pPollDescriptors, ma_device_get_allocation_callbacks(pDevice));
-
-    if (pDeviceStateALSA->wakeupfd >= 0) {
-        close(pDeviceStateALSA->wakeupfd);
-    }
-
-    ma_free(pDeviceStateALSA, ma_device_get_allocation_callbacks(pDevice));
+    ma_device_uninit_internal__alsa(pDevice, ma_device_get_backend_state__alsa(pDevice));
 }
 
 static ma_result ma_device_start__alsa(ma_device* pDevice)
