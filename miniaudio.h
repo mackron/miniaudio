@@ -27857,6 +27857,7 @@ typedef snd_pcm_state_t                         ma_snd_pcm_state_t;
 #define MA_SND_CHMAP_BRC                        SND_CHMAP_BRC
 
 /* Open mode flags. */
+#define MA_SND_PCM_NONBLOCK                     SND_PCM_NONBLOCK
 #define MA_SND_PCM_NO_AUTO_RESAMPLE             SND_PCM_NO_AUTO_RESAMPLE
 #define MA_SND_PCM_NO_AUTO_CHANNELS             SND_PCM_NO_AUTO_CHANNELS
 #define MA_SND_PCM_NO_AUTO_FORMAT               SND_PCM_NO_AUTO_FORMAT
@@ -27965,6 +27966,7 @@ typedef struct
 #define MA_SND_CHMAP_BRC                       36
 
 /* Open mode flags. */
+#define MA_SND_PCM_NONBLOCK                    0x00000001
 #define MA_SND_PCM_NO_AUTO_RESAMPLE            0x00010000
 #define MA_SND_PCM_NO_AUTO_CHANNELS            0x00020000
 #define MA_SND_PCM_NO_AUTO_FORMAT              0x00040000
@@ -28910,7 +28912,13 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             ma_snd_pcm_hw_params_t* pHWParams;
             ma_uint32 iFormat;
             ma_uint32 iChannel;
-            int openMode = 0; /*MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;*/
+            int openMode;
+            
+            /*
+            I'm opening this in non-blocking mode because I'm concerned that ALSA will have it block when an
+            exclusive hardware device is already in use.
+            */
+            openMode = MA_SND_PCM_NONBLOCK; /*MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;*/
 
             /*
             For detailed info we need to open the device. I can think of two reasons why opening might fail:
