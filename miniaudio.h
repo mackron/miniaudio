@@ -29846,7 +29846,7 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
-    int timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? -1 : 0;
+    int timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? 2000 : 0;
     int resultALSA;
     int resultPoll;
     unsigned short revents;
@@ -29869,8 +29869,19 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
         return MA_ERROR;
     }
 
-    if (resultPoll == 0) {
-        return MA_SUCCESS;  /* Timeout. */
+
+
+    /*
+    In the case of a timeout, this is expected for for non-blocking mode and should not be
+    considered an error. In blocking mode however, we should never be getting a timeout. In
+    this case it probably means the PCM is stuck. We'll treat this as an error.
+    */
+    if (resultPoll == 0) {  /* Timeout. */
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            return MA_SUCCESS;
+        } else {
+            return MA_ERROR;
+        }
     }
 
     /* Check if the wakeup fd was triggered before checking anything else. */
