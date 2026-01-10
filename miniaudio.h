@@ -27754,6 +27754,10 @@ available in old versions of Linux anyway.
 #include <poll.h>           /* poll(), struct pollfd */
 #include <sys/eventfd.h>    /* eventfd() */
 
+#ifndef MA_ALSA_MAX_NATIVE_CHANNELS
+#define MA_ALSA_MAX_NATIVE_CHANNELS 64
+#endif
+
 #ifdef MA_NO_RUNTIME_LINKING
 
 /* asoundlib.h marks some functions with "inline" which isn't always supported. Need to emulate it. */
@@ -27784,6 +27788,10 @@ typedef snd_pcm_info_t                          ma_snd_pcm_info_t;
 typedef snd_pcm_channel_area_t                  ma_snd_pcm_channel_area_t;
 typedef snd_pcm_chmap_t                         ma_snd_pcm_chmap_t;
 typedef snd_pcm_state_t                         ma_snd_pcm_state_t;
+typedef snd_pcm_type_t                          ma_snd_pcm_type_t;
+
+/* snd_pcm_type_t */
+#define MA_SND_PCM_TYPE_HW                      SND_PCM_TYPE_HW
 
 /* snd_pcm_state_t */
 #define MA_SND_PCM_STATE_XRUN                   SND_PCM_STATE_XRUN
@@ -27869,6 +27877,7 @@ typedef int                                     ma_snd_pcm_stream_t;
 typedef int                                     ma_snd_pcm_format_t;
 typedef int                                     ma_snd_pcm_access_t;
 typedef int                                     ma_snd_pcm_state_t;
+typedef int                                     ma_snd_pcm_type_t;
 typedef struct ma_snd_pcm_t                     ma_snd_pcm_t;
 typedef struct ma_snd_pcm_hw_params_t           ma_snd_pcm_hw_params_t;
 typedef struct ma_snd_pcm_sw_params_t           ma_snd_pcm_sw_params_t;
@@ -27885,6 +27894,9 @@ typedef struct
     unsigned int channels;
     unsigned int pos[1];
 } ma_snd_pcm_chmap_t;
+
+/* snd_pcm_type_t */
+#define MA_SND_PCM_TYPE_HW                     0
 
 /* snd_pcm_state_t */
 #define MA_SND_PCM_STATE_OPEN                  0
@@ -28022,6 +28034,7 @@ typedef size_t               (* ma_snd_pcm_format_mask_sizeof_proc)            (
 typedef int                  (* ma_snd_pcm_format_mask_test_proc)              (const ma_snd_pcm_format_mask_t *mask, ma_snd_pcm_format_t val);
 typedef ma_snd_pcm_chmap_t * (* ma_snd_pcm_get_chmap_proc)                     (ma_snd_pcm_t *pcm);
 typedef ma_snd_pcm_state_t   (* ma_snd_pcm_state_proc)                         (ma_snd_pcm_t *pcm);
+typedef ma_snd_pcm_type_t    (* ma_snd_pcm_type_proc)                          (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_prepare_proc)                       (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_start_proc)                         (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_drop_proc)                          (ma_snd_pcm_t *pcm);
@@ -28118,6 +28131,7 @@ typedef struct ma_context_state_alsa
     ma_snd_pcm_format_mask_test_proc               snd_pcm_format_mask_test;
     ma_snd_pcm_get_chmap_proc                      snd_pcm_get_chmap;
     ma_snd_pcm_state_proc                          snd_pcm_state;
+    ma_snd_pcm_type_proc                           snd_pcm_type;
     ma_snd_pcm_prepare_proc                        snd_pcm_prepare;
     ma_snd_pcm_start_proc                          snd_pcm_start;
     ma_snd_pcm_drop_proc                           snd_pcm_drop;
@@ -28550,6 +28564,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         pContextStateALSA->snd_pcm_format_mask_test               = (ma_snd_pcm_format_mask_test_proc               )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_format_mask_test");
         pContextStateALSA->snd_pcm_get_chmap                      = (ma_snd_pcm_get_chmap_proc                      )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_get_chmap");
         pContextStateALSA->snd_pcm_state                          = (ma_snd_pcm_state_proc                          )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_state");
+        pContextStateALSA->snd_pcm_type                           = (ma_snd_pcm_type_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_type");
         pContextStateALSA->snd_pcm_prepare                        = (ma_snd_pcm_prepare_proc                        )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_prepare");
         pContextStateALSA->snd_pcm_start                          = (ma_snd_pcm_start_proc                          )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_start");
         pContextStateALSA->snd_pcm_drop                           = (ma_snd_pcm_drop_proc                           )ma_dlsym(pLog, pContextStateALSA->asoundSO, "snd_pcm_drop");
@@ -28625,6 +28640,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         ma_snd_pcm_format_mask_test_proc               _snd_pcm_format_mask_test               = snd_pcm_format_mask_test;
         ma_snd_pcm_get_chmap_proc                      _snd_pcm_get_chmap                      = snd_pcm_get_chmap;
         ma_snd_pcm_state_proc                          _snd_pcm_state                          = snd_pcm_state;
+        ma_snd_pcm_type_proc                           _snd_pcm_type                           = snd_pcm_type;
         ma_snd_pcm_prepare_proc                        _snd_pcm_prepare                        = snd_pcm_prepare;
         ma_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
         ma_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
@@ -28697,6 +28713,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
         pContextStateALSA->snd_pcm_format_mask_test               = _snd_pcm_format_mask_test;
         pContextStateALSA->snd_pcm_get_chmap                      = _snd_pcm_get_chmap;
         pContextStateALSA->snd_pcm_state                          = _snd_pcm_state;
+        pContextStateALSA->snd_pcm_type                           = _snd_pcm_type;
         pContextStateALSA->snd_pcm_prepare                        = _snd_pcm_prepare;
         pContextStateALSA->snd_pcm_start                          = _snd_pcm_start;
         pContextStateALSA->snd_pcm_drop                           = _snd_pcm_drop;
@@ -28968,8 +28985,8 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                     /* Test the format first. If this fails it means the format is not supported and we can skip it. */
                     if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format)) == 0) {
                         /* The format is supported. */
-                        unsigned int minChannels;
-                        unsigned int maxChannels;
+                        unsigned int minChannels = 0;
+                        unsigned int maxChannels = 0;
 
                         /*
                         The configuration space needs to be restricted to this format so we can get an accurate
@@ -29255,7 +29272,32 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
             /* Fallback to set_channels_near() if we couldn't set the exact channel count. */
             if (resultALSA < 0) {
                 if (channels == 0) {
-                    channels = MA_DEFAULT_CHANNELS;
+                    /*
+                    Gettting here means we want to use the "native" channel count. There's no good way that I can tell
+                    to retrieve this because a device can support multiple channel counts. It's tempting to use the
+                    maximum channel count, but that cannot be used generically because many virtual devices will report
+                    unpractical counts like 64, or even 10000 which I've seen in the wild.
+
+                    However, I think a good compromise might be to check if we're opening an actual hardware device, and
+                    if so accept the maximum channel count in that case. Otherwise we'll just use stereo as the default.
+                    */
+                    ma_snd_pcm_type_t pcmType = pContextStateALSA->snd_pcm_type(pPCM);
+                    if (pcmType == MA_SND_PCM_TYPE_HW) {
+                        /* Hardware device. Just use the maximum count available. */
+                        resultALSA = pContextStateALSA->snd_pcm_hw_params_get_channels_max(pHWParams, &channels);
+                        if (resultALSA < 0) {
+                            channels = MA_DEFAULT_CHANNELS;
+                            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[ALSA] Trying to open hardware device \"%s\", but requesting the maximum channel count failed. Defaulting to stereo.", pDeviceName);
+                        } else {
+                            if (channels > MA_ALSA_MAX_NATIVE_CHANNELS) {
+                                channels = MA_ALSA_MAX_NATIVE_CHANNELS;
+                                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[ALSA] Native channel count of %u for hardware device \"%s\" exceeds maximum supported by miniaudio's ALSA backend of %d. Clamping channels to %d.", channels, pDeviceName, MA_ALSA_MAX_NATIVE_CHANNELS, MA_ALSA_MAX_NATIVE_CHANNELS);
+                            }
+                        }
+                    } else {
+                        /* Not a hardware device. No way to determine an appropriate native channel count so just default to stereo. */
+                        channels = MA_DEFAULT_CHANNELS;
+                    }
                 }
 
                 resultALSA = pContextStateALSA->snd_pcm_hw_params_set_channels_near(pPCM, pHWParams, &channels);
