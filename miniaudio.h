@@ -27750,7 +27750,6 @@ available in old versions of Linux anyway.
 #endif
 
 #if defined(MA_HAS_ALSA)
-
 #include <poll.h>           /* poll(), struct pollfd */
 #include <sys/eventfd.h>    /* eventfd() */
 
@@ -27759,7 +27758,6 @@ available in old versions of Linux anyway.
 #endif
 
 #ifdef MA_NO_RUNTIME_LINKING
-
 /* asoundlib.h marks some functions with "inline" which isn't always supported. Need to emulate it. */
 #if !defined(__cplusplus)
     #if defined(__STRICT_ANSI__)
@@ -27794,7 +27792,15 @@ typedef snd_pcm_type_t                          ma_snd_pcm_type_t;
 #define MA_SND_PCM_TYPE_HW                      SND_PCM_TYPE_HW
 
 /* snd_pcm_state_t */
+#define MA_SND_PCM_STATE_OPEN                   SND_PCM_STATE_OPEN
+#define MA_SND_PCM_STATE_SETUP                  SND_PCM_STATE_SETUP
+#define MA_SND_PCM_STATE_PREPARED               SND_PCM_STATE_PREPARED
+#define MA_SND_PCM_STATE_RUNNING                SND_PCM_STATE_RUNNING
 #define MA_SND_PCM_STATE_XRUN                   SND_PCM_STATE_XRUN
+#define MA_SND_PCM_STATE_DRAINING               SND_PCM_STATE_DRAINING
+#define MA_SND_PCM_STATE_PAUSED                 SND_PCM_STATE_PAUSED
+#define MA_SND_PCM_STATE_SUSPENDED              SND_PCM_STATE_SUSPENDED
+#define MA_SND_PCM_STATE_DISCONNECTED           SND_PCM_STATE_DISCONNECTED
 
 /* snd_pcm_stream_t */
 #define MA_SND_PCM_STREAM_PLAYBACK              SND_PCM_STREAM_PLAYBACK
