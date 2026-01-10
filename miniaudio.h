@@ -28902,7 +28902,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         because it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the
         second line being put into parentheses.
         */
-        if (DESC != NULL) {
+        if (DESC != NULL && DESC[0] != '\0') {
             int lfPos;
             const char* line2 = ma_find_char(DESC, '\n', &lfPos);
             if (line2 != NULL) {
@@ -28917,6 +28917,9 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                 /* There's no second line. Just copy the whole description. */
                 ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, (size_t)-1);
             }
+        } else {
+            /* Getting here means the description is empty. Just set it to NAME. */
+            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), NAME, (size_t)-1);
         }
 
         /*
