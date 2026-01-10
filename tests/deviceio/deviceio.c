@@ -321,7 +321,13 @@ ma_result print_device_info(const ma_device_info* pDeviceInfo, ma_bool32 printDe
 {
     MA_ASSERT(pDeviceInfo != NULL);
 
-    printf("%s\n", pDeviceInfo->name);
+    /* It's been useful to be able to see the ID of the device when debugging. */
+    if (g_State.context.pVTable == ma_device_backend_alsa) {
+        printf("[%s] %s\n", pDeviceInfo->id.alsa, pDeviceInfo->name);
+    } else {
+        printf("%s\n", pDeviceInfo->name);
+    }
+
     if (printDetailedInfo) {
         ma_uint32 iFormat;
 
