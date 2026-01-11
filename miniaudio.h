@@ -23779,7 +23779,24 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
     /* Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode. */
     if (shareMode == MA_AUDCLNT_SHAREMODE_EXCLUSIVE) {
-        MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * pData->periodsOut * 10;
+        MA_REFERENCE_TIME bufferDuration = bufferDuration = periodDurationInMicroseconds * 10;
+        MA_REFERENCE_TIME minPeriod = 0;
+
+        /* There is no notion of a period in Exclusive mode. Set this to 1. */
+        pData->periodsOut = 1;
+
+        /*
+        Grab the minimum period and start with that. If this fails we'll keep trying by incrementing the
+        buffer duration by the period size.
+        */
+        hr = ma_IAudioClient_GetDevicePeriod(pData->pAudioClient, NULL, &minPeriod);
+        if (FAILED(hr)) {
+            minPeriod = 0;
+        }
+
+        if (bufferDuration < minPeriod) {
+            bufferDuration = minPeriod;
+        }
 
         /*
         If the periodicity is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
@@ -23787,7 +23804,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         */
         hr = E_FAIL;
         for (;;) {
-            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (MA_WAVEFORMATEX*)&wf, NULL);
+            hr = ma_IAudioClient_Initialize(pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (MA_WAVEFORMATEX*)&wf, NULL);
             if (hr == MA_AUDCLNT_E_INVALID_DEVICE_PERIOD) {
                 if (bufferDuration > 500*10000) {
                     break;
@@ -23796,7 +23813,8 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
                         break;
                     }
 
-                    bufferDuration = bufferDuration * 2;
+                    /* Increment by our period size. */
+                    bufferDuration += (periodDurationInMicroseconds * 10);
                     continue;
                 }
             } else {
