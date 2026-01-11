@@ -24869,16 +24869,39 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
                 }
                 #endif
 
-                /* Overrun detection. */
-                if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
-                    /* Glitched. Maybe try some recovery system here? */
-                }
-
                 ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, bufferSizeInFrames);
                 ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
+
+                /* Overrun detection. */
+                if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                    /*
+                    Glitched. We need to drain the buffer, but only if we're in duplex mode. In normal capture mode,
+                    the application is responsible for processing fast enough so we leave it to them. In duplex mode
+                    however, the playback and capture devices should be in lockstep so we'll need to drain to get
+                    the capture device back on track.
+                    */
+                    if (deviceType == ma_device_type_duplex) {
+                        for (;;) {
+                            ma_uint32 packetFrames;
+
+                            hr = ma_IAudioCaptureClient_GetNextPacketSize(pDeviceStateWASAPI->pCaptureClient, &packetFrames);
+                            if (FAILED(hr) || packetFrames == 0) {
+                                break;
+                            }
+
+                            hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, &pMappedBuffer, &bufferSizeInFrames, &flags, NULL, NULL);
+                            if (FAILED(hr)) {
+                                break;
+                            }
+
+                            ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
+                        }
+                    }
+                }
             } else {
                 if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* No data available. */
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] IAudioCaptureClient_GetBuffer() returned %s.", (hr == MA_AUDCLNT_E_BUFFER_ERROR) ? "AUDCLNT_E_BUFFER_ERROR" : "AUDCLNT_E_BUFFER_EMPTY");
                 } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Capture device invalidated. Attempting reinitialization.");
 
