@@ -78326,7 +78326,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
 
                     while (totalFramesConverted < pSound->processingCacheCap) {
                         ma_uint64 framesConverted;
-                        ma_uint32 framesToConvertThisIteration = pSound->processingCacheCap - totalFramesConverted;
+                        ma_uint32 framesToConvertThisIteration = pSound->processingCacheCap - (ma_uint32)totalFramesConverted;  /* Safe cast because pSound->processingCacheCap is 32-bit (compared above in the loop condition). */
                         if (framesToConvertThisIteration > tempCapInFrames) {
                             framesToConvertThisIteration = tempCapInFrames;
                         }
