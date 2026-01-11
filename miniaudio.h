@@ -24918,6 +24918,7 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
             } else {
                 if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* Not enough data available. Nothing to do. */
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] IAudioRenderClient_GetBuffer() returned %s.", (hr == MA_AUDCLNT_E_BUFFER_ERROR) ? "AUDCLNT_E_BUFFER_ERROR" : "AUDCLNT_E_BUFFER_TOO_LARGE");
                 } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Playback device invalidated. Attempting reinitialization.");
 
