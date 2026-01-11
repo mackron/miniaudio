@@ -23475,55 +23475,92 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_type_UWP__w
 }
 #endif
 
+typedef struct
+{
+    ma_context* pContext;
+    ma_enum_devices_callback_proc callback;
+    void* pUserData;
+    ma_result result;
+} ma_context_enumerate_devices_thread_data__wasapi;
+
+static ma_thread_result MA_THREADCALL ma_context_enumerate_devices_thread__wasapi(void* pUserData)
+{
+    ma_context_enumerate_devices_thread_data__wasapi* pData = (ma_context_enumerate_devices_thread_data__wasapi*)pUserData;
+
+    pData->result = MA_SUCCESS;
+
+    ma_CoInitializeEx(pData->pContext, NULL, MA_COINIT_VALUE);
+    {
+        /* Different enumeration for desktop and UWP. */
+        #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+        {
+            /* Desktop */
+            HRESULT hr;
+            ma_IMMDeviceEnumerator* pDeviceEnumerator;
+
+            hr = ma_CoCreateInstance(pData->pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+            if (FAILED(hr)) {
+                ma_log_postf(ma_context_get_log(pData->pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
+                pData->result = ma_result_from_HRESULT(hr);
+                return 1;
+            }
+
+            ma_context_enumerate_devices_by_type__wasapi(pData->pContext, pDeviceEnumerator, ma_device_type_playback, pData->callback, pData->pUserData);
+            ma_context_enumerate_devices_by_type__wasapi(pData->pContext, pDeviceEnumerator, ma_device_type_capture,  pData->callback, pData->pUserData);
+
+            ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+        }
+        #else
+        {
+            /*
+            UWP
+
+            The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
+            over devices without using MMDevice, I'm restricting devices to defaults.
+
+            Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
+            */
+            if (callback) {
+                ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
+
+                /* Playback. */
+                if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
+                    cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pData->pContext, ma_device_type_playback, pData->callback, pData->pUserData);
+                }
+
+                /* Capture. */
+                if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
+                    cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pData->pContext, ma_device_type_capture, pData->callback, pData->pUserData);
+                }
+
+                (void)cbResult;
+            }
+        }
+        #endif
+    }
+    ma_CoUninitialize(pData->pContext);
+
+    return 0;
+}
+
 static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    /* Different enumeration for desktop and UWP. */
-    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    {
-        /* Desktop */
-        HRESULT hr;
-        ma_IMMDeviceEnumerator* pDeviceEnumerator;
+    ma_result result;
+    ma_thread thread;
+    ma_context_enumerate_devices_thread_data__wasapi data;
 
-        hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-        if (FAILED(hr)) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
-            return ma_result_from_HRESULT(hr);
-        }
+    data.pContext  = pContext;
+    data.callback  = callback;
+    data.pUserData = pUserData;
 
-        ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_playback, callback, pUserData);
-        ma_context_enumerate_devices_by_type__wasapi(pContext, pDeviceEnumerator, ma_device_type_capture,  callback, pUserData);
-
-        ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+    result = ma_thread_create(&thread, ma_thread_priority_default, 0, ma_context_enumerate_devices_thread__wasapi, &data, ma_context_get_allocation_callbacks(pContext));
+    if (result != MA_SUCCESS) {
+        return result;
     }
-    #else
-    {
-        /*
-        UWP
 
-        The MMDevice API is only supported on desktop applications. For now, while I'm still figuring out how to properly enumerate
-        over devices without using MMDevice, I'm restricting devices to defaults.
+    ma_thread_wait(&thread);
 
-        Hint: DeviceInformation::FindAllAsync() with DeviceClass.AudioCapture/AudioRender. https://blogs.windows.com/buildingapps/2014/05/15/real-time-audio-in-windows-store-and-windows-phone-apps/
-        */
-        if (callback) {
-            ma_device_enumeration_result cbResult = MA_DEVICE_ENUMERATION_CONTINUE;
-
-            /* Playback. */
-            if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-                cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pContext, ma_device_type_playback, callback, pUserData);
-            }
-
-            /* Capture. */
-            if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-                cbResult = ma_context_enumerate_device_from_type_UWP__wasapi(pContext, ma_device_type_capture, callback, pUserData);
-            }
-
-            (void)cbResult;
-        }
-    }
-    #endif
-
-    return MA_SUCCESS;
+    return data.result;
 }
 
 
