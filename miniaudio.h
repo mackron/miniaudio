@@ -19328,7 +19328,7 @@ MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
     {
         ma_proc proc;
 
-        ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
+        ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading symbol: %s", symbol);
 
         #ifdef _WIN32
         {
@@ -19348,7 +19348,7 @@ MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
         #endif
 
         if (proc == NULL) {
-            ma_log_postf(pLog, MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s\n", symbol);
+            ma_log_postf(pLog, MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s", symbol);
         }
 
         (void)pLog; /* It's possible for pContext to be unused. */
