@@ -24081,24 +24081,24 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
         if (pDeviceStateWASAPI->pCaptureClient) {
-            ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDeviceStateWASAPI->pCaptureClient);
+            ma_IAudioCaptureClient_Release(pDeviceStateWASAPI->pCaptureClient);
             pDeviceStateWASAPI->pCaptureClient = NULL;
         }
 
         if (pDeviceStateWASAPI->pAudioClientCapture) {
-            /*ma_device_release_IAudioClient_service__wasapi(pDevice, ma_device_type_capture);*/
+            ma_IAudioClient_Release(pDeviceStateWASAPI->pAudioClientCapture);
             pDeviceStateWASAPI->pAudioClientCapture = NULL;
         }
     }
 
     if (deviceType == ma_device_type_playback) {
         if (pDeviceStateWASAPI->pRenderClient) {
-            ma_IAudioRenderClient_Release((ma_IAudioRenderClient*)pDeviceStateWASAPI->pRenderClient);
+            ma_IAudioRenderClient_Release(pDeviceStateWASAPI->pRenderClient);
             pDeviceStateWASAPI->pRenderClient = NULL;
         }
 
         if (pDeviceStateWASAPI->pAudioClientPlayback) {
-            /*ma_device_release_IAudioClient_service__wasapi(pDevice, ma_device_type_playback);*/
+            ma_IAudioClient_Release(pDeviceStateWASAPI->pAudioClientPlayback);
             pDeviceStateWASAPI->pAudioClientPlayback = NULL;
         }
     }
