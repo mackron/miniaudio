@@ -24541,6 +24541,28 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
     ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     HRESULT hr;
 
+    /*
+    We need to prime the data so we don't get an immediate underrun, and also to ensure we have a
+    buffer of silence for duplex mode.
+    */
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_uint32 bufferSizeInFrames = pDeviceStateWASAPI->actualBufferSizeInFramesPlayback;
+        ma_uint32 padding;
+        BYTE* pBufferData;
+
+        hr = ma_IAudioClient_GetCurrentPadding(pDeviceStateWASAPI->pAudioClientPlayback, &padding);
+        if (FAILED(hr)) {
+            padding = 0;
+        }
+
+        bufferSizeInFrames -= padding;
+
+        hr = ma_IAudioRenderClient_GetBuffer(pDeviceStateWASAPI->pRenderClient, bufferSizeInFrames, &pBufferData);
+        if (SUCCEEDED(hr)) {
+            ma_IAudioRenderClient_ReleaseBuffer(pDeviceStateWASAPI->pRenderClient, bufferSizeInFrames, MA_AUDCLNT_BUFFERFLAGS_SILENT);
+        }
+    }
+
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start(pDeviceStateWASAPI->pAudioClientCapture);
         if (FAILED(hr)) {
