@@ -5529,6 +5529,9 @@ MA_API ma_result ma_linear_resampler_get_required_input_frame_count(const ma_lin
 MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler);
 
+/* Helper function for calculating the final frame count as if it were resampled by the linear resampler. This is a specialization of ma_linear_resampler_get_expected_output_frame_count(). */
+MA_API ma_uint64 ma_linear_resampler_calculate_frame_count_after_resampling(ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_uint64 frameCountIn);
+
 
 typedef struct ma_resampler_config ma_resampler_config;
 
@@ -17227,29 +17230,7 @@ MA_ATOMIC_SAFE_TYPE_IMPL(i32, device_status)
 
 MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
-    /* This is based on the calculation in ma_linear_resampler_get_expected_output_frame_count(). */
-    ma_uint64 outputFrameCount;
-    ma_uint64 preliminaryInputFrameCountFromFrac;
-    ma_uint64 preliminaryInputFrameCount;
-
-    if (sampleRateIn == 0 || sampleRateOut == 0 || frameCountIn == 0) {
-        return 0;
-    }
-
-    if (sampleRateOut == sampleRateIn) {
-        return frameCountIn;
-    }
-
-    outputFrameCount = (frameCountIn * sampleRateOut) / sampleRateIn;
-
-    preliminaryInputFrameCountFromFrac = (outputFrameCount * (sampleRateIn / sampleRateOut)) / sampleRateOut;
-    preliminaryInputFrameCount         = (outputFrameCount * (sampleRateIn % sampleRateOut)) + preliminaryInputFrameCountFromFrac;
-
-    if (preliminaryInputFrameCount <= frameCountIn) {
-        outputFrameCount += 1;
-    }
-
-    return outputFrameCount;
+    return ma_linear_resampler_calculate_frame_count_after_resampling(sampleRateIn, sampleRateOut, frameCountIn);
 }
 
 #ifndef MA_DATA_CONVERTER_STACK_BUFFER_SIZE
@@ -55356,7 +55337,7 @@ MA_API ma_result ma_linear_resampler_get_required_input_frame_count(const ma_lin
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
+static ma_result ma_linear_resampler_get_expected_output_frame_count_ex(ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_uint32 inTimeInt, ma_uint32 inTimeFrac, ma_uint32 inAdvanceInt, ma_uint32 inAdvanceFrac, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
 {
     ma_uint64 outputFrameCount;
     ma_uint64 preliminaryInputFrameCountFromFrac;
@@ -55368,24 +55349,20 @@ MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_li
 
     *pOutputFrameCount = 0;
 
-    if (pResampler == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     /*
     The first step is to get a preliminary output frame count. This will either be exactly equal to what we need, or less by 1. We need to
     determine how many input frames will be consumed by this value. If it's greater than our original input frame count it means we won't
     be able to generate an extra frame because we will have run out of input data. Otherwise we will have enough input for the generation
     of an extra output frame. This add-by-one logic is necessary due to how the data loading logic works when processing frames.
     */
-    outputFrameCount = (inputFrameCount * pResampler->config.sampleRateOut) / pResampler->config.sampleRateIn;
+    outputFrameCount = (inputFrameCount * sampleRateOut) / sampleRateIn;
 
     /*
     We need to determine how many *whole* input frames will have been processed to generate our preliminary output frame count. This is
     used in the logic below to determine whether or not we need to add an extra output frame.
     */
-    preliminaryInputFrameCountFromFrac = (pResampler->inTimeFrac + outputFrameCount*pResampler->inAdvanceFrac) / pResampler->config.sampleRateOut;
-    preliminaryInputFrameCount         = (pResampler->inTimeInt  + outputFrameCount*pResampler->inAdvanceInt ) + preliminaryInputFrameCountFromFrac;
+    preliminaryInputFrameCountFromFrac = (inTimeFrac + outputFrameCount*inAdvanceFrac) / sampleRateOut;
+    preliminaryInputFrameCount         = (inTimeInt  + outputFrameCount*inAdvanceInt ) + preliminaryInputFrameCountFromFrac;
 
     /*
     If the total number of *whole* input frames that would be required to generate our preliminary output frame count is greater than
@@ -55399,6 +55376,21 @@ MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_li
     *pOutputFrameCount = outputFrameCount;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
+{
+    if (pOutputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pOutputFrameCount = 0;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_linear_resampler_get_expected_output_frame_count_ex(pResampler->config.sampleRateIn, pResampler->config.sampleRateOut, pResampler->inTimeInt, pResampler->inTimeFrac, pResampler->inAdvanceInt, pResampler->inAdvanceFrac, inputFrameCount, pOutputFrameCount);
 }
 
 MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler)
@@ -55430,6 +55422,28 @@ MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler)
     ma_lpf_clear_cache(&pResampler->lpf);
 
     return MA_SUCCESS;
+}
+
+MA_API ma_uint64 ma_linear_resampler_calculate_frame_count_after_resampling(ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_uint64 frameCountIn)
+{
+    ma_result result;
+    ma_uint64 frameCountOut;
+    ma_uint32 inAdvanceInt;
+    ma_uint32 inAdvanceFrac;
+
+    if (frameCountIn == 0) {
+        return 0;
+    }
+
+    inAdvanceInt  = sampleRateIn / sampleRateOut;
+    inAdvanceFrac = sampleRateIn % sampleRateOut;
+
+    result = ma_linear_resampler_get_expected_output_frame_count_ex(sampleRateIn, sampleRateOut, 0, 0, inAdvanceInt, inAdvanceFrac, frameCountIn, &frameCountOut);
+    if (result != MA_SUCCESS) {
+        return 0;
+    }
+
+    return frameCountOut;
 }
 
 
