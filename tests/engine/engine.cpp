@@ -112,7 +112,11 @@ int main(int argc, char** argv)
             }
         }
 
-        ma_sleep(20000);
+        #ifndef __EMSCRIPTEN__
+        {
+            ma_sleep(20000);
+        }
+        #endif
 
         for (size_t i = 0; i < sounds.size(); i += 1) {
             ma_sound_uninit(sounds[i]);

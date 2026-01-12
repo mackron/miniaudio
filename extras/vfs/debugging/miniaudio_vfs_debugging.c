@@ -46,10 +46,14 @@ static ma_result ma_vfs_debugging_read(ma_vfs* pVFS, ma_vfs_file file, void* pDs
     ma_vfs_debugging* pDebuggingVFS = ma_vfs_debugging_cast(pVFS);
     ma_result result;
 
-    /* Introduce artificial latency if requested. */
-    if (pDebuggingVFS->config.latencyInMilliseconds > 0) {
-        ma_sleep(pDebuggingVFS->config.latencyInMilliseconds);
+    /* Introduce artificial latency if requested. Ignored on Emscripten. */
+    #ifndef __EMSCRIPTEN__
+    {
+        if (pDebuggingVFS->config.latencyInMilliseconds > 0) {
+            ma_sleep(pDebuggingVFS->config.latencyInMilliseconds);
+        }
     }
+    #endif
 
     /*printf("READING\n");*/
 
