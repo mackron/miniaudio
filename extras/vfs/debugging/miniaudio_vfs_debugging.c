@@ -51,7 +51,7 @@ static ma_result ma_vfs_debugging_read(ma_vfs* pVFS, ma_vfs_file file, void* pDs
         ma_sleep(pDebuggingVFS->config.latencyInMilliseconds);
     }
 
-    printf("READING\n");
+    /*printf("READING\n");*/
 
     result = ma_vfs_read(ma_vfs_debugging_get_underlying_vfs(pVFS), file, pDst, sizeInBytes, pBytesRead);
     return result;
