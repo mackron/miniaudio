@@ -29794,11 +29794,11 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
             } else {
                 /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
                 if (resultALSA == -EAGAIN) {
-                    /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (read)");*/
+                    /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (write)");*/
 
                     /* Do nothing. */
                 } else if (resultALSA == -EPIPE) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (read)");
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (write)");
 
                     /* Underrun. Recover. If this fails we need to return an error. */
                     resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);
