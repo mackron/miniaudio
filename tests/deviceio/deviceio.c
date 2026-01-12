@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--periods [count]] [--period-size [frames]] [--detailed-info] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [exclusive] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--periods [count]] [--period-size [frames]] [--detailed-info] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -48,6 +48,7 @@ will receive the captured audio.
 If multiple backends are specified, the priority will be based on the order in which you specify them. If multiple waveform or noise types
 are specified the last one on the command line will have priority.
 */
+/*#define MA_DEBUG_OUTPUT*/
 #include "../common/common.c"
 #include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 
@@ -481,6 +482,7 @@ int main(int argc, char** argv)
     ma_uint32 backendCount = 0;
     ma_context_config contextConfig;
     ma_device_type deviceType = ma_device_type_playback;
+    ma_share_mode shareMode = ma_share_mode_shared;
     ma_format deviceFormat = ma_format_unknown;
     ma_uint32 deviceChannels = 0;
     ma_uint32 deviceSampleRate = 0;
@@ -568,6 +570,11 @@ int main(int argc, char** argv)
             continue;
         }
 
+        if (strcmp(argv[iarg], "exclusive") == 0) {
+            shareMode = ma_share_mode_exclusive;
+            continue;
+        }
+
 
         /* mode */
         if (try_parse_mode(argv[iarg], &deviceType)) {
@@ -643,6 +650,8 @@ int main(int argc, char** argv)
     }
 
     deviceConfig = ma_device_config_init(deviceType);
+    deviceConfig.playback.shareMode       = shareMode;
+    deviceConfig.capture.shareMode        = shareMode;
     deviceConfig.threadingMode            = threadingMode;
     deviceConfig.playback.format          = deviceFormat;
     deviceConfig.playback.channels        = deviceChannels;
