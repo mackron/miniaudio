@@ -984,7 +984,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.pc.in" "${CMAKE_CURRENT_BI
 if(MINIAUDIO_INSTALL)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/miniaudio.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
-    message(STATUS "Library list: ${LIBS_TO_INSTALL}")
+    #message(STATUS "Library list: ${LIBS_TO_INSTALL}")
     install(TARGETS ${LIBS_TO_INSTALL}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
