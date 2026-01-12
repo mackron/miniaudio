@@ -651,7 +651,7 @@ if(TARGET vorbisfile)
     target_link_libraries(libvorbis_interface INTERFACE vorbisfile)
 endif()
 
-if(TARGET libopus_interface)
+if(TARGET libvorbis_interface)
     add_library(miniaudio_libvorbis
         extras/decoders/libvorbis/miniaudio_libvorbis.c
         extras/decoders/libvorbis/miniaudio_libvorbis.h
