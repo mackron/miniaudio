@@ -23836,6 +23836,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_device_init_internal_data__wasapi data;
     ma_result result;
+    const ma_device_id* pDeviceID = NULL;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -23872,11 +23873,13 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
 
 
     if (deviceType == ma_device_type_playback) {
+        pDeviceID                   = pDevice->playback.pID;
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
         MA_COPY_MEMORY(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
         data.shareMode              = pDevice->playback.shareMode;
     } else {
+        pDeviceID                   = pDevice->playback.pID;
         data.formatIn               = pDevice->capture.format;
         data.channelsIn             = pDevice->capture.channels;
         MA_COPY_MEMORY(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
@@ -23892,7 +23895,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     data.noHardwareOffloading       = pDeviceStateWASAPI->noHardwareOffloading;
     data.loopbackProcessID          = pDeviceStateWASAPI->loopbackProcessID;
     data.loopbackProcessExclude     = pDeviceStateWASAPI->loopbackProcessExclude;
-    result = ma_device_init_internal__wasapi(pDevice->pContext, deviceType, NULL, &data);
+    result = ma_device_init_internal__wasapi(pDevice->pContext, deviceType, pDeviceID, &data);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -24251,7 +24254,7 @@ static ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_
 
     *pFrameCount = 0;
 
-    if (pAudioClient != pDeviceStateWASAPI->pAudioClientPlayback && pAudioClient != pDeviceStateWASAPI->pAudioClientCapture) {
+    if (pAudioClient == NULL || (pAudioClient != pDeviceStateWASAPI->pAudioClientPlayback && pAudioClient != pDeviceStateWASAPI->pAudioClientCapture)) {
         return MA_INVALID_OPERATION;
     }
 
@@ -24377,7 +24380,7 @@ static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_de
     MA_ASSERT(deviceType != ma_device_type_duplex);
     MA_ASSERT(deviceType != ma_device_type_loopback);
 
-    if (deviceType == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture && pDeviceStateWASAPI->pAudioClientCapture != NULL) {
         hr = ma_IAudioClient_Stop(pDeviceStateWASAPI->pAudioClientCapture);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.");
@@ -24392,7 +24395,7 @@ static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_de
         }
     }
 
-    if (deviceType == ma_device_type_playback) {
+    if (deviceType == ma_device_type_playback && pDeviceStateWASAPI->pAudioClientPlayback != NULL) {
         /*
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
