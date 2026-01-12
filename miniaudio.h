@@ -29729,7 +29729,6 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
         if ((revents & POLLERR) != 0) {
             ma_snd_pcm_state_t state = pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMCapture);
             if (state == MA_SND_PCM_STATE_XRUN) {
-                /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Capture xrun detected.");
             } else {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d", pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMCapture));
@@ -29781,7 +29780,6 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
         if ((revents & POLLERR) != 0) {
             ma_snd_pcm_state_t state = pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMPlayback);
             if (state == MA_SND_PCM_STATE_XRUN) {
-                /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Playback xrun detected");
             } else {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d", pContextStateALSA->snd_pcm_state(pDeviceStateALSA->pPCMPlayback));
