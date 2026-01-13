@@ -44987,6 +44987,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     if (descriptorPlayback.periodCount == 0) {
         descriptorPlayback.periodCount = MA_DEFAULT_PERIODS;
     }
+    if (descriptorPlayback.periodCount < 2 && pConfig->deviceType == ma_device_type_duplex) {
+        descriptorPlayback.periodCount = 2;
+    }
 
 
     MA_ZERO_OBJECT(&descriptorCapture);
@@ -45002,6 +45005,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     if (descriptorCapture.periodCount == 0) {
         descriptorCapture.periodCount = MA_DEFAULT_PERIODS;
+    }
+    if (descriptorCapture.periodCount < 2 && pConfig->deviceType == ma_device_type_duplex) {
+        descriptorCapture.periodCount = 2;
     }
 
     /* Starting and stopping must be mutually exclusive. We just use a mutex for this. */
