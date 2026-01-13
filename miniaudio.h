@@ -11992,9 +11992,9 @@ int ma_android_sdk_version(void)
 #endif
 
 
-/* Default periods when none is specified in ma_device_init(). More periods means more work on the CPU. */
+/* Default device period count. */
 #ifndef MA_DEFAULT_PERIODS
-#define MA_DEFAULT_PERIODS                                  3
+#define MA_DEFAULT_PERIODS  2
 #endif
 
 /* The default period size in milliseconds. */
