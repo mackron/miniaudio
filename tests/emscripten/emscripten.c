@@ -2,9 +2,12 @@
 #define MA_NO_DECODING
 #define MA_NO_ENCODING
 #include "../../miniaudio.c"
+#include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 
 #include <stdio.h>
 
+/*#define DEVICE_BACKEND      ma_device_backend_sdl2*/
+#define DEVICE_BACKEND      ma_device_backend_webaudio
 #define DEVICE_FORMAT       ma_format_f32
 #define DEVICE_CHANNELS     2
 #define DEVICE_SAMPLE_RATE  48000
@@ -38,27 +41,34 @@ void data_callback_playback(ma_device* pDevice, void* pOutput, const void* pInpu
 
 static void do_playback()
 {
+    ma_result result;
     ma_device_config deviceConfig;
     ma_waveform_config sineWaveConfig;
+    ma_device_backend_config backend;
+
+    backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
-    deviceConfig.threadingMode     = threadingMode;
-    deviceConfig.playback.format   = DEVICE_FORMAT;
-    deviceConfig.playback.channels = DEVICE_CHANNELS;
-    deviceConfig.sampleRate        = DEVICE_SAMPLE_RATE;
-    deviceConfig.dataCallback      = data_callback_playback;
-    deviceConfig.pUserData         = &sineWave;
-
-    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
-        printf("Failed to open playback device.\n");
+    deviceConfig.threadingMode      = threadingMode;
+    deviceConfig.playback.format    = DEVICE_FORMAT;
+    deviceConfig.playback.channels  = DEVICE_CHANNELS;
+    deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
+    deviceConfig.dataCallback       = data_callback_playback;
+    deviceConfig.pUserData          = &sineWave;
+    deviceConfig.pBackendConfigs    = &backend;
+    deviceConfig.backendConfigCount = 1;
+    result = ma_device_init_ex(&backend, 1, NULL, &deviceConfig, &device);
+    if (result != MA_SUCCESS) {
+        printf("Failed to open playback device. %s.\n", ma_result_description(result));
         return;
     }
 
     sineWaveConfig = ma_waveform_config_init(device.playback.format, device.playback.channels, device.sampleRate, ma_waveform_type_sine, 0.2, 220);
     ma_waveform_init(&sineWaveConfig, &sineWave);
 
-    if (ma_device_start(&device) != MA_SUCCESS) {
-        printf("Failed to start device.");
+    result = ma_device_start(&device);
+    if (result != MA_SUCCESS) {
+        printf("Failed to start device. %s.\n", ma_result_description(result));
         return;
     }
 }
@@ -78,6 +88,9 @@ static void do_duplex()
 {
     ma_result result;
     ma_device_config deviceConfig;
+    ma_device_backend_config backend;
+
+    backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.threadingMode      = threadingMode;
@@ -90,7 +103,9 @@ static void do_duplex()
     deviceConfig.playback.channels  = 2;
     deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
     deviceConfig.dataCallback       = data_callback_duplex;
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    deviceConfig.pBackendConfigs    = &backend;
+    deviceConfig.backendConfigCount = 1;
+    result = ma_device_init_ex(&backend, 1, NULL, &deviceConfig, &device);
     if (result != MA_SUCCESS) {
         return;
     }
