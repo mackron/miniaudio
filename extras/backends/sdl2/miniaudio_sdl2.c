@@ -311,7 +311,11 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
         ma_bool32 hasDefaultPlaybackDevice;
         char* pDefaultPlaybackDeviceName = NULL;
 
-        hasDefaultPlaybackDevice = pContextStateSDL->SDL_GetDefaultAudioInfo(&pDefaultPlaybackDeviceName, &defaultAudioSpec, 0) == 0;
+        if (pContextStateSDL->SDL_GetDefaultAudioInfo) {
+            hasDefaultPlaybackDevice = pContextStateSDL->SDL_GetDefaultAudioInfo(&pDefaultPlaybackDeviceName, &defaultAudioSpec, 0) == 0;
+        } else {
+            hasDefaultPlaybackDevice = MA_FALSE;
+        }
 
         deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(0);
         for (iDevice = 0; iDevice < deviceCount; iDevice += 1) {
@@ -377,7 +381,11 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
         ma_bool32 hasDefaultCaptureDevice;
         char* pDefaultCaptureDeviceName = NULL;
 
-        hasDefaultCaptureDevice = pContextStateSDL->SDL_GetDefaultAudioInfo(&pDefaultCaptureDeviceName, &defaultAudioSpec, 1) == 0;
+        if (pContextStateSDL->SDL_GetDefaultAudioInfo) {
+            hasDefaultCaptureDevice = pContextStateSDL->SDL_GetDefaultAudioInfo(&pDefaultCaptureDeviceName, &defaultAudioSpec, 1) == 0;
+        } else {
+            hasDefaultCaptureDevice = MA_FALSE;
+        }
 
         deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(1);
         for (iDevice = 0; iDevice < deviceCount; iDevice += 1) {
