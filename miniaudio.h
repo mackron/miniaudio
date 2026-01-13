@@ -29532,6 +29532,49 @@ static void ma_device_uninit__alsa(ma_device* pDevice)
     ma_device_uninit_internal__alsa(pDevice, ma_device_get_backend_state__alsa(pDevice));
 }
 
+static void ma_device_prime_playback_buffer__alsa(ma_device* pDevice)
+{
+    ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
+    ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
+    ma_uint8 buffer[4096];
+    ma_uint32 bpf;
+    ma_uint32 framesToWrite;
+    ma_uint32 framesWritten;
+    ma_snd_pcm_sframes_t framesAvail;
+
+    if (pDeviceStateALSA->pPCMPlayback == NULL) {
+        return;
+    }
+
+    bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
+    framesWritten = 0;
+
+    MA_ZERO_MEMORY(buffer, sizeof(buffer));
+
+    /* Guard against the available frame count reported by ALSA just in case we try writing too much and get stuck in snd_pcm_writei().. */
+    framesAvail = pContextStateALSA->snd_pcm_avail(pDeviceStateALSA->pPCMPlayback);
+    if (framesToWrite > framesAvail) {
+        framesToWrite = framesAvail;
+    }
+
+    while (framesWritten < framesToWrite) {
+        ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
+        ma_uint32 framesRemaining = framesToWrite - framesWritten;
+        if (framesToWriteThisIteration > framesRemaining) {
+            framesToWriteThisIteration = framesRemaining;
+        }
+
+        /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
+        if (framesToWriteThisIteration == 0) {
+            break;
+        }
+
+        pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, buffer, framesToWriteThisIteration);
+        framesWritten += framesToWriteThisIteration;
+    }
+}
+
 static ma_result ma_device_start__alsa(ma_device* pDevice)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
@@ -29544,24 +29587,7 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
     effectively non-blocking.
     */
     if (pDeviceStateALSA->pPCMPlayback != NULL) {
-        ma_uint8 buffer[4096];
-        ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-        ma_uint32 framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
-        ma_uint32 framesWritten = 0;
-
-        MA_ZERO_MEMORY(buffer, sizeof(buffer));
-
-        while (framesWritten < framesToWrite) {
-            ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
-
-            /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
-            if (framesToWriteThisIteration == 0) {
-                break;
-            }
-
-            pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, buffer, framesToWriteThisIteration);
-            framesWritten += framesToWriteThisIteration;
-        }
+        ma_device_prime_playback_buffer__alsa(pDevice);
     }
 
     if (pDeviceStateALSA->pPCMCapture != NULL) {
