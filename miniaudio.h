@@ -29833,6 +29833,12 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
                         return ma_result_from_errno((int)-resultALSA);
                     }
 
+                    /*
+                    Before restarting the PCM we need to make sure there's actually some data in the buffer. We're going to
+                    fill it with silence which is consistent with what we do when we start the PCM normally.
+                    */
+                    ma_device_prime_playback_buffer__alsa(pDevice);
+
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
                     if (resultALSA < 0) {
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device after underrun. %s.", pContextStateALSA->snd_strerror(resultALSA));
