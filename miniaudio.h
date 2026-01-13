@@ -29394,6 +29394,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     ma_device_config_alsa defaultConfigALSA;
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
     int pollDescriptorCountPlayback = 0;
     int pollDescriptorCountCapture  = 0;
     int resultALSA;
@@ -29415,7 +29416,14 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorCapture, ma_device_type_capture);
+        /* Duplex mode must have at least two periods. */
+        if (deviceType == ma_device_type_duplex) {
+            if (pDescriptorCapture->periodCount < 2) {
+                pDescriptorCapture->periodCount = 2;
+            }
+        }
+
+        result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
             ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return result;
@@ -29430,7 +29438,14 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorPlayback, ma_device_type_playback);
+        /* Duplex mode must have at least two periods. */
+        if (deviceType == ma_device_type_duplex) {
+            if (pDescriptorPlayback->periodCount < 2) {
+                pDescriptorPlayback->periodCount = 2;
+            }
+        }
+
+        result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
             ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return result;
