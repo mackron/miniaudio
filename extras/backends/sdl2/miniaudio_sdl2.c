@@ -506,6 +506,18 @@ static ma_result ma_device_init_internal__sdl2(ma_device* pDevice, ma_context_st
         pDescriptor->periodSizeInFrames = ma_next_power_of_2(pDescriptor->periodSizeInFrames);
     }
 
+    /*
+    In my experience there is glitching with a period size of anything <= 512. To make this "Just Work" on
+    the Emscripten build we'll set this to 1024.
+    */
+    #if defined(__EMSCRIPTEN__)
+    {
+        if (pDescriptor->periodSizeInFrames < 1024) {
+            pDescriptor->periodSizeInFrames = 1024;
+        }
+    }
+    #endif
+
 
     /* We now have enough information to set up the device. */
     memset(&desiredSpec, 0, sizeof(desiredSpec));
