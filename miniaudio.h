@@ -54687,8 +54687,8 @@ static void ma_linear_resampler_adjust_timer_for_new_rate(ma_linear_resampler* p
         ((oldRateTimeFract * newSampleRateOut) / oldSampleRateOut);
 
     /* Make sure the fractional part is less than the output sample rate. */
-    pResampler->inTimeInt += pResampler->inTimeFrac / pResampler->config.sampleRateOut;
-    pResampler->inTimeFrac = pResampler->inTimeFrac % pResampler->config.sampleRateOut;
+    pResampler->inTimeInt += pResampler->inTimeFrac / newSampleRateOut;
+    pResampler->inTimeFrac = pResampler->inTimeFrac % newSampleRateOut;
 }
 
 static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, void* pHeap, ma_linear_resampler_heap_layout* pHeapLayout, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
