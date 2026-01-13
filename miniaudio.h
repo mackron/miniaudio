@@ -28998,18 +28998,17 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     deviceNameCount = iDeviceName;
 
 
-    /* Allocate memory for our hardware and software params. We do this with a single allocation. */
-    paramsMemorySize  = 0;
-    paramsMemorySize += ma_align_64(pContextStateALSA->snd_pcm_hw_params_sizeof());
-    paramsMemorySize += ma_align_64(pContextStateALSA->snd_pcm_sw_params_sizeof());
+    /* Allocate memory for our hardware and software params. We do this with a single allocation. They are used independently so we can just alias this allocation. */
+    paramsMemorySize = ma_max(pContextStateALSA->snd_pcm_hw_params_sizeof(), pContextStateALSA->snd_pcm_sw_params_sizeof());
 
     pParamsMemory = ma_calloc(paramsMemorySize, ma_context_get_allocation_callbacks(pContext));
     if (pParamsMemory == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
+    /* Alias the memory allocation. */
     pHWParams = (ma_snd_pcm_hw_params_t*)pParamsMemory;
-    pSWParams = (ma_snd_pcm_sw_params_t*)ma_offset_ptr(pParamsMemory, ma_align_64(pContextStateALSA->snd_pcm_hw_params_sizeof()));
+    pSWParams = (ma_snd_pcm_sw_params_t*)pParamsMemory;
 
     for (iDeviceName = 0; iDeviceName < deviceNameCount; iDeviceName += 1) {
         const char* pDeviceName = pDeviceNames[iDeviceName];
@@ -29238,6 +29237,12 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
             continue;
         }
 
+        /*
+        The hardware parameters memory is aliased with the software parameters memory, so just clear out this pointer
+        for safety and to make it clear that it should not be used from here on out.
+        */
+        pHWParams = NULL;
+
 
         /* Software parameters. */
         resultALSA = pContextStateALSA->snd_pcm_sw_params_current(pPCM, pSWParams);
@@ -29283,6 +29288,8 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set software parameters for device \"%s\". snd_pcm_sw_params() failed. %s.", pDeviceName, pContextStateALSA->snd_strerror(resultALSA));
             continue;
         }
+
+        pSWParams = NULL;
 
 
         /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
