@@ -4102,7 +4102,14 @@ typedef wchar_t     ma_wchar_win32;
 typedef ma_uint16   ma_wchar_win32;
 #endif
 
+/* Disable threading on the Emscripten build if it's not built with pthread support. */
+#if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
+    #ifndef MA_NO_THREADING
+    #define MA_NO_THREADING
+    #endif
+#endif
 
+/* pthread. */
 #if defined(MA_POSIX)
     #if !defined(MA_NO_THREADING)
         /*
