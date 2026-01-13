@@ -31824,17 +31824,11 @@ static void ma_device_on_rerouted__pulseaudio(ma_pa_stream* pStream, void* pUser
 
 static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate)
 {
-    /*
-    There have been reports from users where buffers of < ~20ms result glitches when running through
-    PipeWire. To work around this we're going to have to use a different default buffer size.
-    */
-    const ma_uint32 defaultPeriodSizeInMilliseconds_LowLatency = 25;
-
     MA_ASSERT(nativeSampleRate != 0);
 
     if (pDescriptor->periodSizeInFrames == 0) {
         if (pDescriptor->periodSizeInMilliseconds == 0) {
-            return ma_calculate_buffer_size_in_frames_from_milliseconds(defaultPeriodSizeInMilliseconds_LowLatency, nativeSampleRate);
+            return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS, nativeSampleRate);
         } else {
             return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, nativeSampleRate);
         }
