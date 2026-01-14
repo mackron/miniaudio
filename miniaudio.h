@@ -39774,7 +39774,8 @@ the moment that's just how it's going to have to be.
 When starting the device, OSS will automatically start it when write() or read() is called.
 
 UPDATE: 2026-01-14
-I'm no longer getting the stop delay when running from inside Virtual Box.
+- I'm no longer getting the stop delay when running from inside Virtual Box.
+- In playback mode, draining with SNDCTL_DSP_SYNC seems to work as expected.
 */
 static ma_result ma_device_start__oss(ma_device* pDevice)
 {
@@ -39794,10 +39795,13 @@ static ma_result ma_device_start__oss(ma_device* pDevice)
 
 static ma_result ma_device_stop__oss(ma_device* pDevice)
 {
-    MA_ASSERT(pDevice != NULL);
+    ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    /* See note above on why this is empty. */
-    (void)pDevice;
+    /* Try draining. */
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ioctl(pDeviceStateOSS->fdPlayback, SNDCTL_DSP_SYNC, 0);
+    }
 
     return MA_SUCCESS;
 }
