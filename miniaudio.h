@@ -39687,7 +39687,7 @@ static void ma_device_prime_playback_buffer__oss(ma_device* pDevice)
                 break;
             }
     
-            write(pDeviceStateOSS->fdPlayback, buffer, framesToWriteThisIteration);
+            write(pDeviceStateOSS->fdPlayback, buffer, framesToWriteThisIteration * bpf);
             framesWritten += framesToWriteThisIteration;
         }
     }
