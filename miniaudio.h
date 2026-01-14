@@ -29845,10 +29845,13 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
         }
 
         if ((revents & POLLOUT) != 0) {
+            /* Read data from the client first. */
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+
+            /* Now send the data to ALSA for playback. */
             resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames);
             if (resultALSA >= 0) {
-                /* Success. Process the data. */
-                ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBuffer, NULL, (ma_uint32)resultALSA);
+                /* Success. */    
             } else {
                 /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
                 if (resultALSA == -EAGAIN) {
