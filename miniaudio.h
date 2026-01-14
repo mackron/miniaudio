@@ -39744,8 +39744,8 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
     fd_set fdsRead;
     fd_set fdsWrite;
     int fdMax;
-    ma_result result;
     int selectResult;
+    ma_result result;
 
     if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
         tv.tv_sec  = 0;
@@ -39773,11 +39773,9 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
         selectResult = select(fdMax + 1, &fdsRead, &fdsWrite, NULL, pTimeout);
     } while (selectResult < 0 && errno == EINTR);
 
-
     if (!ma_device_is_started(pDevice)) {
         return MA_DEVICE_NOT_STARTED;
     }
-
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         if (FD_ISSET(pDeviceStateOSS->fdCapture, &fdsRead)) {
