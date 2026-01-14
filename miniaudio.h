@@ -39868,14 +39868,12 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         if (FD_ISSET(pDeviceStateOSS->fdPlayback, &fdsWrite)) {
-            ma_uint32 framesWritten;
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateOSS->pIntermediaryBufferPlayback, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-            result = ma_device_write__oss(pDevice, pDeviceStateOSS->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, &framesWritten);
+            result = ma_device_write__oss(pDevice, pDeviceStateOSS->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
                 return result;
             }
-
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateOSS->pIntermediaryBufferPlayback, NULL, framesWritten);
         }
     }
 
