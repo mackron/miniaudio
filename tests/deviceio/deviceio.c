@@ -1,5 +1,5 @@
 /*
-USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [exclusive] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--periods [count]] [--period-size [frames]] [--detailed-info] [--auto]
+USAGE: deviceio [input/output file] [mode] [backend] [waveform] [noise] [threading mode] [exclusive] [--playback-device [index]] [--capture-device [index]] [--channels [count]] [--rate [sample_rate]] [--periods [count]] [--period-size [frames]] [--detailed-info] [--only-enumerate] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -496,6 +496,7 @@ int main(int argc, char** argv)
     int captureDeviceIndex = -1;
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
     ma_bool32 enumerate = MA_TRUE;
+    ma_bool32 onlyEnumerate = MA_TRUE;
     ma_bool32 interactive = MA_TRUE;
     ma_device_backend_info backendInfo;
     ma_bool32 printDetailedInfo = MA_FALSE;
@@ -570,6 +571,11 @@ int main(int argc, char** argv)
             continue;
         }
 
+        if (strcmp(argv[iarg], "--only-enumerate") == 0) {
+            onlyEnumerate = MA_TRUE;
+            continue;
+        }
+
         if (strcmp(argv[iarg], "exclusive") == 0) {
             shareMode = ma_share_mode_exclusive;
             continue;
@@ -631,6 +637,11 @@ int main(int argc, char** argv)
     /* Enumerate if required. */
     if (enumerate || playbackDeviceIndex != -1 || captureDeviceIndex != -1) {
         enumerate_devices(printDetailedInfo);
+    }
+
+    if (onlyEnumerate) {
+        ma_context_uninit(&g_State.context);
+        return 0;
     }
 
     /*
