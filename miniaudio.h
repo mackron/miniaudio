@@ -29394,9 +29394,6 @@ static void ma_device_uninit_internal__alsa(ma_device* pDevice, ma_device_state_
         pContextStateALSA->snd_pcm_close(pDeviceStateALSA->pPCMPlayback);
     }
 
-    ma_free(pDeviceStateALSA->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
-    ma_free(pDeviceStateALSA->pPollDescriptors, ma_device_get_allocation_callbacks(pDevice));
-
     if (pDeviceStateALSA->wakeupfd >= 0) {
         close(pDeviceStateALSA->wakeupfd);
     }
@@ -29412,9 +29409,13 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_result result;
+    int resultALSA;
     int pollDescriptorCountPlayback = 0;
     int pollDescriptorCountCapture  = 0;
-    int resultALSA;
+    ma_uint32 intermediaryBufferSizeCapture  = 0;
+    ma_uint32 intermediaryBufferSizePlayback = 0;
+    size_t pollDescriptorAllocationSize = 0;
+    size_t intermediaryBufferAllocationSize = 0;
 
     MA_ASSERT(pContextStateALSA != NULL);
 
@@ -29452,6 +29453,8 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
             ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_ERROR;
         }
+
+        intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -29474,20 +29477,45 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
             ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return MA_ERROR;
         }
+
+        intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
     }
+
+    pDeviceStateALSA->pollDescriptorCount = 1 + pollDescriptorCountCapture + pollDescriptorCountPlayback;
+
+    /*
+    Now we need to allocate some memory for the poll descriptors and intermediary buffer. We can do this
+    as a single allocation, and place it at the end of the device state allocation.
+    */
+    pollDescriptorAllocationSize     = ma_align_64(sizeof(struct pollfd) * (pDeviceStateALSA->pollDescriptorCount));
+    intermediaryBufferAllocationSize = ma_align_64(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback));
+
+    {
+        size_t deviceStateAllocationSize;
+        ma_device_state_alsa* pDeviceStateALSANew;
+
+        deviceStateAllocationSize  = 0;
+        deviceStateAllocationSize += ma_align_64(sizeof(*pDeviceStateALSA));
+        deviceStateAllocationSize += pollDescriptorAllocationSize;
+        deviceStateAllocationSize += intermediaryBufferAllocationSize;
+
+        pDeviceStateALSANew = (ma_device_state_alsa*)ma_realloc(pDeviceStateALSA, deviceStateAllocationSize, ma_device_get_allocation_callbacks(pDevice));
+        if (pDeviceStateALSANew == NULL) {
+            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
+            return MA_OUT_OF_MEMORY;
+        }
+
+        pDeviceStateALSA = pDeviceStateALSANew;
+    }
+
+    pDeviceStateALSA->pPollDescriptors    = (struct pollfd*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)));
+    pDeviceStateALSA->pIntermediaryBuffer =          (void*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)) + pollDescriptorAllocationSize);
+
 
     /*
     We need an array of poll descriptors to check for when data is available. We query these from ALSA, but we also want to
     include an extra one specifically for waking up for the purpose of our wakeup() callback.
     */
-    pDeviceStateALSA->pollDescriptorCount = 1 + pollDescriptorCountCapture + pollDescriptorCountPlayback;
-
-    pDeviceStateALSA->pPollDescriptors = (struct pollfd*)ma_calloc(sizeof(struct pollfd) * pDeviceStateALSA->pollDescriptorCount, ma_device_get_allocation_callbacks(pDevice));
-    if (pDeviceStateALSA->pPollDescriptors == NULL) {
-        ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
-        return MA_OUT_OF_MEMORY;
-    }
-
     pDeviceStateALSA->wakeupfd = eventfd(0, 0);
     if (pDeviceStateALSA->wakeupfd < 0) {
         ma_log_postf(ma_context_get_log(ma_device_get_context(pDevice)), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to create eventfd for poll wakeup.");
@@ -29522,27 +29550,8 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     }
 
 
-    /* Now we need a scratch buffer for snd_pcm_read() and snd_pcm_write(). */
-    {
-        ma_uint32 intermediaryBufferSizeCapture  = 0;
-        ma_uint32 intermediaryBufferSizePlayback = 0;
-        ma_uint32 intermediaryBufferSize;
-
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
-        }
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
-        }
-
-        intermediaryBufferSize = ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback);
-        
-        pDeviceStateALSA->pIntermediaryBuffer = ma_calloc(intermediaryBufferSize, ma_device_get_allocation_callbacks(pDevice));
-        if (pDeviceStateALSA->pIntermediaryBuffer == NULL) {
-            ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
-            return MA_OUT_OF_MEMORY;
-        }
-    }
+    /* Make sure the intermediary buffer is silenced just to be safe. */
+    MA_ZERO_MEMORY(pDeviceStateALSA->pIntermediaryBuffer, intermediaryBufferAllocationSize);
 
 
     /* Link the PCMs in duplex mode. */
