@@ -38880,14 +38880,12 @@ static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blo
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         if (FD_ISSET(pDeviceStateAudio4->fdPlayback, &fdsWrite)) {
-            ma_uint32 framesWritten;
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-            result = ma_device_write__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, &framesWritten);
+            result = ma_device_write__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
                 return result;
             }
-
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, NULL, framesWritten);
         }
     }
 
