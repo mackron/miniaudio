@@ -38804,6 +38804,56 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
         {
             ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_DRAIN, 0);
         }
+        #else
+        {
+            /*
+            Unfortunately newer versions of OpenBSD do not have a drain function so we have to do it ourselves. We're just going
+            to sleep until a whole buffer has been output since starting the drain. This is not technically 100% accurate because
+            there might be less than a whole buffer needing to be drained.
+
+            If you're developing an audio API, please, for the love of god, add a drain function... This here is the *opposite*
+            of reliability through simplicity.
+            */
+            struct audio_pos drainBegPos;
+            
+            MA_ZERO_OBJECT(&drainBegPos);
+            if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_GETPOS, &drainBegPos) >= 0) {
+                ma_uint32 timeSinceForwardProgressInMS = 0;
+                struct audio_pos lastForwardProgressPos = drainBegPos;
+
+                for (;;) {
+                    struct audio_pos pos;
+                    ma_uint32 sleepTimeInMS = 1;
+
+                    /* Sleep for a bit to give the device a chance to actually make some progress. */
+                    ma_sleep(sleepTimeInMS);
+
+                    MA_ZERO_OBJECT(&pos);
+                    if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_GETPOS, &pos) < 0) {
+                        break;
+                    }
+
+                    /* I'm paranoid about getting stuck in a loop here so I'm going to explicitly check that we're making forward progress and if not bomb out. */
+                    if (memcmp(&lastForwardProgressPos, &drainBegPos, sizeof(struct audio_pos)) == 0) {
+                        timeSinceForwardProgressInMS += sleepTimeInMS;
+                        if (timeSinceForwardProgressInMS > 100) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "audio(4): Abandoning drain because too much time has been spent without making forward progress.");
+                            break;
+                        }
+                    } else {
+                        timeSinceForwardProgressInMS = 0;
+                        lastForwardProgressPos = pos;
+                    }
+
+                    if ((pos.play_pos - drainBegPos.play_pos) >= ((pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods) * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels))) {
+                        break;
+                    }
+                } 
+            } else {
+                /* Failed to get the position at the start of the drain. Just sleep a bit as an approximation. */
+                ma_sleep(((pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods) * 1000) / pDevice->playback.internalSampleRate);
+            }
+        }
         #endif
 
         /* Here is where the device is stopped immediately. */
