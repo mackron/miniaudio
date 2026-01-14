@@ -37926,8 +37926,7 @@ typedef struct ma_device_state_audio4
 {
     int fdPlayback;
     int fdCapture;
-    void* pIntermediaryBufferPlayback;
-    void* pIntermediaryBufferCapture;
+    void* pIntermediaryBuffer;
 } ma_device_state_audio4;
 
 
@@ -38306,7 +38305,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD, void** ppIntermediaryBuffer)
+static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD)
 {
     const char* pDefaultDeviceNames[] = {
         "/dev/audio",
@@ -38321,12 +38320,10 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
     ma_uint32 internalSampleRate;
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
-    void* pIntermediaryBuffer;
 
     MA_ASSERT(deviceType != ma_device_type_duplex);
     MA_ASSERT(pDevice    != NULL);
     MA_ASSERT(pFD        != NULL);
-    MA_ASSERT(ppIntermediaryBuffer != NULL);
 
     /* The first thing to do is open the file. */
     if (deviceType == ma_device_type_capture) {
@@ -38572,17 +38569,24 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
     pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
     pDescriptor->periodCount        = internalPeriods;
 
-    pIntermediaryBuffer = ma_malloc(ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels) * pDescriptor->periodSizeInFrames, ma_device_get_allocation_callbacks(pDevice));
-    if (pIntermediaryBuffer == NULL) {
-        close(fd);
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to allocate memory for intermediary buffer.");
-        return MA_OUT_OF_MEMORY;
-    }
-
     *pFD = fd;
-    *ppIntermediaryBuffer = pIntermediaryBuffer;
 
     return MA_SUCCESS;
+}
+
+static void ma_device_uninit_internal__audio4(ma_device* pDevice, ma_device_state_audio4* pDeviceStateAudio4)
+{
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        close(pDeviceStateAudio4->fdCapture);
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        close(pDeviceStateAudio4->fdPlayback);
+    }
+
+    ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -38591,6 +38595,9 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
     const ma_device_config_audio4* pDeviceConfigAudio4 = (const ma_device_config_audio4*)pDeviceBackendConfig;
     ma_device_config_audio4 defaultConfigAudio4;
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_uint32 intermediaryBufferSizeCapture  = 0;
+    ma_uint32 intermediaryBufferSizePlayback = 0;
+    ma_uint32 intermediaryBufferAllocationSize = 0;
 
     if (deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -38625,25 +38632,50 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
 #endif
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture, &pDeviceStateAudio4->pIntermediaryBufferCapture);
+        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture);
         if (result != MA_SUCCESS) {
-            ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
             return result;
         }
+
+        intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateAudio4->fdPlayback, &pDeviceStateAudio4->pIntermediaryBufferPlayback);
+        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateAudio4->fdPlayback);
         if (result != MA_SUCCESS) {
-            if (deviceType == ma_device_type_duplex) {
-                close(pDeviceStateAudio4->fdCapture);
-                ma_free(pDeviceStateAudio4->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
-            }
-
-            ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
             return result;
         }
+
+        intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
     }
+
+    /*
+    We now need an intermediary buffer. This is never used simultaneously between capture and playback so we can
+    just make it the size of the maximum of the two. We'll append this to the end of the device state allocation.
+    */
+    intermediaryBufferAllocationSize = ma_align_64(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback));
+
+    {
+        size_t deviceStateAllocationSizeNew;
+        ma_device_state_audio4* pDeviceStateAudio4New;
+
+        deviceStateAllocationSizeNew  = 0;
+        deviceStateAllocationSizeNew += ma_align_64(sizeof(*pDeviceStateAudio4));
+        deviceStateAllocationSizeNew += ma_align_64(intermediaryBufferAllocationSize);
+
+        pDeviceStateAudio4New = (ma_device_state_audio4*)ma_realloc(pDeviceStateAudio4, deviceStateAllocationSizeNew, ma_device_get_allocation_callbacks(pDevice));
+        if (pDeviceStateAudio4New == NULL) {
+            ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
+            return MA_OUT_OF_MEMORY;
+        }
+
+        pDeviceStateAudio4 = pDeviceStateAudio4New;
+    }
+
+    pDeviceStateAudio4->pIntermediaryBuffer = ma_offset_ptr(pDeviceStateAudio4, ma_align_64(sizeof(*pDeviceStateAudio4)));
+
 
     *ppDeviceState = pDeviceStateAudio4;
 
@@ -38653,19 +38685,7 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
 static void ma_device_uninit__audio4(ma_device* pDevice)
 {
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        close(pDeviceStateAudio4->fdCapture);
-        ma_free(pDeviceStateAudio4->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        close(pDeviceStateAudio4->fdPlayback);
-        ma_free(pDeviceStateAudio4->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
-    }
-
-    ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
+    ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
 }
 
 static void ma_device_prime_playback_buffer__audio4(ma_device* pDevice)
@@ -38867,20 +38887,20 @@ static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blo
         if (FD_ISSET(pDeviceStateAudio4->fdCapture, &fdsRead)) {
             ma_uint32 framesRead;
 
-            result = ma_device_read__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
+            result = ma_device_read__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBuffer, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
             if (result != MA_SUCCESS) {
                 return result;
             }
 
-            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateAudio4->pIntermediaryBufferCapture, framesRead);
+            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateAudio4->pIntermediaryBuffer, framesRead);
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         if (FD_ISSET(pDeviceStateAudio4->fdPlayback, &fdsWrite)) {
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, NULL, pDevice->playback.internalPeriodSizeInFrames);
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateAudio4->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-            result = ma_device_write__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, NULL);
+            result = ma_device_write__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
                 return result;
             }
