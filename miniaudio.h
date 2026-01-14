@@ -37516,6 +37516,23 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
 
 static void ma_device_uninit__sndio(ma_device* pDevice);
 
+static void ma_device_uninit_device_state__sndio(ma_device_state_sndio* pDeviceStateSndio, ma_context_state_sndio* pContextStateSndio, ma_device_type deviceType, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pDeviceStateSndio == NULL || pContextStateSndio == NULL) {
+        return;
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        pContextStateSndio->sio_close(pDeviceStateSndio->capture.handle);
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        pContextStateSndio->sio_close(pDeviceStateSndio->playback.handle);
+    }
+
+    ma_free(pDeviceStateSndio, pAllocationCallbacks);
+}
+
 static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_sndio* pDeviceStateSndio;
@@ -37527,6 +37544,8 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     int nfdsPlayback = 0;
     size_t intermediaryBufferSizeCapture  = 0;
     size_t intermediaryBufferSizePlayback = 0;
+    size_t pollFDsSize = 0;
+    size_t intermediaryBufferSize = 0;
 
     if (pDeviceConfigSndio == NULL) {
         defaultConfigSndio = ma_device_config_sndio_init();
@@ -37545,7 +37564,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__sndio(pDevice, pDeviceStateSndio, pDeviceConfigSndio, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__sndio(pDevice);
+            ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
             return result;
         }
 
@@ -37556,7 +37575,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__sndio(pDevice, pDeviceStateSndio, pDeviceConfigSndio, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__sndio(pDevice);
+            ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
             return result;
         }
 
@@ -37564,23 +37583,32 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
         intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
     }
 
-    /* We need memory for our poll fds. */
-    pDeviceStateSndio->pPollFDs = (struct pollfd*)ma_malloc(sizeof(struct pollfd) * (nfdsCapture + nfdsPlayback), ma_device_get_allocation_callbacks(pDevice));
-    if (pDeviceStateSndio->pPollFDs == NULL) {
-        ma_device_uninit__sndio(pDevice);
-        return MA_OUT_OF_MEMORY;
+    /*
+    We need memory for our poll fds and intermediary buffer. This can be done as a single allocation, and we can put it at
+    the end of our device state allocation.
+    */
+    pollFDsSize            = ma_align_64(sizeof(struct pollfd) * (nfdsCapture + nfdsPlayback));
+    intermediaryBufferSize = ma_align_64(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback));
+
+    {
+        size_t deviceStateAllocSizeNew;
+        ma_device_state_sndio* pDeviceStateSndioNew;
+
+        deviceStateAllocSizeNew  = ma_align_64(sizeof(*pDeviceStateSndio));
+        deviceStateAllocSizeNew += pollFDsSize;
+        deviceStateAllocSizeNew += intermediaryBufferSize;
+
+        pDeviceStateSndioNew = (ma_device_state_sndio*)ma_realloc(pDeviceStateSndio, deviceStateAllocSizeNew, ma_device_get_allocation_callbacks(pDevice));
+        if (pDeviceStateSndioNew == NULL) {
+            ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
+            return MA_OUT_OF_MEMORY;
+        }
+
+        pDeviceStateSndio = pDeviceStateSndioNew;
     }
 
-    /*
-    Now we need an intermediary buffer. This can be shared between capture and playback so we just
-    allocate this based on the largest required size between the two.
-    */
-    pDeviceStateSndio->pIntermediaryBuffer = ma_calloc(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback), ma_device_get_allocation_callbacks(pDevice));
-    if (pDeviceStateSndio->pIntermediaryBuffer == NULL) {
-        ma_device_uninit__sndio(pDevice);
-        return MA_OUT_OF_MEMORY;
-    }
-    
+    pDeviceStateSndio->pPollFDs            = (struct pollfd*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)));
+    pDeviceStateSndio->pIntermediaryBuffer =          (void*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)) + pollFDsSize);
 
     *ppDeviceState = pDeviceStateSndio;
 
@@ -37593,17 +37621,7 @@ static void ma_device_uninit__sndio(ma_device* pDevice)
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        pContextStateSndio->sio_close(pDeviceStateSndio->capture.handle);
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        pContextStateSndio->sio_close(pDeviceStateSndio->playback.handle);
-    }
-
-    ma_free(pDeviceStateSndio->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
-    ma_free(pDeviceStateSndio->pPollFDs, ma_device_get_allocation_callbacks(pDevice));
-    ma_free(pDeviceStateSndio, ma_device_get_allocation_callbacks(pDevice));
+    ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static void ma_device_prime_playback_buffer__sndio(ma_device* pDevice)
