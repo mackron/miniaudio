@@ -38752,7 +38752,10 @@ static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blo
     ma_device_type deviceType = ma_device_get_type(pDevice);
     struct timeval tv;
     struct timeval* pTimeout = NULL;
-    fd_set fds;
+    fd_set fdsRead;
+    fd_set fdsWrite;
+    int fdMax;
+    int selectResult;
     ma_result result;
 
     if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
@@ -38761,22 +38764,32 @@ static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blo
         pTimeout = &tv;
     }
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        int retval;
+    do
+    {
+        FD_ZERO(&fdsRead);
+        FD_ZERO(&fdsWrite);
 
-        do
-        {
-            FD_ZERO(&fds);
-            FD_SET(pDeviceStateAudio4->fdCapture, &fds);
+        fdMax = 0;
 
-            retval = select(pDeviceStateAudio4->fdCapture + 1, &fds, NULL, NULL, pTimeout);
-        } while (retval < 0 && errno == EINTR);
-
-        if (!ma_device_is_started(pDevice)) {
-            return MA_DEVICE_NOT_STARTED;
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            FD_SET(pDeviceStateAudio4->fdCapture, &fdsRead);
+            fdMax = ma_max(fdMax, pDeviceStateAudio4->fdCapture);
+        }
+        
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            FD_SET(pDeviceStateAudio4->fdPlayback, &fdsWrite);
+            fdMax = ma_max(fdMax, pDeviceStateAudio4->fdPlayback);
         }
 
-        if (FD_ISSET(pDeviceStateAudio4->fdCapture, &fds)) {
+        selectResult = select(fdMax + 1, &fdsRead, &fdsWrite, NULL, pTimeout);
+    } while (selectResult < 0 && errno == EINTR);
+
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        if (FD_ISSET(pDeviceStateAudio4->fdCapture, &fdsRead)) {
             ma_uint32 framesRead;
 
             result = ma_device_read__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
@@ -38789,21 +38802,7 @@ static ma_result ma_device_step__audio4(ma_device* pDevice, ma_blocking_mode blo
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        int retval;
-
-        do
-        {
-            FD_ZERO(&fds);
-            FD_SET(pDeviceStateAudio4->fdPlayback, &fds);
-
-            retval = select(pDeviceStateAudio4->fdPlayback + 1, NULL, &fds, NULL, pTimeout);
-        } while (retval < 0 && errno == EINTR);
-
-        if (!ma_device_is_started(pDevice)) {
-            return MA_DEVICE_NOT_STARTED;
-        }
-
-        if (FD_ISSET(pDeviceStateAudio4->fdPlayback, &fds)) {
+        if (FD_ISSET(pDeviceStateAudio4->fdPlayback, &fdsWrite)) {
             ma_uint32 framesWritten;
 
             result = ma_device_write__audio4(pDevice, pDeviceStateAudio4->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, &framesWritten);
