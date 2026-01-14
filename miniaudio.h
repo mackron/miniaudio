@@ -37854,14 +37854,12 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         }
 
         if ((revents & POLLOUT) != 0) {
-            ma_uint32 framesWritten;
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-            result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, &framesWritten);
+            result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
                 return result;
             }
-
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, framesWritten);
         }
     }
 
