@@ -37526,13 +37526,11 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
     return MA_SUCCESS;
 }
 
-static void ma_device_uninit__sndio(ma_device* pDevice);
 
-static void ma_device_uninit_device_state__sndio(ma_device_state_sndio* pDeviceStateSndio, ma_context_state_sndio* pContextStateSndio, ma_device_type deviceType, const ma_allocation_callbacks* pAllocationCallbacks)
+static void ma_device_uninit_internal__sndio(ma_device* pDevice, ma_device_state_sndio* pDeviceStateSndio)
 {
-    if (pDeviceStateSndio == NULL || pContextStateSndio == NULL) {
-        return;
-    }
+    ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
+    ma_device_type deviceType = ma_device_get_type(pDevice);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         pContextStateSndio->sio_close(pDeviceStateSndio->capture.handle);
@@ -37542,7 +37540,7 @@ static void ma_device_uninit_device_state__sndio(ma_device_state_sndio* pDeviceS
         pContextStateSndio->sio_close(pDeviceStateSndio->playback.handle);
     }
 
-    ma_free(pDeviceStateSndio, pAllocationCallbacks);
+    ma_free(pDeviceStateSndio, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -37576,7 +37574,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__sndio(pDevice, pDeviceStateSndio, pDeviceConfigSndio, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
-            ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
             return result;
         }
 
@@ -37587,7 +37585,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_by_type__sndio(pDevice, pDeviceStateSndio, pDeviceConfigSndio, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
-            ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
             return result;
         }
 
@@ -37612,7 +37610,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
 
         pDeviceStateSndioNew = (ma_device_state_sndio*)ma_realloc(pDeviceStateSndio, deviceStateAllocSizeNew, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateSndioNew == NULL) {
-            ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
+            ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
             return MA_OUT_OF_MEMORY;
         }
 
@@ -37630,10 +37628,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
 static void ma_device_uninit__sndio(ma_device* pDevice)
 {
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
-    ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    ma_device_uninit_device_state__sndio(pDeviceStateSndio, pContextStateSndio, deviceType, ma_device_get_allocation_callbacks(pDevice));
+    ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
 }
 
 static void ma_device_prime_playback_buffer__sndio(ma_device* pDevice)
