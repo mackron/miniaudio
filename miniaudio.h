@@ -38668,7 +38668,7 @@ static void ma_device_prime_playback_buffer__audio4(ma_device* pDevice)
                 break;
             }
     
-            write(pDeviceStateAudio4->fdPlayback, buffer, framesToWriteThisIteration);
+            write(pDeviceStateAudio4->fdPlayback, buffer, framesToWriteThisIteration * bpf);
             framesWritten += framesToWriteThisIteration;
         }
     }
