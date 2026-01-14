@@ -38517,18 +38517,11 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
 
         /* Buffer. */
         {
-            ma_uint32 internalPeriodSizeInBytes;
-
             internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate);
 
             /* What miniaudio calls a period, audio4 calls a block. */
-            internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
-            if (internalPeriodSizeInBytes < 16) {
-                internalPeriodSizeInBytes = 16;
-            }
-
             fdPar.nblks = pDescriptor->periodCount;
-            fdPar.round = internalPeriodSizeInBytes;
+            fdPar.round = internalPeriodSizeInFrames;
 
             if (ioctl(fd, AUDIO_SETPAR, &fdPar) < 0) {
                 close(fd);
@@ -38543,11 +38536,14 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
             }
         }
 
+        /* Put the device into a stopped state initially. If we don't do this, the first AUDIO_START will fail. */
+        ioctl(fd, AUDIO_STOP, 0);
+
         internalFormat             = ma_format_from_swpar__audio4(&fdPar);
         internalChannels           = (deviceType == ma_device_type_capture) ? fdPar.rchan : fdPar.pchan;
         internalSampleRate         = fdPar.rate;
         internalPeriods            = fdPar.nblks;
-        internalPeriodSizeInFrames = fdPar.round / ma_get_bytes_per_frame(internalFormat, internalChannels);
+        internalPeriodSizeInFrames = fdPar.round;
     }
     #endif
 
@@ -38616,15 +38612,19 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
     introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
     I'm aware.
     */
-#if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
-    /* NetBSD 8.0+ */
-    if (((deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
-        ((deviceType == ma_device_type_capture  || deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
+    #if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
+    {
+        /* NetBSD 8.0+ */
+        if (((deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
+            ((deviceType == ma_device_type_capture  || deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
+            return MA_SHARE_MODE_NOT_SUPPORTED;
+        }
     }
-#else
-    /* All other flavors. */
-#endif
+    #else
+    {
+        /* All other flavors. */
+    }
+    #endif
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture);
@@ -38726,6 +38726,11 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
         if (pDeviceStateAudio4->fdCapture == -1) {
             return MA_INVALID_ARGS;
         }
+
+        if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_START, 0) < 0) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. %s.", ma_result_description(ma_result_from_errno(errno)));
+            return ma_result_from_errno(errno);
+        }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -38734,6 +38739,19 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
         }
 
         ma_device_prime_playback_buffer__audio4(pDevice);
+
+        #if !defined(MA_AUDIO4_USE_NEW_API)
+        {
+            /* Old API. Do nothing here (will be started automatically). */
+        }
+        #else
+        {
+            if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_START, 0) < 0) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. errno=%d, %s.", errno, ma_result_description(ma_result_from_errno(errno)));
+                return ma_result_from_errno(errno);
+            }
+        }
+        #endif
     }
 
     return MA_SUCCESS;
@@ -38745,17 +38763,21 @@ static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
         return MA_INVALID_ARGS;
     }
 
-#if !defined(MA_AUDIO4_USE_NEW_API)
-    if (ioctl(fd, AUDIO_FLUSH, 0) < 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.");
-        return ma_result_from_errno(errno);
+    #if !defined(MA_AUDIO4_USE_NEW_API)
+    {
+        if (ioctl(fd, AUDIO_FLUSH, 0) < 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.");
+            return ma_result_from_errno(errno);
+        }
     }
-#else
-    if (ioctl(fd, AUDIO_STOP, 0) < 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.");
-        return ma_result_from_errno(errno);
+    #else
+    {
+        if (ioctl(fd, AUDIO_STOP, 0) < 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.");
+            return ma_result_from_errno(errno);
+        }
     }
-#endif
+    #endif
 
     return MA_SUCCESS;
 }
@@ -38778,9 +38800,11 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
         ma_result result;
 
         /* Drain the device first. If this fails we'll just need to flush without draining. Unfortunately draining isn't available on newer version of OpenBSD. */
-    #if !defined(MA_AUDIO4_USE_NEW_API)
-        ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_DRAIN, 0);
-    #endif
+        #if !defined(MA_AUDIO4_USE_NEW_API)
+        {
+            ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_DRAIN, 0);
+        }
+        #endif
 
         /* Here is where the device is stopped immediately. */
         result = ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdPlayback);
