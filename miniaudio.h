@@ -38978,8 +38978,7 @@ typedef struct ma_device_state_oss
 {
     int fdPlayback;
     int fdCapture;
-    void* pIntermediaryBufferPlayback;
-    void* pIntermediaryBufferCapture;
+    void* pIntermediaryBuffer;
 } ma_device_state_oss;
 
 static ma_context_state_oss* ma_context_get_backend_state__oss(ma_context* pContext)
@@ -39512,7 +39511,7 @@ static ma_result ma_context_enumerate_devices__oss(ma_context* pContext, ma_enum
     #endif
 }
 
-static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_config_oss* pDeviceConfigOSS, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD, void** ppIntermediaryBuffer)
+static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_config_oss* pDeviceConfigOSS, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD)
 {
     ma_result result;
     int ossResult;
@@ -39523,12 +39522,10 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     int ossChannels;
     int ossSampleRate;
     int ossFragment;
-    void* pIntermediaryBuffer;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pDeviceConfigOSS != NULL);
     MA_ASSERT(pFD != NULL);
-    MA_ASSERT(ppIntermediaryBuffer != NULL);
     MA_ASSERT(deviceType != ma_device_type_duplex);
 
     pDeviceID     = pDescriptor->pDeviceID;
@@ -39623,17 +39620,24 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
         return MA_FORMAT_NOT_SUPPORTED;
     }
 
-    pIntermediaryBuffer = ma_malloc(ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels) * pDescriptor->periodSizeInFrames, ma_device_get_allocation_callbacks(pDevice));
-    if (pIntermediaryBuffer == NULL) {
-        close(fd);
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to allocate memory for intermediary buffer.");
-        return MA_OUT_OF_MEMORY;
-    }
-
     *pFD = fd;
-    *ppIntermediaryBuffer = pIntermediaryBuffer;
 
     return MA_SUCCESS;
+}
+
+static void ma_device_uninit_internal__oss(ma_device* pDevice, ma_device_state_oss* pDeviceStateOSS)
+{
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        close(pDeviceStateOSS->fdCapture);
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        close(pDeviceStateOSS->fdPlayback);
+    }
+
+    ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -39642,6 +39646,9 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
     const ma_device_config_oss* pDeviceConfigOSS = (const ma_device_config_oss*)pDeviceBackendConfig;
     ma_device_config_oss defaultConfigOSS;
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_uint32 intermediaryBufferSizeCapture  = 0;
+    ma_uint32 intermediaryBufferSizePlayback = 0;
+    ma_uint32 intermediaryBufferAllocationSize = 0;
 
     if (pDeviceConfigOSS == NULL) {
         defaultConfigOSS = ma_device_config_oss_init();
@@ -39658,27 +39665,52 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorCapture, ma_device_type_capture, &pDeviceStateOSS->fdCapture, &pDeviceStateOSS->pIntermediaryBufferCapture);
+        ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorCapture, ma_device_type_capture, &pDeviceStateOSS->fdCapture);
         if (result != MA_SUCCESS) {
-            ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open device.");
+            ma_device_uninit_internal__oss(pDevice, pDeviceStateOSS);
             return result;
         }
+
+        intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateOSS->fdPlayback, &pDeviceStateOSS->pIntermediaryBufferPlayback);
+        ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateOSS->fdPlayback);
         if (result != MA_SUCCESS) {
-            if (deviceType == ma_device_type_duplex) {
-                close(pDeviceStateOSS->fdCapture);
-                ma_free(pDeviceStateOSS->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
-            }
-
-            ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open device.");
+            ma_device_uninit_internal__oss(pDevice, pDeviceStateOSS);
             return result;
         }
+
+        intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
     }
+
+    /*
+    We need an intermediary buffer. Since the capture and playback sides are never used simultaneously we can make
+    this the size of the maximum of the two. We can attach this to the end of the device state allocation.
+    */
+    intermediaryBufferAllocationSize = ma_align_64(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback));
+
+    {
+        size_t deviceStateAllocationSizeNew;
+        ma_device_state_oss* pDeviceStateOSSNew;
+
+        deviceStateAllocationSizeNew  = 0;
+        deviceStateAllocationSizeNew += ma_align_64(sizeof(*pDeviceStateOSS));
+        deviceStateAllocationSizeNew += ma_align_64(intermediaryBufferAllocationSize);
+
+        pDeviceStateOSSNew = (ma_device_state_oss*)ma_realloc(pDeviceStateOSS, deviceStateAllocationSizeNew, ma_device_get_allocation_callbacks(pDevice));
+        if (pDeviceStateOSSNew == NULL) {
+            ma_device_uninit_internal__oss(pDevice, pDeviceStateOSS);
+            return MA_OUT_OF_MEMORY;
+        }
+
+        pDeviceStateOSS = pDeviceStateOSSNew;
+    }
+
+    pDeviceStateOSS->pIntermediaryBuffer = ma_offset_ptr(pDeviceStateOSS, ma_align_64(sizeof(*pDeviceStateOSS)));
+    
 
     *ppDeviceState = pDeviceStateOSS;
 
@@ -39688,20 +39720,7 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
 static void ma_device_uninit__oss(ma_device* pDevice)
 {
     ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
-
-    MA_ASSERT(pDevice != NULL);
-
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        close(pDeviceStateOSS->fdCapture);
-        ma_free(pDeviceStateOSS->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
-    }
-
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        close(pDeviceStateOSS->fdPlayback);
-        ma_free(pDeviceStateOSS->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
-    }
-
-    ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
+    ma_device_uninit_internal__oss(pDevice, pDeviceStateOSS);
 }
 
 
@@ -39873,20 +39892,20 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
         if (FD_ISSET(pDeviceStateOSS->fdCapture, &fdsRead)) {
             ma_uint32 framesRead;
 
-            result = ma_device_read__oss(pDevice, pDeviceStateOSS->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
+            result = ma_device_read__oss(pDevice, pDeviceStateOSS->pIntermediaryBuffer, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
             if (result != MA_SUCCESS) {
                 return result;
             }
 
-            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateOSS->pIntermediaryBufferCapture, framesRead);
+            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateOSS->pIntermediaryBuffer, framesRead);
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         if (FD_ISSET(pDeviceStateOSS->fdPlayback, &fdsWrite)) {
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateOSS->pIntermediaryBufferPlayback, NULL, pDevice->playback.internalPeriodSizeInFrames);
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateOSS->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-            result = ma_device_write__oss(pDevice, pDeviceStateOSS->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames, NULL);
+            result = ma_device_write__oss(pDevice, pDeviceStateOSS->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
                 return result;
             }
