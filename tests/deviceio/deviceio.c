@@ -653,7 +653,7 @@ int main(int argc, char** argv)
             deviceFormat = ma_format_f32;
         }
         if (deviceChannels == 0) {
-            deviceChannels = 0;
+            deviceChannels = 2;
         }
         if (deviceSampleRate == 0) {
             deviceSampleRate = 48000;
