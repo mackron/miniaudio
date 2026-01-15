@@ -40827,15 +40827,16 @@ static ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContex
 static void ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(ma_context* pContext, ma_AAudioStream* pStream, ma_format format, ma_uint32 flags, ma_device_info* pDeviceInfo)
 {
     ma_context_state_aaudio* pContextStateAAudio = ma_context_get_backend_state__aaudio(pContext);
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
 
     MA_ASSERT(pStream     != NULL);
     MA_ASSERT(pDeviceInfo != NULL);
 
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = pContextStateAAudio->AAudioStream_getChannelCount(pStream);
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = pContextStateAAudio->AAudioStream_getSampleRate(pStream);
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = flags;
-    pDeviceInfo->nativeDataFormatCount += 1;
+    channels   = pContextStateAAudio->AAudioStream_getChannelCount(pStream);
+    sampleRate = pContextStateAAudio->AAudioStream_getSampleRate(pStream);
+
+    ma_device_info_add_native_data_format_ex(pDeviceInfo, flags, format, channels, channels, sampleRate, sampleRate);
 }
 
 static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_context* pContext, ma_AAudioStream* pStream, ma_uint32 flags, ma_device_info* pDeviceInfo)
