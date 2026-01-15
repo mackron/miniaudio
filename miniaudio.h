@@ -7553,19 +7553,31 @@ struct ma_device_descriptor
 
 typedef struct
 {
-    /* Basic info. This is the only information guaranteed to be filled in during device enumeration. */
     ma_device_id id;
     char name[MA_MAX_DEVICE_NAME_LENGTH + 1];   /* +1 for null terminator. */
     ma_bool32 isDefault;
 
+    /*
+    List of natively supported formats. Each entry should have a unique [flags,format] pair which
+    can be thought of as the key. Then each entry will have a range of supported channels and sample
+    rates. Note that a device won't necessarily support every single channel and sample rate between
+    the reported range. For example, a sample rate range of [44100, 48000] may be reported, but
+    that doesn't mean a rate of, say, 47000 will be supported. The same applies for channels.
+    */
     ma_uint32 nativeDataFormatCount;
     struct
     {
-        ma_format format;       /* Sample format. If set to ma_format_unknown, all sample formats are supported. */
+        ma_uint32 flags;        /* A combination of MA_DATA_FORMAT_FLAG_* flags. */
+        ma_format format;       /* Sample format. */
+        ma_uint32 minChannels;
+        ma_uint32 maxChannels;
+        ma_uint32 minSampleRate;
+        ma_uint32 maxSampleRate;
+
+        /* Legacy deprecated stuff. Will be removed later when the new system is added.. */
         ma_uint32 channels;     /* If set to 0, all channels are supported. */
         ma_uint32 sampleRate;   /* If set to 0, all sample rates are supported. */
-        ma_uint32 flags;        /* A combination of MA_DATA_FORMAT_FLAG_* flags. */
-    } nativeDataFormats[/*ma_format_count * ma_standard_sample_rate_count * MA_MAX_CHANNELS*/ 64];  /* Not sure how big to make this. There can be *many* permutations for virtual devices which can support anything. */
+    } nativeDataFormats[16];    /* Should be big enough for [flags,format] to act as the key. */
 } ma_device_info;
 
 struct ma_device_config
