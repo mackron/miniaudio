@@ -37950,6 +37950,7 @@ audio(4) Backend
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <dirent.h> /* For enumerating over /dev/audio* devices. */
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
