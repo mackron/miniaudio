@@ -32629,15 +32629,29 @@ static ma_result ma_context_init__jack(ma_context* pContext, const void* pContex
     const ma_context_config_jack* pContextConfigJACK = (const ma_context_config_jack*)pContextBackendConfig;
     ma_context_config_jack defaultConfigJACK;
     ma_log* pLog = ma_context_get_log(pContext);
+    size_t clientNameSize;
 
     if (pContextConfigJACK == NULL) {
         defaultConfigJACK  = ma_context_config_jack_init();
         pContextConfigJACK = &defaultConfigJACK;
     }
 
-    pContextStateJACK = (ma_context_state_jack*)ma_calloc(sizeof(*pContextStateJACK), ma_context_get_allocation_callbacks(pContext));
+    if (pContextConfigJACK->pClientName != NULL) {
+        clientNameSize = strlen(pContextConfigJACK->pClientName) + 1;
+    } else {
+        clientNameSize = 0;
+    }
+
+    pContextStateJACK = (ma_context_state_jack*)ma_calloc(ma_align_64(sizeof(*pContextStateJACK) + clientNameSize), ma_context_get_allocation_callbacks(pContext));
     if (pContextStateJACK == NULL) {
         return MA_OUT_OF_MEMORY;
+    }
+
+    if (pContextConfigJACK->pClientName != NULL) {
+        pContextStateJACK->pClientName = (char*)ma_offset_ptr(pContextStateJACK, ma_align_64(sizeof(*pContextStateJACK)));
+        ma_strcpy_s(pContextStateJACK->pClientName, clientNameSize, pContextConfigJACK->pClientName);
+    } else {
+        pContextStateJACK->pClientName = NULL;
     }
 
     #ifndef MA_NO_RUNTIME_LINKING
@@ -32726,10 +32740,6 @@ static ma_result ma_context_init__jack(ma_context* pContext, const void* pContex
     }
     #endif
 
-    if (pContextConfigJACK->pClientName != NULL) {
-        pContextStateJACK->pClientName = ma_copy_string(pContextConfigJACK->pClientName, ma_context_get_allocation_callbacks(pContext));
-    }
-
     pContextStateJACK->tryStartServer = pContextConfigJACK->tryStartServer;
 
     /*
@@ -32740,7 +32750,6 @@ static ma_result ma_context_init__jack(ma_context* pContext, const void* pContex
         ma_jack_client_t* pDummyClient;
         ma_result result = ma_context_open_client__jack(pContextStateJACK, &pDummyClient);
         if (result != MA_SUCCESS) {
-            ma_free(pContextStateJACK->pClientName, ma_context_get_allocation_callbacks(pContext));
             #ifndef MA_NO_RUNTIME_LINKING
             {
                 ma_dlclose(pLog, pContextStateJACK->jackSO);
@@ -32764,9 +32773,6 @@ static void ma_context_uninit__jack(ma_context* pContext)
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(pContext);
 
     MA_ASSERT(pContextStateJACK != NULL);
-
-    ma_free(pContextStateJACK->pClientName, ma_context_get_allocation_callbacks(pContext));
-    pContextStateJACK->pClientName = NULL;
 
     #ifndef MA_NO_RUNTIME_LINKING
     {
@@ -32869,7 +32875,7 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
         bufferSizePlayback = frameCount * (pDevice->playback.internalChannels * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
     }
-    
+
     pNewBuffer = (float*)ma_realloc(pDeviceStateJACK->pIntermediaryBuffer, ma_max(bufferSizeCapture, bufferSizePlayback), ma_device_get_allocation_callbacks(pDevice));
     if (pNewBuffer == NULL) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to allocate memory for intermediary buffer after JACK buffer size change.");
