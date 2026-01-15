@@ -38236,7 +38236,7 @@ static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIn
 
             format = ma_format_from_encoding__audio4(encoding.encoding, encoding.precision);
             if (format != ma_format_unknown) {
-                ma_device_info_add_native_data_format(pDeviceInfo, format, channels, sampleRate, 0);
+                ma_device_info_add_native_data_format_2(pDeviceInfo, format, channels, channels, sampleRate, sampleRate);
             }
 
             counter += 1;
@@ -38267,7 +38267,7 @@ static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIn
         sampleRate = fdPar.rate;
 
         pDeviceInfo->nativeDataFormatCount = 0;
-        ma_device_info_add_native_data_format(pDeviceInfo, format, channels, sampleRate, 0);
+        ma_device_info_add_native_data_format_2(pDeviceInfo, format, channels, channels, sampleRate, sampleRate);
     }
     #endif
 
@@ -38397,31 +38397,32 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
 
                         /* Formats. */
                         if (ioctl(audioctlFD, AUDIO_GETPAR, &audioPar) >= 0) {
-                            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_from_swpar__audio4(&audioPar);
-                            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = 0;   /* Filled out below because it's reported as separate values for capture and playback. */
-                            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = audioPar.rate;
-                            deviceInfo.nativeDataFormatCount += 1;
-                        }
+                            /* We need to try opening the device to check if it's a playback or capture device. */
+                            if (!isTerminating) {
+                                audioFD = open(devnode, O_WRONLY | O_NONBLOCK);
+                                if (audioFD >= 0) {
+                                    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_from_swpar__audio4(&audioPar), audioPar.pchan, audioPar.pchan, audioPar.rate, audioPar.rate);
+                                    {
+                                        isTerminating = (callback(ma_device_type_playback, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                                    }
+                                    deviceInfo.nativeDataFormatCount = 0;   /* <-- Reset channels in case we do another iteration for the capture side. */
+                                }
 
-                        /* We need to try opening the device to check if it's a playback or capture device. */
-                        if (!isTerminating) {
-                            audioFD = open(devnode, O_WRONLY | O_NONBLOCK);
-                            if (audioFD >= 0) {
-                                deviceInfo.nativeDataFormats[0].channels = audioPar.pchan;
-                                isTerminating = (callback(ma_device_type_playback, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                                close(audioFD);
                             }
 
-                            close(audioFD);
-                        }
+                            if (!isTerminating) {
+                                audioFD = open(devnode, O_RDONLY | O_NONBLOCK);
+                                if (audioFD >= 0) {
+                                    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_from_swpar__audio4(&audioPar), audioPar.rchan, audioPar.rchan, audioPar.rate, audioPar.rate);
+                                    {
+                                        isTerminating = (callback(ma_device_type_capture, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                                    }
+                                    deviceInfo.nativeDataFormatCount = 0;
+                                }
 
-                        if (!isTerminating) {
-                            audioFD = open(devnode, O_RDONLY | O_NONBLOCK);
-                            if (audioFD >= 0) {
-                                deviceInfo.nativeDataFormats[0].channels = audioPar.rchan;
-                                isTerminating = (callback(ma_device_type_capture, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                                close(audioFD);
                             }
-
-                            close(audioFD);
                         }
                     } else {
                         /* AUDIO_GETDEV failed for audioctlN. */
