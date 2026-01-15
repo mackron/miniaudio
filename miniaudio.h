@@ -20872,11 +20872,11 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_type__null(
     }
 
     /* Data Format. */
-    deviceInfo.nativeDataFormats[0].format     = ma_format_unknown;
-    deviceInfo.nativeDataFormats[0].channels   = 0;
-    deviceInfo.nativeDataFormats[0].sampleRate = 0;
-    deviceInfo.nativeDataFormats[0].flags      = 0;
-    deviceInfo.nativeDataFormatCount = 1;
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s16, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s32, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s24, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_u8,  1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
