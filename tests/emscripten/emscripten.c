@@ -142,10 +142,69 @@ static EM_BOOL on_canvas_click(int eventType, const EmscriptenMouseEvent* pMouse
 }
 
 
+static void print_device_info(const ma_device_info* pDeviceInfo)
+{
+    ma_uint32 iFormat;
+
+    printf("%s\n", pDeviceInfo->name);
+    printf("    Default:      %s\n", (pDeviceInfo->isDefault) ? "Yes" : "No");
+    printf("    Format Count: %d\n", pDeviceInfo->nativeDataFormatCount);
+    for (iFormat = 0; iFormat < pDeviceInfo->nativeDataFormatCount; ++iFormat) {
+        printf("        %s, [%d, %d], [%d, %d]\n",
+            ma_get_format_name(pDeviceInfo->nativeDataFormats[iFormat].format),
+            pDeviceInfo->nativeDataFormats[iFormat].minChannels,   pDeviceInfo->nativeDataFormats[iFormat].maxChannels,
+            pDeviceInfo->nativeDataFormats[iFormat].minSampleRate, pDeviceInfo->nativeDataFormats[iFormat].maxSampleRate);
+    }
+}
+
+static void enumerate_devices()
+{
+    ma_result result;
+    ma_context context;
+    ma_device_backend_config backend;
+    ma_device_info* pPlaybackDevices;
+    ma_device_info* pCaptureDevices;
+    ma_uint32 playbackDeviceCount;
+    ma_uint32 captureDeviceCount;
+    ma_uint32 iDevice;
+
+    backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
+
+    result = ma_context_init(&backend, 1, NULL, &context);
+    if (result != MA_SUCCESS) {
+        printf("Failed to create context for device enumeration.\n");
+        return;
+    }
+
+    result = ma_context_get_devices(&context, &pPlaybackDevices, &playbackDeviceCount, &pCaptureDevices, &captureDeviceCount);
+    if (result != MA_SUCCESS) {
+        printf("Failed to enumerate devices.\n");
+        ma_context_uninit(&context);
+        return;
+    }
+
+    printf("Playback Devices\n");
+    printf("----------------\n");
+    for (iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
+        printf("%d: ", iDevice);
+        print_device_info(&pPlaybackDevices[iDevice]);
+    }
+    printf("\n");
+
+    printf("Capture Devices\n");
+    printf("---------------\n");
+    for (iDevice = 0; iDevice < captureDeviceCount; iDevice += 1) {
+        printf("%d: ", iDevice);
+        print_device_info(&pCaptureDevices[iDevice]);
+    }
+    printf("\n");
+}
 
 
 int main(int argc, char** argv)
 {
+    enumerate_devices();
+
     printf("Click inside canvas to start playing:\n");
     printf("    Left click for playback\n");
     printf("    Right click for duplex\n");

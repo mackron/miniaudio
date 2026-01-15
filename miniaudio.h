@@ -41895,7 +41895,7 @@ static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format f
 
     MA_ASSERT(pContext    != NULL);
     MA_ASSERT(pDeviceInfo != NULL);
-    
+
     ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
 
@@ -42910,6 +42910,7 @@ static void ma_context_uninit__webaudio(ma_context* pContext)
 static ma_device_enumeration_result ma_context_enumerate_device_from_type__webaudio(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
+    ma_uint32 sampleRate;
 
     (void)pContext;
     
@@ -42929,11 +42930,8 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_type__webau
     }
     
     /* Data Format. */
-    /* Web Audio can support any number of channels. It only supports f32 formats, however. */
-    deviceInfo.nativeDataFormats[0].flags      = 0;
-    deviceInfo.nativeDataFormats[0].format     = ma_format_unknown;
-    deviceInfo.nativeDataFormats[0].channels   = 0; /* All channels are supported. */
-    deviceInfo.nativeDataFormats[0].sampleRate = EM_ASM_INT({
+    /* Web Audio can support any number of channels up to 32. It only supports f32 formats, however. The sample rate can be queried. */
+    sampleRate = EM_ASM_INT({
         try {
             var temp = new (window.AudioContext || window.webkitAudioContext)();
             var sampleRate = temp.sampleRate;
@@ -42944,11 +42942,11 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_type__webau
         }
     }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
 
-    if (deviceInfo.nativeDataFormats[0].sampleRate == 0) {
+    if (sampleRate == 0) {
         return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
-    deviceInfo.nativeDataFormatCount = 1;
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, 1, 32, sampleRate, sampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
