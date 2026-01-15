@@ -32566,7 +32566,8 @@ typedef struct ma_context_state_jack
 
 typedef struct ma_device_state_jack
 {
-    ma_device_state_async async;
+    ma_device_state_async async;    /* Only used in single-threaded mode. */
+    ma_semaphore stepSemaphore;     /* Only used in multi-threaded mode. */
     ma_context_state_jack* pContextStateJACK;
     ma_bool32 noAutoConnect;
     ma_jack_client_t* pClient;
@@ -32574,6 +32575,7 @@ typedef struct ma_device_state_jack
     ma_jack_port_t** ppPortsCapture;
     float* pIntermediaryBufferPlayback; /* Typed as a float because JACK is always floating point. */
     float* pIntermediaryBufferCapture;
+    
 } ma_device_state_jack;
 
 static ma_result ma_context_open_client__jack(ma_context_state_jack* pContextStateJACK, ma_jack_client_t** ppClient)
@@ -32883,7 +32885,9 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
     }
 
-    ma_device_state_async_resize(&pDeviceStateJACK->async, frameCount, frameCount, ma_device_get_allocation_callbacks(pDevice));
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_resize(&pDeviceStateJACK->async, frameCount, frameCount, ma_device_get_allocation_callbacks(pDevice));
+    }
 
     return 0;
 }
@@ -32912,11 +32916,19 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
             }
         }
 
-        ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
+        } else {
+            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
+        }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
+        } else {
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
+        }
 
         /* Channels need to be deinterleaved. */
         for (iChannel = 0; iChannel < pDevice->playback.internalChannels; iChannel += 1) {
@@ -33120,10 +33132,18 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         }
     }
 
-    result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateJACK->async);
-    if (result != MA_SUCCESS) {
-        ma_device_uninit__jack(pDevice);
-        return result;
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateJACK->async);
+        if (result != MA_SUCCESS) {
+            ma_device_uninit__jack(pDevice);
+            return result;
+        }
+    } else {
+        result = ma_semaphore_init(0, &pDeviceStateJACK->stepSemaphore);
+        if (result != MA_SUCCESS) {
+            ma_device_uninit__jack(pDevice);
+            return result;
+        }
     }
 
     *ppDeviceState = pDeviceStateJACK;
@@ -33151,7 +33171,11 @@ static void ma_device_uninit__jack(ma_device* pDevice)
         ma_free(pDeviceStateJACK->ppPortsPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
 
-    ma_device_state_async_uninit(&pDeviceStateJACK->async, ma_device_get_allocation_callbacks(pDevice));
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_uninit(&pDeviceStateJACK->async, ma_device_get_allocation_callbacks(pDevice));
+    } else {
+        ma_semaphore_uninit(&pDeviceStateJACK->stepSemaphore);
+    }
 
     ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
 }
@@ -33240,7 +33264,32 @@ static ma_result ma_device_stop__jack(ma_device* pDevice)
 static ma_result ma_device_step__jack(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
-    return ma_device_state_async_step(&pDeviceStateJACK->async, pDevice, blockingMode, NULL);
+
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        return ma_device_state_async_step(&pDeviceStateJACK->async, pDevice, blockingMode, NULL);
+    } else {
+        /* In multithreaded mode we don't actually do anything here except wait on a semaphore. */
+        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+            ma_semaphore_wait(&pDeviceStateJACK->stepSemaphore);
+        }
+
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        return MA_SUCCESS;
+    }
+}
+
+static void ma_device_wakeup__jack(ma_device* pDevice)
+{
+    ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
+
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_release(&pDeviceStateJACK->async);
+    } else {
+        ma_semaphore_release(&pDeviceStateJACK->stepSemaphore);
+    }
 }
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
@@ -33254,7 +33303,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_JACK =
     ma_device_start__jack,
     ma_device_stop__jack,
     ma_device_step__jack,
-    NULL    /* onDeviceWakeup */
+    ma_device_wakeup__jack
 };
 
 ma_device_backend_vtable* ma_device_backend_jack = &ma_gDeviceBackendVTable_JACK;
