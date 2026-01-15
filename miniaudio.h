@@ -28932,7 +28932,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
 
 
 
-static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, const ma_device_config_alsa* pDeviceConfigALSA, ma_device_descriptor* pDescriptor, ma_device_type deviceType)
+static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_state_alsa* pContextStateALSA, ma_device_state_alsa* pDeviceStateALSA, const ma_device_config_alsa* pDeviceConfigALSA, ma_device_descriptor* pDescriptor, ma_device_type deviceType, void* pParamsMemory)
 {
     int resultALSA;
     ma_snd_pcm_t* pPCM;
@@ -28945,8 +28945,6 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
     int openMode;
-    size_t paramsMemorySize;
-    void* pParamsMemory;    /* One allocation for both hardware and software params. */
     ma_snd_pcm_hw_params_t* pHWParams;
     ma_snd_pcm_sw_params_t* pSWParams;
     const char* pDeviceNames[16];
@@ -28997,14 +28995,6 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
 
     deviceNameCount = iDeviceName;
 
-
-    /* Allocate memory for our hardware and software params. We do this with a single allocation. They are used independently so we can just alias this allocation. */
-    paramsMemorySize = ma_max(pContextStateALSA->snd_pcm_hw_params_sizeof(), pContextStateALSA->snd_pcm_sw_params_sizeof());
-
-    pParamsMemory = ma_calloc(paramsMemorySize, ma_context_get_allocation_callbacks(pContext));
-    if (pParamsMemory == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
 
     /* Alias the memory allocation. */
     pHWParams = (ma_snd_pcm_hw_params_t*)pParamsMemory;
@@ -29372,12 +29362,10 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
         pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
         pDescriptor->periodCount        = internalPeriods;
 
-        ma_free(pParamsMemory, ma_context_get_allocation_callbacks(pContext));
         return MA_SUCCESS;
     }
 
     /* Getting here means we failed to initialize the device. */
-    ma_free(pParamsMemory, ma_context_get_allocation_callbacks(pContext));
     return MA_ERROR;
 }
 
@@ -29416,6 +29404,8 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     ma_uint32 intermediaryBufferSizePlayback = 0;
     size_t pollDescriptorAllocationSize = 0;
     size_t intermediaryBufferAllocationSize = 0;
+    size_t paramsMemorySize;
+    void* pParamsMemory;
 
     MA_ASSERT(pContextStateALSA != NULL);
 
@@ -29428,10 +29418,19 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    pDeviceStateALSA = (ma_device_state_alsa*)ma_calloc(sizeof(*pDeviceStateALSA), ma_device_get_allocation_callbacks(pDevice));
+    /*
+    The memory for hw and sw params are allocated on the heap. We'll do that as part of the device state allocation
+    so I can obsessively reduce our malloc count by 1. It'll be realloc'd later when we append memory for the pollfd
+    objects and intermediary buffer so shouldn't be wasteful.
+    */
+    paramsMemorySize = ma_max(pContextStateALSA->snd_pcm_hw_params_sizeof(), pContextStateALSA->snd_pcm_sw_params_sizeof());
+
+    pDeviceStateALSA = (ma_device_state_alsa*)ma_calloc(ma_align_64(sizeof(*pDeviceStateALSA)) + paramsMemorySize, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateALSA == NULL) {
         return MA_OUT_OF_MEMORY;
     }
+
+    pParamsMemory = ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)));
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         /* Duplex mode must have at least two periods. */
@@ -29441,7 +29440,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
             }
         }
 
-        result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorCapture, ma_device_type_capture);
+        result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorCapture, ma_device_type_capture, pParamsMemory);
         if (result != MA_SUCCESS) {
             ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return result;
@@ -29465,7 +29464,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
             }
         }
 
-        result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorPlayback, ma_device_type_playback);
+        result = ma_device_init_by_type__alsa(ma_device_get_context(pDevice), pContextStateALSA, pDeviceStateALSA, pDeviceConfigALSA, pDescriptorPlayback, ma_device_type_playback, pParamsMemory);
         if (result != MA_SUCCESS) {
             ma_device_uninit_internal__alsa(pDevice, pDeviceStateALSA);
             return result;
