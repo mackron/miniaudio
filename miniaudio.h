@@ -25539,6 +25539,9 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
     ma_device_info deviceInfo;
     ma_result result;
     HRESULT hr;
+    ma_uint32 iFormat;
+    ma_uint32 minSampleRate = 0xFFFFFFFF;
+    ma_uint32 maxSampleRate = 0;
 
     (void)lpcstrModule;
 
@@ -25600,25 +25603,21 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         in order to keep the size of this within reason.
         */
         if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
-            /* Multiple sample rates are supported. We'll report in order of our preferred sample rates. */
-            size_t iStandardSampleRate;
-            for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(ma_standard_sample_rates); iStandardSampleRate += 1) {
-                ma_uint32 sampleRate = ma_standard_sample_rates[iStandardSampleRate];
-                if (sampleRate >= caps.dwMinSecondarySampleRate && sampleRate <= caps.dwMaxSecondarySampleRate) {
-                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
-                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
-                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = sampleRate;
-                    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].flags      = 0;
-                    deviceInfo.nativeDataFormatCount += 1;
-                }
-            }
+            /* A range of sample rates are supported.  */
+            minSampleRate = caps.dwMinSecondarySampleRate;
+            maxSampleRate = caps.dwMaxSecondarySampleRate;
         } else {
             /* Only a single sample rate is supported. */
-            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
-            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
-            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = caps.dwMaxSecondarySampleRate;
-            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].flags      = 0;
-            deviceInfo.nativeDataFormatCount += 1;
+            minSampleRate = maxSampleRate = caps.dwMaxSecondarySampleRate;
+        }
+
+        /* DirectSound will have the minimum sample rate set to something stupidly small like 100. We're going to clamp it. */
+        minSampleRate = ma_clamp(minSampleRate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+        maxSampleRate = ma_clamp(maxSampleRate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+
+        /* All formats are supported. */
+        for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
+            ma_device_info_add_native_data_format_2(&deviceInfo, g_maFormatPriorities[iFormat], channels, channels, minSampleRate, maxSampleRate);
         }
 
         ma_IDirectSound_Release(pDirectSound);
@@ -25631,6 +25630,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         ma_IDirectSoundCapture* pDirectSoundCapture;
         WORD channels;
         WORD bitsPerSample;
+        ma_format format;
         DWORD sampleRate;
 
         result = ma_context_create_IDirectSoundCapture__dsound(pData->pContext, ma_share_mode_shared, &deviceInfo.id, &pDirectSoundCapture);
@@ -25648,21 +25648,18 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
 
         /* The format is always an integer format and is based on the bits per sample. */
         if (bitsPerSample == 8) {
-            deviceInfo.nativeDataFormats[0].format = ma_format_u8;
+            format = ma_format_u8;
         } else if (bitsPerSample == 16) {
-            deviceInfo.nativeDataFormats[0].format = ma_format_s16;
+            format = ma_format_s16;
         } else if (bitsPerSample == 24) {
-            deviceInfo.nativeDataFormats[0].format = ma_format_s24;
+            format = ma_format_s24;
         } else if (bitsPerSample == 32) {
-            deviceInfo.nativeDataFormats[0].format = ma_format_s32;
+            format = ma_format_s32;
         } else {
-            deviceInfo.nativeDataFormats[0].format = ma_format_unknown;
+            format = ma_format_unknown;
         }
 
-        deviceInfo.nativeDataFormats[0].channels   = channels;
-        deviceInfo.nativeDataFormats[0].sampleRate = sampleRate;
-        deviceInfo.nativeDataFormats[0].flags      = 0;
-        deviceInfo.nativeDataFormatCount = 1;
+        ma_device_info_add_native_data_format_2(&deviceInfo, format, channels, channels, sampleRate, sampleRate);
     }
 
 
