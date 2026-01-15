@@ -32764,6 +32764,10 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_client__jac
 {
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(pContext);
     ma_device_info deviceInfo;
+    const char** ppPorts;
+    ma_uint32 minChannels = 0;
+    ma_uint32 maxChannels = 0;
+    ma_uint32 sampleRate;
 
     MA_ZERO_OBJECT(&deviceInfo);
 
@@ -32781,10 +32785,27 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_client__jac
     }
 
     /* Data Format. */
-    deviceInfo.nativeDataFormatCount = 1;
-    deviceInfo.nativeDataFormats[0].format     = ma_format_f32; /* JACK is always f32. */
-    deviceInfo.nativeDataFormats[0].channels   = 0;             /* JACK can support any number of channels (ports). */
-    deviceInfo.nativeDataFormats[0].sampleRate = pContextStateJACK->jack_get_sample_rate(pClient);
+    ppPorts = pContextStateJACK->jack_get_ports(pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ((deviceType == ma_device_type_capture) ? ma_JackPortIsOutput : ma_JackPortIsInput));
+    if (ppPorts != NULL) {
+        maxChannels = 0;
+        while (ppPorts[maxChannels] != NULL) {
+            /*printf("PORT: %s\n", ppPorts[maxChannels]);*/
+            maxChannels += 1;
+        }
+
+        pContextStateJACK->jack_free((void*)ppPorts);
+    }
+
+    if (maxChannels == 0) {
+        minChannels = 1;
+        maxChannels = MA_MAX_CHANNELS;
+    } else {
+        minChannels = maxChannels;
+    }
+
+    sampleRate = pContextStateJACK->jack_get_sample_rate(pClient);
+
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, minChannels, maxChannels, sampleRate, sampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
