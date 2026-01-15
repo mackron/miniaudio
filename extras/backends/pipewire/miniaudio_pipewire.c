@@ -1693,11 +1693,12 @@ static ma_device_enumeration_result ma_context_enumerate_default_device_by_type_
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Capture Device", (size_t)-1);
     }
 
-    /* Data Format. */
-    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
-    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = 0;
-    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = 0;
-    deviceInfo.nativeDataFormatCount += 1;
+    /* Data Format. PipeWire supports everything. Its maximum channel count is 64. */
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s16, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s24, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_u8,  1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
@@ -1902,10 +1903,11 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
 
     /* Data Format. Just support everything for now. */
     /* TODO: See if there's a reasonable way to query the true "native" format. Maybe just initialize a stream and handle the SPA_PARAM_Format parameter in param_changed()? */
-    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_unknown;
-    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = 0;
-    deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = 0;
-    deviceInfo.nativeDataFormatCount += 1;
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s16, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s24, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_u8,  1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 
     ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, &deviceInfo);
 

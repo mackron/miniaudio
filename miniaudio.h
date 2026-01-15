@@ -7580,6 +7580,11 @@ typedef struct
     } nativeDataFormats[16];    /* Should be big enough for [flags,format] to act as the key. */
 } ma_device_info;
 
+MA_API void ma_device_info_add_native_data_format_ex(ma_device_info* pDeviceInfo, ma_uint32 flags, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate);
+MA_API void ma_device_info_add_native_data_format_2(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate);
+
+
+
 struct ma_device_config
 {
     ma_device_type deviceType;
@@ -19815,6 +19820,28 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
         pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = flags;
         pDeviceInfo->nativeDataFormatCount += 1;
     }
+}
+
+MA_API void ma_device_info_add_native_data_format_ex(ma_device_info* pDeviceInfo, ma_uint32 flags, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate)
+{
+    if (pDeviceInfo == NULL) {
+        return;
+    }
+
+    if (pDeviceInfo->nativeDataFormatCount < ma_countof(pDeviceInfo->nativeDataFormats)) {
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags         = flags;
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format        = format;
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].minChannels   = minChannels;
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].maxChannels   = maxChannels;
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].minSampleRate = minSampleRate;
+        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].maxSampleRate = maxSampleRate;
+        pDeviceInfo->nativeDataFormatCount += 1;
+    }
+}
+
+MA_API void ma_device_info_add_native_data_format_2(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate)
+{
+    ma_device_info_add_native_data_format_ex(pDeviceInfo, 0, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
 
 
