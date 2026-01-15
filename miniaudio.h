@@ -37328,39 +37328,57 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_handle__snd
             le   = caps.enc[iEncoding].le;
             msb  = caps.enc[iEncoding].msb;
             format = ma_format_from_sio_enc__sndio(bits, bps, sig, le, msb);
-            if (format == ma_format_unknown) {
-                continue;   /* Format not supported. */
-            }
+            if (format != ma_format_unknown) {
+                unsigned int minChannels   = 0xFFFFFFFF;
+                unsigned int maxChannels   = 0;
+                unsigned int minSampleRate = 0xFFFFFFFF;
+                unsigned int maxSampleRate = 0;
 
+                /* Channels. */
+                for (iChannel = 0; iChannel < MA_SIO_NCHAN; iChannel += 1) {
+                    unsigned int chan = 0;
 
-            /* Channels. */
-            for (iChannel = 0; iChannel < MA_SIO_NCHAN; iChannel += 1) {
-                unsigned int chan = 0;
-                unsigned int channels;
+                    if (deviceType == ma_device_type_playback) {
+                        chan = caps.confs[iConfig].pchan;
+                    } else {
+                        chan = caps.confs[iConfig].rchan;
+                    }
 
-                if (deviceType == ma_device_type_playback) {
-                    chan = caps.confs[iConfig].pchan;
-                } else {
-                    chan = caps.confs[iConfig].rchan;
+                    if ((chan & (1UL << iChannel)) != 0) {
+                        unsigned int channels;
+
+                        if (deviceType == ma_device_type_playback) {
+                            channels = caps.pchan[iChannel];
+                        } else {
+                            channels = caps.rchan[iChannel];
+                        }
+    
+                        if (minChannels > channels) {
+                            minChannels = channels;
+                        }
+                        if (maxChannels < channels) {
+                            maxChannels = channels;
+                        }
+                    }
                 }
-
-                if ((chan & (1UL << iChannel)) == 0) {
-                    continue;
-                }
-
-                if (deviceType == ma_device_type_playback) {
-                    channels = caps.pchan[iChannel];
-                } else {
-                    channels = caps.rchan[iChannel];
-                }
-
 
                 /* Sample Rates. */
                 for (iRate = 0; iRate < MA_SIO_NRATE; iRate += 1) {
                     if ((caps.confs[iConfig].rate & (1UL << iRate)) != 0) {
-                        ma_device_info_add_native_data_format(&deviceInfo, format, channels, caps.rate[iRate], 0);
+                        unsigned int sampleRate = caps.rate[iRate];
+
+                        if (minSampleRate > sampleRate) {
+                            minSampleRate = sampleRate;
+                        }
+                        if (maxSampleRate < sampleRate) {
+                            maxSampleRate = sampleRate;
+                        }
                     }
                 }
+
+                ma_device_info_add_native_data_format_2(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+            } else {
+                /* Format not supported. */
             }
         }
     }
