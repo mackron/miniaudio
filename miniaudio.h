@@ -7581,7 +7581,7 @@ typedef struct
 } ma_device_info;
 
 MA_API void ma_device_info_add_native_data_format_ex(ma_device_info* pDeviceInfo, ma_uint32 flags, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate);
-MA_API void ma_device_info_add_native_data_format_2(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate);
+MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate);
 
 
 
@@ -19807,21 +19807,6 @@ END BACKENDS
 
 ************************************************************************************************************************************************************/
 
-MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 flags)
-{
-    if (pDeviceInfo == NULL) {
-        return;
-    }
-
-    if (pDeviceInfo->nativeDataFormatCount < ma_countof(pDeviceInfo->nativeDataFormats)) {
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = sampleRate;
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = flags;
-        pDeviceInfo->nativeDataFormatCount += 1;
-    }
-}
-
 MA_API void ma_device_info_add_native_data_format_ex(ma_device_info* pDeviceInfo, ma_uint32 flags, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate)
 {
     if (pDeviceInfo == NULL) {
@@ -19839,7 +19824,7 @@ MA_API void ma_device_info_add_native_data_format_ex(ma_device_info* pDeviceInfo
     }
 }
 
-MA_API void ma_device_info_add_native_data_format_2(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate)
+MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate)
 {
     ma_device_info_add_native_data_format_ex(pDeviceInfo, 0, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
@@ -20872,11 +20857,11 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_type__null(
     }
 
     /* Data Format. */
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s16, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s32, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_s24, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_u8,  1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s16, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s32, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s24, 1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_u8,  1, MA_MAX_CHANNELS, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
@@ -25619,7 +25604,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
 
         /* All formats are supported. */
         for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
-            ma_device_info_add_native_data_format_2(&deviceInfo, g_maFormatPriorities[iFormat], channels, channels, minSampleRate, maxSampleRate);
+            ma_device_info_add_native_data_format(&deviceInfo, g_maFormatPriorities[iFormat], channels, channels, minSampleRate, maxSampleRate);
         }
 
         ma_IDirectSound_Release(pDirectSound);
@@ -25661,7 +25646,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
             format = ma_format_unknown;
         }
 
-        ma_device_info_add_native_data_format_2(&deviceInfo, format, channels, channels, sampleRate, sampleRate);
+        ma_device_info_add_native_data_format(&deviceInfo, format, channels, channels, sampleRate, sampleRate);
     }
 
 
@@ -27013,7 +26998,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
         return MA_FORMAT_NOT_SUPPORTED;
     }
 
-    ma_device_info_add_native_data_format_2(pDeviceInfo, format, pCaps->wChannels, pCaps->wChannels, sampleRate, sampleRate);
+    ma_device_info_add_native_data_format(pDeviceInfo, format, pCaps->wChannels, pCaps->wChannels, sampleRate, sampleRate);
 
     return MA_SUCCESS;
 }
@@ -28842,7 +28827,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                         minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
                         maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
 
-                        ma_device_info_add_native_data_format_2(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+                        ma_device_info_add_native_data_format(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
                     } else {
                         /* The format is not supported. Skip. */
                     }
@@ -31492,7 +31477,7 @@ static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context
         nativeFormat =  ma_format_f32;
     }
 
-    ma_device_info_add_native_data_format_2(&deviceInfo, nativeFormat, pInfo->sample_spec.channels, pInfo->sample_spec.channels, pInfo->sample_spec.rate, pInfo->sample_spec.rate);
+    ma_device_info_add_native_data_format(&deviceInfo, nativeFormat, pInfo->sample_spec.channels, pInfo->sample_spec.channels, pInfo->sample_spec.rate, pInfo->sample_spec.rate);
 
     pData->isTerminated = (pData->callback(ma_device_type_playback, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
 
@@ -31534,7 +31519,7 @@ static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_conte
         nativeFormat =  ma_format_f32;
     }
 
-    ma_device_info_add_native_data_format_2(&deviceInfo, nativeFormat, pInfo->sample_spec.channels, pInfo->sample_spec.channels, pInfo->sample_spec.rate, pInfo->sample_spec.rate);
+    ma_device_info_add_native_data_format(&deviceInfo, nativeFormat, pInfo->sample_spec.channels, pInfo->sample_spec.channels, pInfo->sample_spec.rate, pInfo->sample_spec.rate);
     
     pData->isTerminated = (pData->callback(ma_device_type_capture, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
 
@@ -32803,7 +32788,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_client__jac
 
     sampleRate = pContextStateJACK->jack_get_sample_rate(pClient);
 
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, minChannels, maxChannels, sampleRate, sampleRate);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, minChannels, maxChannels, sampleRate, sampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
@@ -35161,7 +35146,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
 
             ma_free(pSampleRateRanges, &pContext->allocationCallbacks);
 
-            ma_device_info_add_native_data_format_2(&deviceInfo, format, channels, channels, minSampleRate, maxSampleRate);
+            ma_device_info_add_native_data_format(&deviceInfo, format, channels, channels, minSampleRate, maxSampleRate);
         }
 
         ma_free(pStreamDescriptions, &pContext->allocationCallbacks);
@@ -35253,7 +35238,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AVAudioSessio
         sampleRate = (ma_uint32)pAudioSession.sampleRate;
     }
 
-    ma_device_info_add_native_data_format_2(&deviceInfo, format, channels, channels, sampleRate, sampleRate);
+    ma_device_info_add_native_data_format(&deviceInfo, format, channels, channels, sampleRate, sampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
@@ -37366,7 +37351,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_handle__snd
                     }
                 }
 
-                ma_device_info_add_native_data_format_2(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+                ma_device_info_add_native_data_format(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
             } else {
                 /* Format not supported. */
             }
@@ -38245,7 +38230,7 @@ static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIn
 
             format = ma_format_from_encoding__audio4(encoding.encoding, encoding.precision);
             if (format != ma_format_unknown) {
-                ma_device_info_add_native_data_format_2(pDeviceInfo, format, channels, channels, sampleRate, sampleRate);
+                ma_device_info_add_native_data_format(pDeviceInfo, format, channels, channels, sampleRate, sampleRate);
             }
 
             counter += 1;
@@ -38276,7 +38261,7 @@ static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIn
         sampleRate = fdPar.rate;
 
         pDeviceInfo->nativeDataFormatCount = 0;
-        ma_device_info_add_native_data_format_2(pDeviceInfo, format, channels, channels, sampleRate, sampleRate);
+        ma_device_info_add_native_data_format(pDeviceInfo, format, channels, channels, sampleRate, sampleRate);
     }
     #endif
 
@@ -38410,7 +38395,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
                             if (!isTerminating) {
                                 audioFD = open(devnode, O_WRONLY | O_NONBLOCK);
                                 if (audioFD >= 0) {
-                                    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_from_swpar__audio4(&audioPar), audioPar.pchan, audioPar.pchan, audioPar.rate, audioPar.rate);
+                                    ma_device_info_add_native_data_format(&deviceInfo, ma_format_from_swpar__audio4(&audioPar), audioPar.pchan, audioPar.pchan, audioPar.rate, audioPar.rate);
                                     {
                                         isTerminating = (callback(ma_device_type_playback, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                                     }
@@ -38423,7 +38408,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
                             if (!isTerminating) {
                                 audioFD = open(devnode, O_RDONLY | O_NONBLOCK);
                                 if (audioFD >= 0) {
-                                    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_from_swpar__audio4(&audioPar), audioPar.rchan, audioPar.rchan, audioPar.rate, audioPar.rate);
+                                    ma_device_info_add_native_data_format(&deviceInfo, ma_format_from_swpar__audio4(&audioPar), audioPar.rchan, audioPar.rchan, audioPar.rate, audioPar.rate);
                                     {
                                         isTerminating = (callback(ma_device_type_capture, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                                     }
@@ -39405,7 +39390,7 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
     minSampleRate = ma_clamp(pAudioInfo->min_rate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     maxSampleRate = ma_clamp(pAudioInfo->max_rate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 
-    ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+    ma_device_info_add_native_data_format(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
 #endif
 
@@ -39476,7 +39461,7 @@ static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pCont
             }
         }
 
-        ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+        ma_device_info_add_native_data_format(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
     } else {
         /* The format is not supported. */
         return MA_ERROR;
@@ -41890,7 +41875,7 @@ static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format f
     MA_ASSERT(pContext    != NULL);
     MA_ASSERT(pDeviceInfo != NULL);
 
-    ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+    ma_device_info_add_native_data_format(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
 
 static ma_device_enumeration_result ma_context_enumerate_device_from_type__opensl(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
@@ -42940,7 +42925,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_type__webau
         return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
-    ma_device_info_add_native_data_format_2(&deviceInfo, ma_format_f32, 1, 32, sampleRate, sampleRate);
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 32, sampleRate, sampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }

@@ -286,7 +286,7 @@ static void ma_add_native_format_from_AudioSpec__sdl2(ma_device_info* pDeviceInf
         format =  ma_format_f32;
     }
 
-    ma_device_info_add_native_data_format_2(pDeviceInfo, format, pAudioSpec->channels, pAudioSpec->channels, pAudioSpec->freq, pAudioSpec->freq);
+    ma_device_info_add_native_data_format(pDeviceInfo, format, pAudioSpec->channels, pAudioSpec->channels, pAudioSpec->freq, pAudioSpec->freq);
 }
 
 static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
