@@ -28648,56 +28648,6 @@ static void ma_context_uninit__alsa(ma_context* pContext)
 }
 
 
-
-static void ma_context_test_rate_and_add_native_data_format__alsa(ma_context_state_alsa* pContextStateALSA, ma_snd_pcm_t* pPCM, ma_snd_pcm_hw_params_t* pHWParams, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 flags, ma_device_info* pDeviceInfo)
-{
-    MA_ASSERT(pPCM        != NULL);
-    MA_ASSERT(pHWParams   != NULL);
-    MA_ASSERT(pDeviceInfo != NULL);
-
-    if (pDeviceInfo->nativeDataFormatCount < ma_countof(pDeviceInfo->nativeDataFormats) && pContextStateALSA->snd_pcm_hw_params_test_rate(pPCM, pHWParams, sampleRate, 0) == 0) {
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = sampleRate;
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = flags;
-        pDeviceInfo->nativeDataFormatCount += 1;
-    }
-}
-
-static void ma_context_iterate_rates_and_add_native_data_format__alsa(ma_context_state_alsa* pContextStateALSA, ma_snd_pcm_t* pPCM, ma_snd_pcm_hw_params_t* pHWParams, ma_format format, ma_uint32 channels, ma_uint32 flags, ma_device_info* pDeviceInfo)
-{
-    ma_uint32 iSampleRate;
-    unsigned int minSampleRate;
-    unsigned int maxSampleRate;
-    int sampleRateDir;  /* Not used. Just passed into snd_pcm_hw_params_get_rate_min/max(). */
-
-    /* There could be a range. */
-    pContextStateALSA->snd_pcm_hw_params_get_rate_min(pHWParams, &minSampleRate, &sampleRateDir);
-    pContextStateALSA->snd_pcm_hw_params_get_rate_max(pHWParams, &maxSampleRate, &sampleRateDir);
-
-    /* Make sure our sample rates are clamped to sane values. Stupid devices like "pulse" will reports rates like "1" which is ridiculous. */
-    minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
-    maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
-
-    for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); iSampleRate += 1) {
-        ma_uint32 standardSampleRate = ma_standard_sample_rates[iSampleRate];
-
-        if (standardSampleRate >= minSampleRate && standardSampleRate <= maxSampleRate) {
-            ma_context_test_rate_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, standardSampleRate, flags, pDeviceInfo);
-        }
-    }
-
-    /* Now make sure our min and max rates are included just in case they aren't in the range of our standard rates. */
-    if (!ma_is_standard_sample_rate(minSampleRate)) {
-        ma_context_test_rate_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, minSampleRate, flags, pDeviceInfo);
-    }
-
-    if (!ma_is_standard_sample_rate(maxSampleRate) && maxSampleRate != minSampleRate) {
-        ma_context_test_rate_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, maxSampleRate, flags, pDeviceInfo);
-    }
-}
-
-
 static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(pContext);
@@ -28801,7 +28751,6 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             ma_snd_pcm_t* pPCM;
             ma_snd_pcm_hw_params_t* pHWParams;
             ma_uint32 iFormat;
-            ma_uint32 iChannel;
             int openMode;
             
             /*
@@ -28860,6 +28809,9 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                         /* The format is supported. */
                         unsigned int minChannels = 0;
                         unsigned int maxChannels = 0;
+                        unsigned int minSampleRate = 0;
+                        unsigned int maxSampleRate = 0;
+                        int sampleRateDir;  /* Not used. Just passed into snd_pcm_hw_params_get_rate_min/max(). */
 
                         /*
                         The configuration space needs to be restricted to this format so we can get an accurate
@@ -28885,32 +28837,14 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                         minChannels = ma_clamp(minChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
                         maxChannels = ma_clamp(maxChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
 
-                        if (minChannels == MA_MIN_CHANNELS && maxChannels == MA_MAX_CHANNELS) {
-                            /* The device supports all channels. Don't iterate over every single one. Instead just set the channels to 0 which means all channels are supported. */
-                            ma_context_iterate_rates_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, 0, 0, &deviceInfo);    /* Intentionally setting the channel count to 0 as that means all channels are supported. */
-                        } else {
-                            /* The device only supports a specific set of channels. We need to iterate over all of them. */
-                            for (iChannel = minChannels; iChannel <= maxChannels; iChannel += 1) {
-                                /* Test the channel before applying it to the configuration space. */
-                                unsigned int channels = iChannel;
+                        pContextStateALSA->snd_pcm_hw_params_get_rate_min(pHWParams, &minSampleRate, &sampleRateDir);
+                        pContextStateALSA->snd_pcm_hw_params_get_rate_max(pHWParams, &maxSampleRate, &sampleRateDir);
 
-                                /* Make sure our channel range is reset before testing again or else we'll always fail the test. */
-                                pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
-                                pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
+                        /* Make sure our sample rates are clamped to sane values. Stupid devices like "pulse" will reports rates like "1" which is ridiculous. */
+                        minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
+                        maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
 
-                                if (pContextStateALSA->snd_pcm_hw_params_test_channels(pPCM, pHWParams, channels) == 0) {
-                                    /* The channel count is supported. */
-
-                                    /* The configuration space now needs to be restricted to the channel count before extracting the sample rate. */
-                                    pContextStateALSA->snd_pcm_hw_params_set_channels(pPCM, pHWParams, channels);
-
-                                    /* Only after the configuration space has been restricted to the specific channel count should we iterate over our sample rates. */
-                                    ma_context_iterate_rates_and_add_native_data_format__alsa(pContextStateALSA, pPCM, pHWParams, format, channels, 0, &deviceInfo);
-                                } else {
-                                    /* The channel count is not supported. Skip. */
-                                }
-                            }
-                        }
+                        ma_device_info_add_native_data_format_2(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
                     } else {
                         /* The format is not supported. Skip. */
                     }
