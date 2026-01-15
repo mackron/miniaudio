@@ -31529,6 +31529,7 @@ static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context
 {
     ma_context_enumerate_devices_callback_data__pulseaudio* pData = (ma_context_enumerate_devices_callback_data__pulseaudio*)pUserData;
     ma_device_info deviceInfo;
+    ma_format nativeFormat;
 
     MA_ASSERT(pData != NULL);
 
@@ -31554,11 +31555,12 @@ static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context
     }
 
     /* Data Format. */
-    deviceInfo.nativeDataFormats[0].format     = ma_format_from_pulseaudio(pInfo->sample_spec.format);
-    deviceInfo.nativeDataFormats[0].channels   = pInfo->sample_spec.channels;
-    deviceInfo.nativeDataFormats[0].sampleRate = pInfo->sample_spec.rate;
-    deviceInfo.nativeDataFormats[0].flags      = 0;
-    deviceInfo.nativeDataFormatCount = 1;
+    nativeFormat = ma_format_from_pulseaudio(pInfo->sample_spec.format);
+    if (nativeFormat == ma_format_unknown) {
+        nativeFormat =  ma_format_f32;
+    }
+
+    ma_device_info_add_native_data_format_2(&deviceInfo, nativeFormat, pInfo->sample_spec.channels, pInfo->sample_spec.channels, pInfo->sample_spec.rate, pInfo->sample_spec.rate);
 
     pData->isTerminated = (pData->callback(ma_device_type_playback, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
 
@@ -31569,6 +31571,7 @@ static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_conte
 {
     ma_context_enumerate_devices_callback_data__pulseaudio* pData = (ma_context_enumerate_devices_callback_data__pulseaudio*)pUserData;
     ma_device_info deviceInfo;
+    ma_format nativeFormat;
 
     MA_ASSERT(pData != NULL);
 
@@ -31594,11 +31597,12 @@ static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_conte
     }
 
     /* Data Format. */
-    deviceInfo.nativeDataFormats[0].format     = ma_format_from_pulseaudio(pInfo->sample_spec.format);
-    deviceInfo.nativeDataFormats[0].channels   = pInfo->sample_spec.channels;
-    deviceInfo.nativeDataFormats[0].sampleRate = pInfo->sample_spec.rate;
-    deviceInfo.nativeDataFormats[0].flags      = 0;
-    deviceInfo.nativeDataFormatCount = 1;
+    nativeFormat = ma_format_from_pulseaudio(pInfo->sample_spec.format);
+    if (nativeFormat == ma_format_unknown) {
+        nativeFormat =  ma_format_f32;
+    }
+
+    ma_device_info_add_native_data_format_2(&deviceInfo, nativeFormat, pInfo->sample_spec.channels, pInfo->sample_spec.channels, pInfo->sample_spec.rate, pInfo->sample_spec.rate);
     
     pData->isTerminated = (pData->callback(ma_device_type_capture, &deviceInfo, pData->pUserData) == MA_DEVICE_ENUMERATION_ABORT);
 
