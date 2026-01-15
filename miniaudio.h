@@ -45677,6 +45677,15 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     #ifndef MA_NO_THREADING
     if (pDevice->hasAudioThread) {
         ma_device_op_queue_push(&pDevice->opQueue, MA_DEVICE_OP_UNINIT, NULL, NULL);
+
+        /*
+        Before waiting on the result, we need to make sure we try waking up the backend first in case it
+        needs a prod.
+        */
+        if (pDevice->pContext->pVTable->onDeviceWakeup != NULL) {
+            pDevice->pContext->pVTable->onDeviceWakeup(pDevice);
+        }
+
         ma_thread_wait(&pDevice->audioThread);
     } else
     #endif
