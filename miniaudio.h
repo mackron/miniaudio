@@ -35117,6 +35117,8 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
             ma_uint32 iSampleRate;
             UInt32 sampleRateRangeCount;
             AudioValueRange* pSampleRateRanges;
+            ma_uint32 minSampleRate = 0xFFFFFFFF;
+            ma_uint32 maxSampleRate = 0;
 
             result = ma_format_from_AudioStreamBasicDescription(&pStreamDescriptions[iStreamDescription].mFormat, &format);
             if (result != MA_SUCCESS) {
@@ -35126,7 +35128,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
             MA_ASSERT(format != ma_format_unknown);
 
             /* Make sure the format isn't already in the output list. */
-            for (iOutputFormat = 0; iOutputFormat < uniqueFormatCount; ++iOutputFormat) {
+            for (iOutputFormat = 0; iOutputFormat < uniqueFormatCount; iOutputFormat += 1) {
                 if (uniqueFormats[iOutputFormat] == format) {
                     hasFormatBeenHandled = MA_TRUE;
                     break;
@@ -35148,33 +35150,20 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
             }
 
             /*
-            Annoyingly Core Audio reports a sample rate range. We just get all the standard rates that are
-            between this range.
+            Core Audio reports a sample rate range. We'll grab the min and max values and report those.
             */
-            for (iSampleRate = 0; iSampleRate < sampleRateRangeCount; ++iSampleRate) {
-                ma_uint32 iStandardSampleRate;
-                for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(ma_standard_sample_rates); iStandardSampleRate += 1) {
-                    ma_uint32 standardSampleRate = ma_standard_sample_rates[iStandardSampleRate];
-                    if (standardSampleRate >= pSampleRateRanges[iSampleRate].mMinimum && standardSampleRate <= pSampleRateRanges[iSampleRate].mMaximum) {
-                        /* We have a new data format. Add it to the list. */
-                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = format;
-                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = channels;
-                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = standardSampleRate;
-                        deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].flags      = 0;
-                        deviceInfo.nativeDataFormatCount += 1;
-
-                        if (deviceInfo.nativeDataFormatCount >= ma_countof(deviceInfo.nativeDataFormats)) {
-                            break;  /* No more room for any more formats. */
-                        }
-                    }
+            for (iSampleRate = 0; iSampleRate < sampleRateRangeCount; iSampleRate += 1) {
+                if (minSampleRate > pSampleRateRanges[iSampleRate].mMinimum) {
+                    minSampleRate = pSampleRateRanges[iSampleRate].mMinimum;
+                }
+                if (maxSampleRate < pSampleRateRanges[iSampleRate].mMaximum) {
+                    maxSampleRate = pSampleRateRanges[iSampleRate].mMaximum;
                 }
             }
 
             ma_free(pSampleRateRanges, &pContext->allocationCallbacks);
 
-            if (deviceInfo.nativeDataFormatCount >= ma_countof(deviceInfo.nativeDataFormats)) {
-                break;  /* No more room for any more formats. */
-            }
+            ma_device_info_add_native_data_format_2(&deviceInfo, format, channels, channels, minSampleRate, maxSampleRate);
         }
 
         ma_free(pStreamDescriptions, &pContext->allocationCallbacks);
@@ -35196,6 +35185,9 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AVAudioSessio
     AudioUnitElement formatElement;
     AudioStreamBasicDescription bestFormat;
     UInt32 propSize;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
 
     MA_ZERO_OBJECT(&deviceInfo);
 
@@ -35245,14 +35237,12 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AVAudioSessio
     audioUnit = NULL;
 
     /* Only a single format is being reported for iOS. */
-    deviceInfo.nativeDataFormatCount = 1;
-
-    result = ma_format_from_AudioStreamBasicDescription(&bestFormat, &deviceInfo.nativeDataFormats[0].format);
+    result = ma_format_from_AudioStreamBasicDescription(&bestFormat, &format);
     if (result != MA_SUCCESS) {
         return MA_DEVICE_ENUMERATION_CONTINUE;
     }
 
-    deviceInfo.nativeDataFormats[0].channels = bestFormat.mChannelsPerFrame;
+    channels = bestFormat.mChannelsPerFrame;
 
     /*
     It looks like Apple are wanting to push the whole AVAudioSession thing. Thus, we need to use that to determine device settings. To do
@@ -35262,8 +35252,10 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AVAudioSessio
         AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
         MA_ASSERT(pAudioSession != NULL);
 
-        deviceInfo.nativeDataFormats[0].sampleRate = (ma_uint32)pAudioSession.sampleRate;
+        sampleRate = (ma_uint32)pAudioSession.sampleRate;
     }
+
+    ma_device_info_add_native_data_format_2(&deviceInfo, format, channels, channels, sampleRate, sampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
