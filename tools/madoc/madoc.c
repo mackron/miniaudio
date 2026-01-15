@@ -310,7 +310,6 @@ static int path_append_extension(char* dst, size_t dstSizeInBytes, const char* b
 static fs_result fs_rmdir_content(const char* pDirectory)
 {
     /* We'll use an iterator for this. */
-    fs_result result;
     fs_iterator* pIterator;
 
     if (pDirectory == NULL) {
