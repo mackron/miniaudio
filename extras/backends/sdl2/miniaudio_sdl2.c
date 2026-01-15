@@ -281,17 +281,12 @@ static void ma_context_uninit__sdl2(ma_context* pContext)
 
 static void ma_add_native_format_from_AudioSpec__sdl2(ma_device_info* pDeviceInfo, const MA_SDL_AudioSpec* pAudioSpec)
 {
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = ma_format_from_sdl2(pAudioSpec->format);
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = pAudioSpec->channels;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = pAudioSpec->freq;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
-
-    /* If miniaudio does not support the format, just use f32 as the native format (SDL will do the necessary conversions for us). */
-    if (pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format == ma_format_unknown) {
-        pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format = ma_format_f32;
+    ma_format format = ma_format_from_sdl2(pAudioSpec->format);
+    if (format == ma_format_unknown) {
+        format =  ma_format_f32;
     }
 
-    pDeviceInfo->nativeDataFormatCount = 1;
+    ma_device_info_add_native_data_format_2(pDeviceInfo, format, pAudioSpec->channels, pAudioSpec->channels, pAudioSpec->freq, pAudioSpec->freq);
 }
 
 static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
