@@ -37972,6 +37972,7 @@ static void ma_context_uninit__audio4(ma_context* pContext)
     ma_free(pContextStateAudio4, ma_context_get_allocation_callbacks(pContext));
 }
 
+#if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
 static void ma_construct_device_id__audio4(char* id, size_t idSize, const char* base, int deviceIndex)
 {
     size_t baseLen;
@@ -37987,8 +37988,6 @@ static void ma_construct_device_id__audio4(char* id, size_t idSize, const char* 
     ma_itoa_s(deviceIndex, id+baseLen, idSize-baseLen, 10);
 }
 
-
-#if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
 static ma_format ma_format_from_encoding__audio4(unsigned int encoding, unsigned int precision)
 {
     if (precision == 8 && (encoding == AUDIO_ENCODING_ULINEAR || encoding == AUDIO_ENCODING_ULINEAR || encoding == AUDIO_ENCODING_ULINEAR_LE || encoding == AUDIO_ENCODING_ULINEAR_BE)) {
@@ -38127,6 +38126,7 @@ static ma_format ma_format_from_swpar__audio4(struct audio_swpar* par)
 }
 #endif
 
+#if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
 static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIndex, struct stat* stDevice, struct stat* stDefault, ma_device_type deviceType, ma_device_info* pDeviceInfo)
 {
     audio_device_t fdDevice;
@@ -38240,62 +38240,157 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_fd___audio4
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
+#endif
 
 static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
-    const int maxDevices = 64;
-    char devpath[256];
-    int iDevice;
-    struct stat stDefault;
-
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
 
-    if (stat("/dev/audioctl", &stDefault) < 0) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open /dev/audioctl. Backend not usable.");
-        return MA_NO_BACKEND;
-    }
+    #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
+    {
+        const int maxDevices = 64;
+        char devpath[256];
+        int iDevice;
+        struct stat stDefault;
 
-    /*
-    Every device will be named "/dev/audioN", with a "/dev/audioctlN" equivalent. We use the "/dev/audioctlN"
-    version here since we can open it even when another process has control of the "/dev/audioN" device.
-    */
-    for (iDevice = 0; iDevice < maxDevices; iDevice += 1) {
-        struct stat st;
-        int fd;
+        if (stat("/dev/audioctl", &stDefault) < 0) {
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open /dev/audioctl. Backend not usable.");
+            return MA_NO_BACKEND;
+        }
+
+        /*
+        Every device will be named "/dev/audioN", with a "/dev/audioctlN" equivalent. We use the "/dev/audioctlN"
+        version here since we can open it even when another process has control of the "/dev/audioN" device.
+        */
+        for (iDevice = 0; iDevice < maxDevices; iDevice += 1) {
+            struct stat st;
+            int fd;
+            ma_bool32 isTerminating = MA_FALSE;
+
+            ma_strcpy_s(devpath, sizeof(devpath), "/dev/audioctl");
+            ma_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
+
+            if (stat(devpath, &st) < 0) {
+                break;
+            }
+
+            /* The device exists, but we need to check if it's usable as playback and/or capture. */
+
+            /* Playback. */
+            if (!isTerminating) {
+                fd = open(devpath, O_RDONLY, 0);
+                if (fd >= 0) {
+                    isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                    close(fd);
+                }
+            }
+
+            /* Capture. */
+            if (!isTerminating) {
+                fd = open(devpath, O_WRONLY, 0);
+                if (fd >= 0) {
+                    isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                    close(fd);
+                }
+            }
+
+            if (isTerminating) {
+                break;
+            }
+        }
+    }
+    #else
+    {
+        DIR *d = opendir("/dev");
+        struct dirent *e;
         ma_bool32 isTerminating = MA_FALSE;
 
-        ma_strcpy_s(devpath, sizeof(devpath), "/dev/audioctl");
-        ma_itoa_s(iDevice, devpath+strlen(devpath), sizeof(devpath)-strlen(devpath), 10);
+        while ((e = readdir(d)) != NULL) {
+            size_t audioctlLen = strlen("audioctl");
 
-        if (stat(devpath, &st) < 0) {
-            break;
-        }
+            if (isTerminating) {
+                break;
+            }
 
-        /* The device exists, but we need to check if it's usable as playback and/or capture. */
+            if (strncmp(e->d_name, "audioctl", audioctlLen) == 0 && strspn(e->d_name+audioctlLen, "0123456789") == strlen(e->d_name+audioctlLen)) {
+                char devnodectl[256];
+                int audioctlFD;
 
-        /* Playback. */
-        if (!isTerminating) {
-            fd = open(devpath, O_RDONLY, 0);
-            if (fd >= 0) {
-                isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
-                close(fd);
+                ma_strcpy_s(devnodectl, sizeof(devnodectl), "/dev/");
+                ma_strcat_s(devnodectl, sizeof(devnodectl), e->d_name);
+
+                audioctlFD = open(devnodectl, O_WRONLY);
+                if (audioctlFD >= 0) {
+                    char devnode[256];
+                    audio_device_t audioDevice;
+                    struct audio_swpar audioPar;
+
+                    ma_strcpy_s(devnode, sizeof(devnode), "/dev/audio");
+                    ma_strcat_s(devnode, sizeof(devnode), e->d_name+audioctlLen);
+
+                    MA_ZERO_OBJECT(&audioDevice);
+                    if (ioctl(audioctlFD, AUDIO_GETDEV, &audioDevice) >= 0) {
+                        ma_device_info deviceInfo;
+                        int audioFD;
+
+                        MA_ZERO_OBJECT(&deviceInfo);
+
+                        /* We just treat `/dev/audio0` as the default. */
+                        if (strcmp(e->d_name+audioctlLen, "0") == 0) {
+                            deviceInfo.isDefault = MA_TRUE;
+                        } else {
+                            deviceInfo.isDefault = MA_FALSE;
+                        }
+
+                        /* ID. */
+                        ma_strcpy_s(deviceInfo.id.audio4, sizeof(deviceInfo.id.audio4), devnode);
+
+                        /* Name. */
+                        ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), audioDevice.name);
+
+                        /* Formats. */
+                        if (ioctl(audioctlFD, AUDIO_GETPAR, &audioPar) >= 0) {
+                            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].format     = ma_format_from_swpar__audio4(&audioPar);
+                            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].channels   = 0;   /* Filled out below because it's reported as separate values for capture and playback. */
+                            deviceInfo.nativeDataFormats[deviceInfo.nativeDataFormatCount].sampleRate = audioPar.rate;
+                            deviceInfo.nativeDataFormatCount += 1;
+                        }
+
+                        /* We need to try opening the device to check if it's a playback or capture device. */
+                        if (!isTerminating) {
+                            audioFD = open(devnode, O_WRONLY | O_NONBLOCK);
+                            if (audioFD >= 0) {
+                                deviceInfo.nativeDataFormats[0].channels = audioPar.pchan;
+                                isTerminating = (callback(ma_device_type_playback, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                            }
+
+                            close(audioFD);
+                        }
+
+                        if (!isTerminating) {
+                            audioFD = open(devnode, O_RDONLY | O_NONBLOCK);
+                            if (audioFD >= 0) {
+                                deviceInfo.nativeDataFormats[0].channels = audioPar.rchan;
+                                isTerminating = (callback(ma_device_type_capture, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                            }
+
+                            close(audioFD);
+                        }
+                    } else {
+                        /* AUDIO_GETDEV failed for audioctlN. */
+                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[audio4] AUDIO_GETDEV failed for %s.", devnodectl);
+                    }
+                } else {
+                    /* Failed to open audioctlN. */
+                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[audio4] Failed to open %s.", devnodectl);
+                }
             }
         }
 
-        /* Capture. */
-        if (!isTerminating) {
-            fd = open(devpath, O_WRONLY, 0);
-            if (fd >= 0) {
-                isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
-                close(fd);
-            }
-        }
-
-        if (isTerminating) {
-            break;
-        }
+        closedir(d);
     }
+    #endif
 
     return MA_SUCCESS;
 }
@@ -38727,10 +38822,18 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
             return MA_INVALID_ARGS;
         }
 
-        if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_START, 0) < 0) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. %s.", ma_result_description(ma_result_from_errno(errno)));
-            return ma_result_from_errno(errno);
+        #if !defined(MA_AUDIO4_USE_NEW_API)
+        {
+            /* Old API. Do nothing here (will be started automatically). */
         }
+        #else
+        {
+            if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_START, 0) < 0) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. %s.", ma_result_description(ma_result_from_errno(errno)));
+                return ma_result_from_errno(errno);
+            }
+        }
+        #endif
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
