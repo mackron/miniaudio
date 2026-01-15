@@ -41882,42 +41882,21 @@ static void ma_context_uninit__opensl(ma_context* pContext)
     ma_free(pContextStateOpenSL, ma_context_get_allocation_callbacks(pContext));
 }
 
-static void ma_context_add_data_format_ex__opensl(ma_context* pContext, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_device_info* pDeviceInfo)
-{
-    MA_ASSERT(pContext    != NULL);
-    MA_ASSERT(pDeviceInfo != NULL);
-
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = sampleRate;
-    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
-    pDeviceInfo->nativeDataFormatCount += 1;
-}
-
 static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format format, ma_device_info* pDeviceInfo)
 {
-    ma_uint32 minChannels   = 1;
-    ma_uint32 maxChannels   = 2;
-    ma_uint32 minSampleRate = (ma_uint32)ma_standard_sample_rate_8000;
-    ma_uint32 maxSampleRate = (ma_uint32)ma_standard_sample_rate_48000;
-    ma_uint32 iChannel;
-    ma_uint32 iSampleRate;
-
-    MA_ASSERT(pContext    != NULL);
-    MA_ASSERT(pDeviceInfo != NULL);
-
     /*
     Each sample format can support mono and stereo, and we'll support a small subset of standard
     rates (up to 48000). A better solution would be to somehow find a native sample rate.
     */
-    for (iChannel = minChannels; iChannel < maxChannels; iChannel += 1) {
-        for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); iSampleRate += 1) {
-            ma_uint32 standardSampleRate = ma_standard_sample_rates[iSampleRate];
-            if (standardSampleRate >= minSampleRate && standardSampleRate <= maxSampleRate) {
-                ma_context_add_data_format_ex__opensl(pContext, format, iChannel, standardSampleRate, pDeviceInfo);
-            }
-        }
-    }
+    ma_uint32 minChannels   = 1;
+    ma_uint32 maxChannels   = 2;
+    ma_uint32 minSampleRate = (ma_uint32)ma_standard_sample_rate_8000;
+    ma_uint32 maxSampleRate = (ma_uint32)ma_standard_sample_rate_48000;
+
+    MA_ASSERT(pContext    != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
+    
+    ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
 
 static ma_device_enumeration_result ma_context_enumerate_device_from_type__opensl(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
