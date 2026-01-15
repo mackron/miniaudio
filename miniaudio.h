@@ -39380,7 +39380,8 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
 {
     unsigned int minChannels;
     unsigned int maxChannels;
-    unsigned int iRate;
+    unsigned int minSampleRate;
+    unsigned int maxSampleRate;
 
     MA_ASSERT(pContext    != NULL);
     MA_ASSERT(pAudioInfo  != NULL);
@@ -39388,44 +39389,13 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
 
     (void)pContext;
 
-    /* If we support all channels we just report 0. */
     minChannels = ma_clamp(pAudioInfo->min_channels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
     maxChannels = ma_clamp(pAudioInfo->max_channels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
 
-    /*
-    OSS has this annoying thing where sample rates can be reported in two ways. We prefer explicitness,
-    which OSS has in the form of nrates/rates, however there are times where nrates can be 0, in which
-    case we'll need to use min_rate and max_rate and report only standard rates.
-    */
-    if (pAudioInfo->nrates > 0) {
-        for (iRate = 0; iRate < pAudioInfo->nrates; iRate += 1) {
-            unsigned int rate = pAudioInfo->rates[iRate];
+    minSampleRate = ma_clamp(pAudioInfo->min_rate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    maxSampleRate = ma_clamp(pAudioInfo->max_rate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 
-            if (minChannels == MA_MIN_CHANNELS && maxChannels == MA_MAX_CHANNELS) {
-                ma_device_info_add_native_data_format(pDeviceInfo, format, 0, rate, 0);   /* Set the channel count to 0 to indicate that all channel counts are supported. */
-            } else {
-                unsigned int iChannel;
-                for (iChannel = minChannels; iChannel <= maxChannels; iChannel += 1) {
-                     ma_device_info_add_native_data_format(pDeviceInfo, format, iChannel, rate, 0);
-                }
-            }
-        }
-    } else {
-        for (iRate = 0; iRate < ma_countof(ma_standard_sample_rates); iRate += 1) {
-            ma_uint32 standardRate = ma_standard_sample_rates[iRate];
-
-            if (standardRate >= (ma_uint32)pAudioInfo->min_rate && standardRate <= (ma_uint32)pAudioInfo->max_rate) {
-                if (minChannels == MA_MIN_CHANNELS && maxChannels == MA_MAX_CHANNELS) {
-                    ma_device_info_add_native_data_format(pDeviceInfo, format, 0, standardRate, 0);   /* Set the channel count to 0 to indicate that all channel counts are supported. */
-                } else {
-                    unsigned int iChannel;
-                    for (iChannel = minChannels; iChannel <= maxChannels; iChannel += 1) {
-                         ma_device_info_add_native_data_format(pDeviceInfo, format, iChannel, standardRate, 0);
-                    }
-                }
-            }
-        }
-    }
+    ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
 #endif
 
@@ -39437,7 +39407,7 @@ static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pCont
     int formatHave;
     int originalChannels;
     int originalRate;
-
+    
     MA_ASSERT(pDeviceInfo != NULL);
     MA_ASSERT(pContext != NULL);
     (void)pContext;
@@ -39458,31 +39428,45 @@ static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pCont
     formatWant = ma_format_to_oss(format);
     formatHave = formatWant;
     if (ioctl(fdDevice, SNDCTL_DSP_SETFMT, &formatHave) >= 0 && formatHave == formatWant) {
+        int minChannels   = 0x7FFFFFFF;
+        int maxChannels   = 0;
+        int minSampleRate = 0x7FFFFFFF;
+        int maxSampleRate = 0;
+
         for (iChannel = 0; iChannel < maxChannelCount; iChannel += 1) {
             int channelsWant = iChannel + 1;
             int channelsHave = channelsWant;
             ma_uint32 iSampleRate;
 
-            if (ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &channelsHave) >= 0 && channelsHave == channelsWant) {
-                /* The device supports this channel count. */
+            if (ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &channelsHave) >= 0) {
+                if (minChannels > channelsHave) {
+                    minChannels = channelsHave;
+                }
+                if (maxChannels < channelsHave) {
+                    maxChannels = channelsHave;
+                }
+                
                 for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); iSampleRate += 1) {
                     int sampleRateWant = (int)ma_standard_sample_rates[iSampleRate];
                     int sampleRateHave = sampleRateWant;
 
-                    if (ioctl(fdDevice, SNDCTL_DSP_SPEED, &sampleRateHave) >= 0 && sampleRateHave == sampleRateWant) {
-                        /* Our format/channels/rate trio are supported. We can add this to the device info. */
-                        ma_device_info_add_native_data_format(pDeviceInfo, format, channelsHave, sampleRateHave, 0);
+                    if (ioctl(fdDevice, SNDCTL_DSP_SPEED, &sampleRateHave) >= 0) {
+                        if (minSampleRate > sampleRateHave) {
+                            minSampleRate = sampleRateHave;
+                        }
+                        if (maxSampleRate < sampleRateHave) {
+                            maxSampleRate = sampleRateHave;
+                        }
+
                         ioctl(fdDevice, SNDCTL_DSP_SPEED, &originalRate);
-                    } else {
-                        /* Sample rate not supported. */
                     }
                 }
 
                 ioctl(fdDevice, SNDCTL_DSP_CHANNELS, &originalChannels);
-            } else {
-                /* The channel count is not supported. */
             }
         }
+
+        ma_device_info_add_native_data_format_2(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
     } else {
         /* The format is not supported. */
         return MA_ERROR;
