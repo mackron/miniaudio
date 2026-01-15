@@ -26927,6 +26927,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
 {
     ma_context_state_winmm* pContextStateWinmm = (ma_context_state_winmm*)ma_context_get_backend_state(pContext);
     WORD bitsPerSample;
+    ma_format format;
     DWORD sampleRate;
     ma_result result;
 
@@ -27002,20 +27003,18 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
     }
 
     if (bitsPerSample == 8) {
-        pDeviceInfo->nativeDataFormats[0].format = ma_format_u8;
+        format = ma_format_u8;
     } else if (bitsPerSample == 16) {
-        pDeviceInfo->nativeDataFormats[0].format = ma_format_s16;
+        format = ma_format_s16;
     } else if (bitsPerSample == 24) {
-        pDeviceInfo->nativeDataFormats[0].format = ma_format_s24;
+        format = ma_format_s24;
     } else if (bitsPerSample == 32) {
-        pDeviceInfo->nativeDataFormats[0].format = ma_format_s32;
+        format = ma_format_s32;
     } else {
         return MA_FORMAT_NOT_SUPPORTED;
     }
-    pDeviceInfo->nativeDataFormats[0].channels   = pCaps->wChannels;
-    pDeviceInfo->nativeDataFormats[0].sampleRate = sampleRate;
-    pDeviceInfo->nativeDataFormats[0].flags      = 0;
-    pDeviceInfo->nativeDataFormatCount = 1;
+
+    ma_device_info_add_native_data_format_2(pDeviceInfo, format, pCaps->wChannels, pCaps->wChannels, sampleRate, sampleRate);
 
     return MA_SUCCESS;
 }
