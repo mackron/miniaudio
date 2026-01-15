@@ -22451,18 +22451,20 @@ static ma_result ma_device_create_IAudioClient_service__wasapi(ma_context* pCont
 
 static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const MA_WAVEFORMATEX* pWF, ma_share_mode shareMode, ma_device_info* pInfo)
 {
+    ma_uint32 flags;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+
     MA_ASSERT(pWF != NULL);
     MA_ASSERT(pInfo != NULL);
 
-    if (pInfo->nativeDataFormatCount >= ma_countof(pInfo->nativeDataFormats)) {
-        return; /* Too many data formats. Need to ignore this one. Don't think this should ever happen with WASAPI. */
-    }
+    flags      = (shareMode == ma_share_mode_exclusive) ? MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE : 0;
+    format     = ma_format_from_WAVEFORMATEX(pWF);
+    channels   = pWF->nChannels;
+    sampleRate = pWF->nSamplesPerSec;
 
-    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].format     = ma_format_from_WAVEFORMATEX(pWF);
-    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].channels   = pWF->nChannels;
-    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].sampleRate = pWF->nSamplesPerSec;
-    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].flags      = (shareMode == ma_share_mode_exclusive) ? MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE : 0;
-    pInfo->nativeDataFormatCount += 1;
+    ma_device_info_add_native_data_format_ex(pInfo, flags, format, channels, channels, sampleRate, sampleRate);
 }
 
 static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/ void* pMMDevice, ma_IAudioClient* pAudioClient, ma_device_info* pInfo)
@@ -22541,10 +22543,10 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         ma_format format = g_maFormatPriorities[iFormat];
                         ma_uint32 iSampleRate;
 
-                        wf.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
-                        wf.nBlockAlign          = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
-                        wf.nAvgBytesPerSec      = wf.nBlockAlign * wf.nSamplesPerSec;
-                        wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.wBitsPerSample;
+                        wf.wBitsPerSample              = (WORD)(ma_get_bytes_per_sample(format)*8);
+                        wf.nBlockAlign                 = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
+                        wf.nAvgBytesPerSec             = wf.nBlockAlign * wf.nSamplesPerSec;
+                        wf.Samples.wValidBitsPerSample = wf.wBitsPerSample;
                         if (format == ma_format_f32) {
                             wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
                         } else {
