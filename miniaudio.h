@@ -32573,9 +32573,7 @@ typedef struct ma_device_state_jack
     ma_jack_client_t* pClient;
     ma_jack_port_t** ppPortsPlayback;
     ma_jack_port_t** ppPortsCapture;
-    float* pIntermediaryBufferPlayback; /* Typed as a float because JACK is always floating point. */
-    float* pIntermediaryBufferCapture;
-    
+    float* pIntermediaryBuffer;    
 } ma_device_state_jack;
 
 static ma_result ma_context_open_client__jack(ma_context_state_jack* pContextStateJACK, ma_jack_client_t** ppClient)
@@ -32856,34 +32854,29 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
+    size_t bufferSizeCapture  = 0;
+    size_t bufferSizePlayback = 0;
+    float* pNewBuffer;
 
     MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        size_t newBufferSize = frameCount * (pDevice->capture.internalChannels * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
-        float* pNewBuffer = (float*)ma_calloc(newBufferSize, ma_device_get_allocation_callbacks(pDevice));
-        if (pNewBuffer == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        ma_free(pDeviceStateJACK->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
-
-        pDeviceStateJACK->pIntermediaryBufferCapture = pNewBuffer;
+        bufferSizeCapture = frameCount * (pDevice->capture.internalChannels * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        size_t newBufferSize = frameCount * (pDevice->playback.internalChannels * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
-        float* pNewBuffer = (float*)ma_calloc(newBufferSize, ma_device_get_allocation_callbacks(pDevice));
-        if (pNewBuffer == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        ma_free(pDeviceStateJACK->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
-
-        pDeviceStateJACK->pIntermediaryBufferPlayback = pNewBuffer;
+        bufferSizePlayback = frameCount * (pDevice->playback.internalChannels * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
     }
+    
+    pNewBuffer = (float*)ma_realloc(pDeviceStateJACK->pIntermediaryBuffer, ma_max(bufferSizeCapture, bufferSizePlayback), ma_device_get_allocation_callbacks(pDevice));
+    if (pNewBuffer == NULL) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to allocate memory for intermediary buffer after JACK buffer size change.");
+        return -1;
+    }
+
+    pDeviceStateJACK->pIntermediaryBuffer = pNewBuffer;
 
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
         ma_device_state_async_resize(&pDeviceStateJACK->async, frameCount, frameCount, ma_device_get_allocation_callbacks(pDevice));
@@ -32905,7 +32898,7 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
         for (iChannel = 0; iChannel < pDevice->capture.internalChannels; iChannel += 1) {
             const float* pSrc = (const float*)pContextStateJACK->jack_port_get_buffer(pDeviceStateJACK->ppPortsCapture[iChannel], frameCount);
             if (pSrc != NULL) {
-                float* pDst = pDeviceStateJACK->pIntermediaryBufferCapture + iChannel;
+                float* pDst = pDeviceStateJACK->pIntermediaryBuffer + iChannel;
                 ma_jack_nframes_t iFrame;
                 for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                     *pDst = *pSrc;
@@ -32917,24 +32910,24 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
         }
 
         if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-            ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
+            ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, NULL, pDeviceStateJACK->pIntermediaryBuffer, frameCount);
         } else {
-            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateJACK->pIntermediaryBufferCapture, frameCount);
+            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateJACK->pIntermediaryBuffer, frameCount);
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-            ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
+            ma_device_state_async_process(&pDeviceStateJACK->async, pDevice, pDeviceStateJACK->pIntermediaryBuffer, NULL, frameCount);
         } else {
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateJACK->pIntermediaryBufferPlayback, NULL, frameCount);
+            ma_device_handle_backend_data_callback(pDevice, pDeviceStateJACK->pIntermediaryBuffer, NULL, frameCount);
         }
 
         /* Channels need to be deinterleaved. */
         for (iChannel = 0; iChannel < pDevice->playback.internalChannels; iChannel += 1) {
             float* pDst = (float*)pContextStateJACK->jack_port_get_buffer(pDeviceStateJACK->ppPortsPlayback[iChannel], frameCount);
             if (pDst != NULL) {
-                const float* pSrc = pDeviceStateJACK->pIntermediaryBufferPlayback + iChannel;
+                const float* pSrc = pDeviceStateJACK->pIntermediaryBuffer + iChannel;
                 ma_jack_nframes_t iFrame;
                 for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                     *pDst = *pSrc;
@@ -32960,6 +32953,8 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_result result;
     ma_uint32 periodSizeInFrames;
+    size_t bufferSizeCapture  = 0;
+    size_t bufferSizePlayback = 0;
 
     if (pDeviceConfigJACK == NULL) {
         defaultConfigJACK = ma_device_config_jack_init();
@@ -33069,11 +33064,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
         pDescriptorCapture->periodCount        = 1; /* There's no notion of a period in JACK. Just set to 1. */
 
-        pDeviceStateJACK->pIntermediaryBufferCapture = (float*)ma_calloc(pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels), ma_device_get_allocation_callbacks(pDevice));
-        if (pDeviceStateJACK->pIntermediaryBufferCapture == NULL) {
-            ma_device_uninit__jack(pDevice);
-            return MA_OUT_OF_MEMORY;
-        }
+        bufferSizeCapture = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -33124,13 +33115,17 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
 
         pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
         pDescriptorPlayback->periodCount        = 1;   /* There's no notion of a period in JACK. Just set to 1. */
-
-        pDeviceStateJACK->pIntermediaryBufferPlayback = (float*)ma_calloc(pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels), ma_device_get_allocation_callbacks(pDevice));
-        if (pDeviceStateJACK->pIntermediaryBufferPlayback == NULL) {
-            ma_device_uninit__jack(pDevice);
-            return MA_OUT_OF_MEMORY;
-        }
+        
+        bufferSizePlayback = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
     }
+
+    /* We need an intermediary buffer for interleaving and deinterleaving. */
+    pDeviceStateJACK->pIntermediaryBuffer = (float*)ma_calloc(ma_max(bufferSizeCapture, bufferSizePlayback), ma_device_get_allocation_callbacks(pDevice));
+    if (pDeviceStateJACK->pIntermediaryBuffer == NULL) {
+        ma_device_uninit__jack(pDevice);
+        return MA_OUT_OF_MEMORY;
+    }
+
 
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
         result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateJACK->async);
@@ -33162,12 +33157,10 @@ static void ma_device_uninit__jack(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_free(pDeviceStateJACK->pIntermediaryBufferCapture, ma_device_get_allocation_callbacks(pDevice));
         ma_free(pDeviceStateJACK->ppPortsCapture, ma_device_get_allocation_callbacks(pDevice));
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_free(pDeviceStateJACK->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
         ma_free(pDeviceStateJACK->ppPortsPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
 
@@ -33177,6 +33170,7 @@ static void ma_device_uninit__jack(ma_device* pDevice)
         ma_semaphore_uninit(&pDeviceStateJACK->stepSemaphore);
     }
 
+    ma_free(pDeviceStateJACK->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
 }
 
