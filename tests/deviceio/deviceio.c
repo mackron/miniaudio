@@ -496,7 +496,7 @@ int main(int argc, char** argv)
     int captureDeviceIndex = -1;
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
     ma_bool32 enumerate = MA_TRUE;
-    ma_bool32 onlyEnumerate = MA_TRUE;
+    ma_bool32 onlyEnumerate = MA_FALSE;
     ma_bool32 interactive = MA_TRUE;
     ma_device_backend_info backendInfo;
     ma_bool32 printDetailedInfo = MA_FALSE;
