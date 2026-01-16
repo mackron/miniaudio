@@ -11399,8 +11399,12 @@ MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
 MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
-MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 fadeLengthInFrames);     /* Will overwrite any scheduled stop and fade. */
-MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 fadeLengthInFrames);   /* Will overwrite any scheduled stop and fade. */
+MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 fadeLengthInFrames);     /* Will overwrite any scheduled stop and fade. If you want to restart the sound, first reset it with `ma_sound_reset_stop_time_and_fade()`. There are plans to make this less awkward in the future. */
+MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 fadeLengthInFrames);   /* Will overwrite any scheduled stop and fade. If you want to restart the sound, first reset it with `ma_sound_reset_stop_time_and_fade()`. There are plans to make this less awkward in the future. */
+MA_API void ma_sound_reset_start_time(ma_sound* pSound);
+MA_API void ma_sound_reset_stop_time(ma_sound* pSound);
+MA_API void ma_sound_reset_fade(ma_sound* pSound);
+MA_API void ma_sound_reset_stop_time_and_fade(ma_sound* pSound);  /* Resets fades and scheduled stop time. Does not seek back to the start. */
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume);
 MA_API float ma_sound_get_volume(const ma_sound* pSound);
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
@@ -78777,6 +78781,27 @@ MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_ui
     sampleRate = ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
 
     return ma_sound_stop_with_fade_in_pcm_frames(pSound, (fadeLengthInMilliseconds * sampleRate) / 1000);
+}
+
+MA_API void ma_sound_reset_start_time(ma_sound* pSound)
+{
+    ma_sound_set_start_time_in_pcm_frames(pSound, 0);
+}
+
+MA_API void ma_sound_reset_stop_time(ma_sound* pSound)
+{
+    ma_sound_set_stop_time_in_pcm_frames(pSound, ~(ma_uint64)0);
+}
+
+MA_API void ma_sound_reset_fade(ma_sound* pSound)
+{
+    ma_sound_set_fade_in_pcm_frames(pSound, 0, 1, 0);
+}
+
+MA_API void ma_sound_reset_stop_time_and_fade(ma_sound* pSound)
+{
+    ma_sound_reset_stop_time(pSound);
+    ma_sound_reset_fade(pSound);
 }
 
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume)
