@@ -335,11 +335,13 @@ ma_result print_device_info(const ma_device_info* pDeviceInfo, ma_bool32 printDe
         printf("    Default:      %s\n", (pDeviceInfo->isDefault) ? "Yes" : "No");
         printf("    Format Count: %d\n", pDeviceInfo->nativeDataFormatCount);
         for (iFormat = 0; iFormat < pDeviceInfo->nativeDataFormatCount; ++iFormat) {
-            printf("        %s, [%d, %d], [%d, %d]\n",
+            printf("        %s [%d, %d] [%d, %d]\n",
                 ma_get_format_name(pDeviceInfo->nativeDataFormats[iFormat].format),
                 pDeviceInfo->nativeDataFormats[iFormat].minChannels,   pDeviceInfo->nativeDataFormats[iFormat].maxChannels,
                 pDeviceInfo->nativeDataFormats[iFormat].minSampleRate, pDeviceInfo->nativeDataFormats[iFormat].maxSampleRate);
         }
+
+        printf("\n");
     }
 
     return MA_SUCCESS;
