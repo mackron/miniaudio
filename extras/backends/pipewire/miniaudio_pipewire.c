@@ -1869,6 +1869,135 @@ static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire =
 };
 
 
+typedef struct
+{
+    enum ma_spa_audio_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    const ma_uint32* pChannelPositions;
+} ma_pipewire_audio_info;
+
+static void ma_pipewire_audio_info_parse(const struct ma_spa_pod* pParam, ma_log* pLog, ma_pipewire_audio_info* pAudioInfo)
+{
+    struct ma_spa_pod_object* pObject;
+    struct ma_spa_pod_prop* pNextProp;
+    ma_uint8* ptr = (ma_uint8*)pParam;
+    ma_uint32 cursor = 0;
+    ma_uint32 size;
+
+    MA_PIPEWIRE_ZERO_OBJECT(pAudioInfo);
+
+    if (pParam == NULL) {
+        return;
+    }
+
+    if (pParam->type != MA_SPA_TYPE_Object || pParam->size < sizeof(struct ma_spa_pod_object_body)) {
+        ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid pod type).");
+        return;
+    }
+
+    pObject = (struct ma_spa_pod_object*)pParam;
+
+    /* The size of the pod does not include the header which makes parsing kind of annoying for us. We'll add it here. */
+    size = pParam->size + sizeof(struct ma_spa_pod);
+    cursor += sizeof(struct ma_spa_pod);
+    
+    if (pObject->body.type != MA_SPA_TYPE_OBJECT_Format) {
+        ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid body type).");
+        return;
+    }
+
+    cursor += sizeof(struct ma_spa_pod_object_body);
+
+    /* At this point we have parsed the header part of the object, and what follows now should be a list of properties. */
+    while (cursor < size) {
+        struct ma_spa_pod* pPropValue;
+
+        pNextProp = (struct ma_spa_pod_prop*)(ptr + cursor);
+        if (cursor + sizeof(struct ma_spa_pod_prop) > size) {
+            ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid size for property).");
+            return;
+        }
+
+        /* Place the cursor on the prop value, which is a spa_pod. */
+        cursor += 8;    /* Size of the key and flags. */
+        pPropValue = (struct ma_spa_pod*)(ptr + cursor);
+
+        switch (pNextProp->key)
+        {
+            case MA_SPA_FORMAT_AUDIO_format:
+            {
+                pAudioInfo->format = (enum ma_spa_audio_format)ma_spa_pod_get_id_value(pPropValue);
+            } break;
+
+            case MA_SPA_FORMAT_AUDIO_channels:
+            {
+                pAudioInfo->channels = ma_spa_pod_get_int_value(pPropValue);
+            } break;
+
+            case MA_SPA_FORMAT_AUDIO_rate:
+            {
+                pAudioInfo->sampleRate = ma_spa_pod_get_int_value(pPropValue);
+            } break;
+
+            case MA_SPA_FORMAT_AUDIO_position:
+            {
+                /* I'm assuming we can only get an array back for this. */
+                if (pPropValue->type != MA_SPA_TYPE_Array) {
+                    ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid type for position property).");
+                    return;
+                }
+
+                pAudioInfo->pChannelPositions = (const ma_uint32*)ma_spa_pod_array_get_values((const struct ma_spa_pod_array*)pPropValue);
+            } break;
+        }
+
+        cursor += ma_align_64(8 + pPropValue->size);    /* Size of the value pod header + the size of the pod itself. */
+    }
+}
+
+
+typedef struct
+{
+    ma_log* pLog;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_bool32 done;
+} ma_stream_event_param_changed_enumeration_data__pipewire;
+
+static void ma_stream_event_param_changed_enumeration__pipewire(void* pUserData, ma_uint32 id, const struct ma_spa_pod* pParam)
+{
+    ma_stream_event_param_changed_enumeration_data__pipewire* pData = (ma_stream_event_param_changed_enumeration_data__pipewire*)pUserData;
+
+    
+
+    if (id == MA_SPA_PARAM_Format) {
+        ma_pipewire_audio_info audioInfo;
+        ma_pipewire_audio_info_parse(pParam, pData->pLog, &audioInfo);
+
+        pData->channels   = audioInfo.channels;
+        pData->sampleRate = audioInfo.sampleRate;
+
+        pData->done = MA_TRUE;
+    }
+}
+
+static const struct ma_pw_stream_events ma_gStreamEventsPipeWire_Enumeration =
+{
+    MA_PW_VERSION_STREAM_EVENTS,
+    NULL, /* destroy       */
+    NULL, /* state_changed */
+    NULL, /* control_info  */
+    NULL, /* io_changed    */
+    ma_stream_event_param_changed_enumeration__pipewire,
+    NULL, /* add_buffer */
+    NULL, /* remove_buffer */
+    NULL, /* process */
+    NULL, /* drained       */
+    NULL, /* command       */
+    NULL, /* trigger_done  */
+};
+
 static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props, ma_device_type deviceType)
 {
     ma_device_info deviceInfo;
@@ -1901,13 +2030,85 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
     /* Name. */
     ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pNiceName, (size_t)-1);
 
-    /* Data Format. Just support everything for now. */
-    /* TODO: See if there's a reasonable way to query the true "native" format. Maybe just initialize a stream and handle the SPA_PARAM_Format parameter in param_changed()? */
+    /* Data Format. Create a stream so we can identify the native channels and sample rate. */
+    {
+        struct ma_pw_properties* pProperties;
+        struct ma_pw_stream* pStream;
+
+        pProperties = pEnumData->pContextStatePipeWire->pw_properties_new(
+            MA_PW_KEY_MEDIA_TYPE,     "Audio",
+            MA_PW_KEY_MEDIA_CATEGORY, (deviceType == ma_device_type_playback) ? "Playback" : "Capture",
+            MA_PW_KEY_MEDIA_ROLE,     "Game",
+            MA_PW_KEY_TARGET_OBJECT,  pNodeName,
+            NULL);
+
+        pStream = pEnumData->pContextStatePipeWire->pw_stream_new(pEnumData->pCore, "miniaudio-enumeration", pProperties);
+        if (pStream != NULL) {
+            ma_stream_event_param_changed_enumeration_data__pipewire eventsData;
+            struct ma_spa_hook eventListener;
+            enum ma_spa_audio_format formatPA;
+            struct ma_spa_pod_audio_info_raw podAudioInfo;
+            const struct ma_spa_pod* pConnectionParameters[1];
+            enum ma_pw_stream_flags streamFlags;
+            int connectResult;
+
+            /* The way to determine the "native" channel count and sample rate is by handling the SPA_PARAM_Format event in the params_changed callback. */
+            MA_PIPEWIRE_ZERO_OBJECT(&eventsData);
+            eventsData.pLog = pEnumData->pContextStatePipeWire->pLog;
+
+            pEnumData->pContextStatePipeWire->pw_stream_add_listener(pStream, &eventListener, &ma_gStreamEventsPipeWire_Enumeration, &eventsData);
+
+
+            /* Now we can connect the stream. */
+            if (ma_is_little_endian()) {
+                formatPA = MA_SPA_AUDIO_FORMAT_F32_LE;
+            } else {
+                formatPA = MA_SPA_AUDIO_FORMAT_F32_BE;
+            }
+
+            podAudioInfo = ma_spa_pod_audio_info_raw_init(formatPA, 0, 0);
+            pConnectionParameters[0] = (struct ma_spa_pod*)&podAudioInfo;
+
+            streamFlags = (enum ma_pw_stream_flags)(MA_PW_STREAM_FLAG_AUTOCONNECT);
+            connectResult = pEnumData->pContextStatePipeWire->pw_stream_connect(pStream, (deviceType == ma_device_type_playback) ? MA_SPA_DIRECTION_OUTPUT : MA_SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
+            if (connectResult >= 0) {
+                /* Keep looping until we've processed our channel count and sample rate. */
+                while (!eventsData.done) {
+                    pEnumData->pContextStatePipeWire->pw_loop_iterate(pEnumData->pLoop, 1);
+                }
+
+                if (eventsData.channels != 0 && eventsData.sampleRate != 0) {
+                    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, eventsData.channels, eventsData.channels, eventsData.sampleRate, eventsData.sampleRate);
+                }
+            } else {
+                ma_log_postf(pEnumData->pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream for enumeration. Device ID: \"%s\".", pNodeName);
+            }
+
+            /* We're done with the stream. */
+            pEnumData->pContextStatePipeWire->pw_stream_destroy(pStream);
+        } else {
+            ma_log_postf(pEnumData->pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to create PipeWire stream for enumeration. Device ID: \"%s\".", pNodeName);
+        }
+    }
+
+    /*
+    In the logic above we chose the "native" format that PipeWire would pick if no channel count or sample rate is
+    specified during device initialization. However, PipeWire will actually do it's own data conversion, so from the
+    perspective of miniaudio, it also "natively" supports any format, channel count and sample rate. I'm not sure if
+    it's better to include these entries of if we should just leave it set to the one format.
+    */
+    #if 0
     ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     ma_device_info_add_native_data_format(&deviceInfo, ma_format_s16, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     ma_device_info_add_native_data_format(&deviceInfo, ma_format_s32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     ma_device_info_add_native_data_format(&deviceInfo, ma_format_s24, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     ma_device_info_add_native_data_format(&deviceInfo, ma_format_u8,  1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    #endif
+
+    /* Just in case something went wrong in the logic above, if we never extracted a native format we'll add a fallback. */
+    if (deviceInfo.nativeDataFormatCount == 0) {
+        ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    }
 
     ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, &deviceInfo);
 
@@ -2118,10 +2319,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         const struct ma_spa_pod* pBufferParameters[1];
         ma_uint32 bytesPerFrame;
         ma_uint32 iChannel;
-        enum ma_spa_audio_format formatPA = MA_SPA_AUDIO_FORMAT_UNKNOWN;
-        ma_uint32 channels = 0;
-        ma_uint32 sampleRate = 0;
-        const ma_uint32* pChannelPositionsPA = NULL;
+        ma_pipewire_audio_info audioInfo;
 
         /* It's possible for PipeWire to fire this callback with pParam set to NULL. I noticed it when tearing down a stream. Why does it do this? */
         if (pParam == NULL) {
@@ -2150,94 +2348,25 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         }
         #endif
         {
-            struct ma_spa_pod_object* pObject;
-            struct ma_spa_pod_prop* pNextProp;
-            ma_uint8* ptr = (ma_uint8*)pParam;
-            ma_uint32 cursor = 0;
-            ma_uint32 size;
-
-            if (pParam->type != MA_SPA_TYPE_Object || pParam->size < sizeof(struct ma_spa_pod_object_body)) {
-                ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid pod type).");
-                return;
-            }
-
-            pObject = (struct ma_spa_pod_object*)pParam;
-
-            /* The size of the pod does not include the header which makes parsing kind of annoying for us. We'll add it here. */
-            size = pParam->size + sizeof(struct ma_spa_pod);
-            cursor += sizeof(struct ma_spa_pod);
-            
-            if (pObject->body.type != MA_SPA_TYPE_OBJECT_Format) {
-                ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid body type).");
-                return;
-            }
-
-            cursor += sizeof(struct ma_spa_pod_object_body);
-
-            /* At this point we have parsed the header part of the object, and what follows now should be a list of properties. */
-            while (cursor < size) {
-                struct ma_spa_pod* pPropValue;
-
-                pNextProp = (struct ma_spa_pod_prop*)(ptr + cursor);
-                if (cursor + sizeof(struct ma_spa_pod_prop) > size) {
-                    ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid size for property).");
-                    return;
-                }
-
-                /* Place the cursor on the prop value, which is a spa_pod. */
-                cursor += 8;    /* Size of the key and flags. */
-                pPropValue = (struct ma_spa_pod*)(ptr + cursor);
-
-                switch (pNextProp->key)
-                {
-                    case MA_SPA_FORMAT_AUDIO_format:
-                    {
-                        formatPA = (enum ma_spa_audio_format)ma_spa_pod_get_id_value(pPropValue);
-                    } break;
-
-                    case MA_SPA_FORMAT_AUDIO_channels:
-                    {
-                        channels = ma_spa_pod_get_int_value(pPropValue);
-                    } break;
-
-                    case MA_SPA_FORMAT_AUDIO_rate:
-                    {
-                        sampleRate = ma_spa_pod_get_int_value(pPropValue);
-                    } break;
-
-                    case MA_SPA_FORMAT_AUDIO_position:
-                    {
-                        /* I'm assuming we can only get an array back for this. */
-                        if (pPropValue->type != MA_SPA_TYPE_Array) {
-                            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid type for position property).");
-                            return;
-                        }
-
-                        pChannelPositionsPA = (const ma_uint32*)ma_spa_pod_array_get_values((const struct ma_spa_pod_array*)pPropValue);
-                    } break;
-                }
-
-                cursor += ma_align_64(8 + pPropValue->size);    /* Size of the value pod header + the size of the pod itself. */
-            }
+            ma_pipewire_audio_info_parse(pParam, pContextStatePipeWire->pLog, &audioInfo);
         }
-
 
         /* Now that we definitely know the sample rate, we can reliably configure the size of the buffer. */
         if (pStreamState->bufferSizeInFrames == 0) {
-            pStreamState->bufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pStreamState->pDescriptor, sampleRate);
+            pStreamState->bufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pStreamState->pDescriptor, audioInfo.sampleRate);
         }
 
-        pStreamState->format     = ma_format_from_pipewire(formatPA);
-        pStreamState->channels   = channels;
-        pStreamState->sampleRate = sampleRate;
+        pStreamState->format     = ma_format_from_pipewire(audioInfo.format);
+        pStreamState->channels   = audioInfo.channels;
+        pStreamState->sampleRate = audioInfo.sampleRate;
 
         /* We should always get a channel map, but just to be safe we'll check for it, and if we don't get one back we'll use a default. */
-        if (pChannelPositionsPA != NULL) {
-            for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                pStreamState->channelMap[iChannel] = ma_channel_from_pipewire(pChannelPositionsPA[iChannel]);
+        if (audioInfo.pChannelPositions != NULL) {
+            for (iChannel = 0; iChannel < audioInfo.channels; iChannel += 1) {
+                pStreamState->channelMap[iChannel] = ma_channel_from_pipewire(audioInfo.pChannelPositions[iChannel]);
             }
         } else {
-            ma_channel_map_init_standard(ma_standard_channel_map_alsa, pStreamState->channelMap, ma_countof(pStreamState->channelMap), channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_alsa, pStreamState->channelMap, ma_countof(pStreamState->channelMap), audioInfo.channels);
         }
 
 
