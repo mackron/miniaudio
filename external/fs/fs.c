@@ -5410,7 +5410,7 @@ static fs_result fs_serialize_directory(fs* pFS, const char* pDirectoryPath, con
             *pRunningFileOffset += fileSize;
 
             /* Add padding zeros to align the data to 8 bytes. */
-            result = fs_stream_write(pOutputStream, padding, FS_ALIGN(*pRunningFileOffset, 8) - *pRunningFileOffset, NULL);
+            result = fs_stream_write(pOutputStream, padding, (size_t)(FS_ALIGN(*pRunningFileOffset, 8) - *pRunningFileOffset), NULL);
             if (result != FS_SUCCESS) {
                 fs_string_free(&path, fs_get_allocation_callbacks(pFS));
                 return result;
@@ -5487,7 +5487,7 @@ FS_API fs_result fs_serialize(fs* pFS, const char* pDirectoryPath, int options, 
         return result;
     }
 
-    result = fs_stream_write(pOutputStream, "\0\0\0\0\0\0\0\0", FS_ALIGN(initialPos, 8) - initialPos, NULL);
+    result = fs_stream_write(pOutputStream, "\0\0\0\0\0\0\0\0", (size_t)(FS_ALIGN(initialPos, 8) - initialPos), NULL);
     if (result != FS_SUCCESS) {
         fs_memory_stream_uninit(&toc);
         return result;
@@ -5532,7 +5532,7 @@ FS_API fs_result fs_serialize(fs* pFS, const char* pDirectoryPath, int options, 
         fs_uint32 reserved;
 
         /* Padding to align to 8 bytes. */
-        result = fs_stream_write(pOutputStream, padding, FS_ALIGN(runningOffset, 8) - runningOffset, NULL);
+        result = fs_stream_write(pOutputStream, padding, (size_t)(FS_ALIGN(runningOffset, 8) - runningOffset), NULL);
         if (result != FS_SUCCESS) {
             return result;
         }

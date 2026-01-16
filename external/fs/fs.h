@@ -3689,6 +3689,7 @@ FS_API void* fs_sorted_search(const void* pKey, const void* pList, size_t count,
 
 FS_API int fs_strncmp(const char* str1, const char* str2, size_t maxLen);
 FS_API int fs_strnicmp(const char* str1, const char* str2, size_t count);
+FS_API int fs_strncat_s(char* dst, size_t dstCap, const char* src, size_t count);
 /* END fs_utils.h */
 
 
