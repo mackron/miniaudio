@@ -1,7 +1,16 @@
-v0.11.24 - TBD
+v0.11.24 - 2026-01-17
 =====================
-* Fix a possible double-uninit error when a decoder fails to initialize.
-* Fix a compilation error with the MSVC Aarch64 build.
+* Fixed a possible glitch when processing the audio of a `ma_sound` when doing resampling.
+* Fixed a possible crash in the node graph relating to scheduled starts and stops.
+* Fixed a bug where MA_NO_DECODING would disable the WAV encoder.
+* Fixed a pthread compatibility issue, particularly with Android.
+* Fixed a possible crash in the resource manager.
+* Fixed a possible double-uninit error when a decoder fails to initialize.
+* Fixed a compilation error with the MSVC Aarch64 build.
+* Addressed a few errors found through static analysis, particularly around possible null pointer dereferences.
+* `ma_sound_is_playing()` will now correctly return false when called from inside the end callback of a sound.
+* Miscellaneous compiler compatibility and warning fixes.
+* PulseAudio: Fix a resource leak when a context fails to connect.
 * Web: Fixed an error when uninitializing a context.
 
 
