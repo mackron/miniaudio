@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.24 - TBD
+miniaudio - v0.11.24 - 2026-01-17
 
 David Reid - mackron@gmail.com
 
@@ -11287,8 +11287,12 @@ MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
 MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
-MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 fadeLengthInFrames);     /* Will overwrite any scheduled stop and fade. */
-MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 fadeLengthInFrames);   /* Will overwrite any scheduled stop and fade. */
+MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 fadeLengthInFrames);     /* Will overwrite any scheduled stop and fade. If you want to restart the sound, first reset it with `ma_sound_reset_stop_time_and_fade()`. There are plans to make this less awkward in the future. */
+MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 fadeLengthInFrames);   /* Will overwrite any scheduled stop and fade. If you want to restart the sound, first reset it with `ma_sound_reset_stop_time_and_fade()`. There are plans to make this less awkward in the future. */
+MA_API void ma_sound_reset_start_time(ma_sound* pSound);
+MA_API void ma_sound_reset_stop_time(ma_sound* pSound);
+MA_API void ma_sound_reset_fade(ma_sound* pSound);
+MA_API void ma_sound_reset_stop_time_and_fade(ma_sound* pSound);  /* Resets fades and scheduled stop time. Does not seek back to the start. */
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume);
 MA_API float ma_sound_get_volume(const ma_sound* pSound);
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
@@ -30978,6 +30982,7 @@ static ma_result ma_init_pa_mainloop_and_pa_context__pulseaudio(ma_context* pCon
     result = ma_result_from_pulseaudio(pContextStatePulseAudio->pa_context_connect(pPulseContext, pServerName, (tryAutoSpawn) ? MA_PA_CONTEXT_NOFLAGS : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
     if (result != MA_SUCCESS) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.");
+        pContextStatePulseAudio->pa_context_unref(pPulseContext);
         pContextStatePulseAudio->pa_mainloop_free(pMainLoop);
         return result;
     }
@@ -30986,6 +30991,7 @@ static ma_result ma_init_pa_mainloop_and_pa_context__pulseaudio(ma_context* pCon
     result = ma_wait_for_pa_context_to_connect__pulseaudio(pContext, pContextStatePulseAudio, pMainLoop, pPulseContext);
     if (result != MA_SUCCESS) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[PulseAudio] Waiting for connection failed.");
+        pContextStatePulseAudio->pa_context_unref(pPulseContext);
         pContextStatePulseAudio->pa_mainloop_free(pMainLoop);
         return result;
     }
@@ -80429,6 +80435,27 @@ MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_ui
     sampleRate = ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
 
     return ma_sound_stop_with_fade_in_pcm_frames(pSound, (fadeLengthInMilliseconds * sampleRate) / 1000);
+}
+
+MA_API void ma_sound_reset_start_time(ma_sound* pSound)
+{
+    ma_sound_set_start_time_in_pcm_frames(pSound, 0);
+}
+
+MA_API void ma_sound_reset_stop_time(ma_sound* pSound)
+{
+    ma_sound_set_stop_time_in_pcm_frames(pSound, ~(ma_uint64)0);
+}
+
+MA_API void ma_sound_reset_fade(ma_sound* pSound)
+{
+    ma_sound_set_fade_in_pcm_frames(pSound, 0, 1, 0);
+}
+
+MA_API void ma_sound_reset_stop_time_and_fade(ma_sound* pSound)
+{
+    ma_sound_reset_stop_time(pSound);
+    ma_sound_reset_fade(pSound);
 }
 
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume)
