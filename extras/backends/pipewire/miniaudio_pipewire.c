@@ -1973,7 +1973,9 @@ static void ma_stream_event_param_changed_enumeration__pipewire(void* pUserData,
 {
     ma_stream_event_param_changed_enumeration_data__pipewire* pData = (ma_stream_event_param_changed_enumeration_data__pipewire*)pUserData;
 
-    
+    if (pParam == NULL) {
+        return;
+    }
 
     if (id == MA_SPA_PARAM_Format) {
         ma_pipewire_audio_info audioInfo;
@@ -2001,6 +2003,91 @@ static const struct ma_pw_stream_events ma_gStreamEventsPipeWire_Enumeration =
     NULL, /* command       */
     NULL, /* trigger_done  */
 };
+
+static void ma_add_native_data_format__pipewire(ma_context_state_pipewire* pContextStatePipeWire, struct ma_pw_core* pCore, struct ma_pw_loop* pLoop, ma_device_type deviceType, ma_device_info* pDeviceInfo)
+{
+    struct ma_pw_properties* pProperties;
+    struct ma_pw_stream* pStream;
+    const char* pNodeName = NULL;
+
+    MA_PIPEWIRE_ASSERT(pDeviceInfo != NULL);
+
+    pNodeName = pDeviceInfo->id.custom.s;
+
+    pProperties = pContextStatePipeWire->pw_properties_new(
+        MA_PW_KEY_MEDIA_TYPE,     "Audio",
+        MA_PW_KEY_MEDIA_CATEGORY, (deviceType == ma_device_type_playback) ? "Playback" : "Capture",
+        MA_PW_KEY_MEDIA_ROLE,     "Game",
+        MA_PW_KEY_TARGET_OBJECT,  pNodeName,
+        NULL);
+
+    pStream = pContextStatePipeWire->pw_stream_new(pCore, "miniaudio-enumeration", pProperties);
+    if (pStream != NULL) {
+        ma_stream_event_param_changed_enumeration_data__pipewire eventsData;
+        struct ma_spa_hook eventListener;
+        enum ma_spa_audio_format formatPA;
+        struct ma_spa_pod_audio_info_raw podAudioInfo;
+        const struct ma_spa_pod* pConnectionParameters[1];
+        enum ma_pw_stream_flags streamFlags;
+        int connectResult;
+
+        /* The way to determine the "native" channel count and sample rate is by handling the SPA_PARAM_Format event in the params_changed callback. */
+        MA_PIPEWIRE_ZERO_OBJECT(&eventsData);
+        eventsData.pLog = pContextStatePipeWire->pLog;
+
+        pContextStatePipeWire->pw_stream_add_listener(pStream, &eventListener, &ma_gStreamEventsPipeWire_Enumeration, &eventsData);
+
+
+        /* Now we can connect the stream. */
+        if (ma_is_little_endian()) {
+            formatPA = MA_SPA_AUDIO_FORMAT_F32_LE;
+        } else {
+            formatPA = MA_SPA_AUDIO_FORMAT_F32_BE;
+        }
+
+        podAudioInfo = ma_spa_pod_audio_info_raw_init(formatPA, 0, 0);
+        pConnectionParameters[0] = (struct ma_spa_pod*)&podAudioInfo;
+
+        streamFlags = (enum ma_pw_stream_flags)(MA_PW_STREAM_FLAG_AUTOCONNECT);
+        connectResult = pContextStatePipeWire->pw_stream_connect(pStream, (deviceType == ma_device_type_playback) ? MA_SPA_DIRECTION_OUTPUT : MA_SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
+        if (connectResult >= 0) {
+            /* Keep looping until we've processed our channel count and sample rate. */
+            while (!eventsData.done) {
+                pContextStatePipeWire->pw_loop_iterate(pLoop, 1);
+            }
+
+            if (eventsData.channels != 0 && eventsData.sampleRate != 0) {
+                ma_device_info_add_native_data_format(pDeviceInfo, ma_format_f32, eventsData.channels, eventsData.channels, eventsData.sampleRate, eventsData.sampleRate);
+            }
+        } else {
+            ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream for enumeration. Device ID: \"%s\".", pNodeName);
+        }
+
+        /* We're done with the stream. */
+        pContextStatePipeWire->pw_stream_destroy(pStream);
+    } else {
+        ma_log_postf(pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to create PipeWire stream for enumeration. Device ID: \"%s\".", pNodeName);
+    }
+
+    /*
+    In the logic above we chose the "native" format that PipeWire would pick if no channel count or sample rate is
+    specified during device initialization. However, PipeWire will actually do it's own data conversion, so from the
+    perspective of miniaudio, it also "natively" supports any format, channel count and sample rate. I'm not sure if
+    it's better to include these entries of if we should just leave it set to the one format.
+    */
+    #if 0
+    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_s16, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_s32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_s24, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_u8,  1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    #endif
+
+    /* Just in case something went wrong in the logic above, if we never extracted a native format we'll add a fallback. */
+    if (pDeviceInfo->nativeDataFormatCount == 0) {
+        ma_device_info_add_native_data_format(pDeviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    }
+}
 
 static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props, ma_device_type deviceType)
 {
@@ -2034,86 +2121,10 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
     /* Name. */
     ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pNiceName, (size_t)-1);
 
-    /* Data Format. Create a stream so we can identify the native channels and sample rate. */
-    {
-        struct ma_pw_properties* pProperties;
-        struct ma_pw_stream* pStream;
-
-        pProperties = pEnumData->pContextStatePipeWire->pw_properties_new(
-            MA_PW_KEY_MEDIA_TYPE,     "Audio",
-            MA_PW_KEY_MEDIA_CATEGORY, (deviceType == ma_device_type_playback) ? "Playback" : "Capture",
-            MA_PW_KEY_MEDIA_ROLE,     "Game",
-            MA_PW_KEY_TARGET_OBJECT,  pNodeName,
-            NULL);
-
-        pStream = pEnumData->pContextStatePipeWire->pw_stream_new(pEnumData->pCore, "miniaudio-enumeration", pProperties);
-        if (pStream != NULL) {
-            ma_stream_event_param_changed_enumeration_data__pipewire eventsData;
-            struct ma_spa_hook eventListener;
-            enum ma_spa_audio_format formatPA;
-            struct ma_spa_pod_audio_info_raw podAudioInfo;
-            const struct ma_spa_pod* pConnectionParameters[1];
-            enum ma_pw_stream_flags streamFlags;
-            int connectResult;
-
-            /* The way to determine the "native" channel count and sample rate is by handling the SPA_PARAM_Format event in the params_changed callback. */
-            MA_PIPEWIRE_ZERO_OBJECT(&eventsData);
-            eventsData.pLog = pEnumData->pContextStatePipeWire->pLog;
-
-            pEnumData->pContextStatePipeWire->pw_stream_add_listener(pStream, &eventListener, &ma_gStreamEventsPipeWire_Enumeration, &eventsData);
+    /* The native data format is set later in a second pass. */
 
 
-            /* Now we can connect the stream. */
-            if (ma_is_little_endian()) {
-                formatPA = MA_SPA_AUDIO_FORMAT_F32_LE;
-            } else {
-                formatPA = MA_SPA_AUDIO_FORMAT_F32_BE;
-            }
-
-            podAudioInfo = ma_spa_pod_audio_info_raw_init(formatPA, 0, 0);
-            pConnectionParameters[0] = (struct ma_spa_pod*)&podAudioInfo;
-
-            streamFlags = (enum ma_pw_stream_flags)(MA_PW_STREAM_FLAG_AUTOCONNECT);
-            connectResult = pEnumData->pContextStatePipeWire->pw_stream_connect(pStream, (deviceType == ma_device_type_playback) ? MA_SPA_DIRECTION_OUTPUT : MA_SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
-            if (connectResult >= 0) {
-                /* Keep looping until we've processed our channel count and sample rate. */
-                while (!eventsData.done) {
-                    pEnumData->pContextStatePipeWire->pw_loop_iterate(pEnumData->pLoop, 1);
-                }
-
-                if (eventsData.channels != 0 && eventsData.sampleRate != 0) {
-                    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, eventsData.channels, eventsData.channels, eventsData.sampleRate, eventsData.sampleRate);
-                }
-            } else {
-                ma_log_postf(pEnumData->pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream for enumeration. Device ID: \"%s\".", pNodeName);
-            }
-
-            /* We're done with the stream. */
-            pEnumData->pContextStatePipeWire->pw_stream_destroy(pStream);
-        } else {
-            ma_log_postf(pEnumData->pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "Failed to create PipeWire stream for enumeration. Device ID: \"%s\".", pNodeName);
-        }
-    }
-
-    /*
-    In the logic above we chose the "native" format that PipeWire would pick if no channel count or sample rate is
-    specified during device initialization. However, PipeWire will actually do it's own data conversion, so from the
-    perspective of miniaudio, it also "natively" supports any format, channel count and sample rate. I'm not sure if
-    it's better to include these entries of if we should just leave it set to the one format.
-    */
-    #if 0
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s16, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s24, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_u8,  1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    #endif
-
-    /* Just in case something went wrong in the logic above, if we never extracted a native format we'll add a fallback. */
-    if (deviceInfo.nativeDataFormatCount == 0) {
-        ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    }
-
+    /* Finally we can add the device into to our internal list. */
     ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, &deviceInfo);
 
     /*printf("Registry Global Added By Type: ID=%u, Type=%s, DeviceType=%d, NiceName=%s\n", id, type, deviceType, pNiceName);*/
@@ -2269,6 +2280,9 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
                     hasDefaultPlaybackDevice = MA_TRUE;
                 }
 
+                /* Now we need to open the stream and get it's native data format. */
+                ma_add_native_data_format__pipewire(pContextStatePipeWire, pCore, pLoop, ma_device_type_playback, &enumData.playback.pDeviceInfos[iDevice]);
+
                 cbResult = callback(ma_device_type_playback, &enumData.playback.pDeviceInfos[iDevice], pUserData);
             }
         }
@@ -2287,6 +2301,9 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
                     enumData.capture.pDeviceInfos[iDevice].isDefault = MA_TRUE;
                     hasDefaultCaptureDevice = MA_TRUE;
                 }
+
+                /* Now we need to open the stream and get it's native data format. */
+                ma_add_native_data_format__pipewire(pContextStatePipeWire, pCore, pLoop, ma_device_type_capture, &enumData.capture.pDeviceInfos[iDevice]);
 
                 cbResult = callback(ma_device_type_capture, &enumData.capture.pDeviceInfos[iDevice], pUserData);
             }
