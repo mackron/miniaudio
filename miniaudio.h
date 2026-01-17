@@ -557,13 +557,13 @@ To run locally, you'll need to use emrun:
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_WINMM                      | Disables the WinMM backend.                                        |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_NO_ALSA                       | Disables the ALSA backend.                                         |
+    | MA_NO_COREAUDIO                  | Disables the Core Audio backend.                                   |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_PULSEAUDIO                 | Disables the PulseAudio backend.                                   |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_JACK                       | Disables the JACK backend.                                         |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_NO_COREAUDIO                  | Disables the Core Audio backend.                                   |
+    | MA_NO_ALSA                       | Disables the ALSA backend.                                         |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_SNDIO                      | Disables the sndio backend.                                        |
     +----------------------------------+--------------------------------------------------------------------+
@@ -593,14 +593,14 @@ To run locally, you'll need to use emrun:
     | MA_ENABLE_WINMM                  | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the WinMM backend.                                          |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_ALSA                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
-    |                                  | enable the ALSA backend.                                           |
-    +----------------------------------+--------------------------------------------------------------------+
     | MA_ENABLE_PULSEAUDIO             | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the PulseAudio backend.                                     |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_ENABLE_JACK                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the JACK backend.                                           |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_ENABLE_ALSA                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
+    |                                  | enable the ALSA backend.                                           |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_ENABLE_COREAUDIO              | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the Core Audio backend.                                     |
@@ -3636,8 +3636,8 @@ example, ALSA, which is specific to Linux, will not be included in the Windows b
     | WinMM       | ma_device_backend_winmm      | Windows 95+                                            |
     | Core Audio  | ma_device_backend_coreaudio  | macOS, iOS                                             |
     | PulseAudio  | ma_device_backend_pulseaudio | Cross Platform (disabled on Windows, BSD and Android)  |
-    | ALSA        | ma_device_backend_alsa       | Linux                                                  |
     | JACK        | ma_device_backend_jack       | Cross Platform (disabled on BSD and Android)           |
+    | ALSA        | ma_device_backend_alsa       | Linux                                                  |
     | sndio       | ma_device_backend_sndio      | OpenBSD                                                |
     | audio(4)    | ma_device_backend_audio4     | NetBSD, OpenBSD                                        |
     | OSS         | ma_device_backend_oss        | FreeBSD                                                |
@@ -6933,6 +6933,29 @@ MA_API ma_device_backend_vtable* ma_pulseaudio_get_vtable(void);
 /* END PULSEAUDIO */
 
 
+/* BEG JACK */
+typedef struct ma_context_config_jack
+{
+    const char* pClientName;
+    ma_bool32 tryStartServer;
+} ma_context_config_jack;
+
+MA_API ma_context_config_jack ma_context_config_jack_init(void);
+
+
+typedef struct ma_device_config_jack
+{
+    ma_bool32 noAutoConnect;
+} ma_device_config_jack;
+
+MA_API ma_device_config_jack ma_device_config_jack_init(void);
+
+
+extern ma_device_backend_vtable* ma_device_backend_jack;
+MA_API ma_device_backend_vtable* ma_jack_get_vtable(void);
+/* END JACK */
+
+
 /* BEG ALSA */
 typedef struct ma_context_config_alsa
 {
@@ -6957,29 +6980,6 @@ MA_API ma_device_config_alsa ma_device_config_alsa_init(void);
 extern ma_device_backend_vtable* ma_device_backend_alsa;
 MA_API ma_device_backend_vtable* ma_alsa_get_vtable(void);
 /* END ALSA */
-
-
-/* BEG JACK */
-typedef struct ma_context_config_jack
-{
-    const char* pClientName;
-    ma_bool32 tryStartServer;
-} ma_context_config_jack;
-
-MA_API ma_context_config_jack ma_context_config_jack_init(void);
-
-
-typedef struct ma_device_config_jack
-{
-    ma_bool32 noAutoConnect;
-} ma_device_config_jack;
-
-MA_API ma_device_config_jack ma_device_config_jack_init(void);
-
-
-extern ma_device_backend_vtable* ma_device_backend_jack;
-MA_API ma_device_backend_vtable* ma_jack_get_vtable(void);
-/* END JACK */
 
 
 /* BEG SNDIO */
@@ -7630,8 +7630,8 @@ struct ma_device_config
     ma_device_config_winmm      winmm;
     ma_device_config_coreaudio  coreaudio;
     ma_device_config_pulseaudio pulseaudio;
-    ma_device_config_alsa       alsa;
     ma_device_config_jack       jack;
+    ma_device_config_alsa       alsa;
     ma_device_config_sndio      sndio;
     ma_device_config_audio4     audio4;
     ma_device_config_oss        oss;
@@ -7768,8 +7768,8 @@ struct ma_context_config
     ma_context_config_winmm      winmm;
     ma_context_config_coreaudio  coreaudio;
     ma_context_config_pulseaudio pulseaudio;
-    ma_context_config_alsa       alsa;
     ma_context_config_jack       jack;
+    ma_context_config_alsa       alsa;
     ma_context_config_sndio      sndio;
     ma_context_config_audio4     audio4;
     ma_context_config_oss        oss;
@@ -19448,7 +19448,7 @@ BACKENDS
     #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
         #define MA_SUPPORT_DSOUND
         #define MA_SUPPORT_WINMM
-        #define MA_SUPPORT_JACK     /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
+        #define MA_SUPPORT_JACK
     #endif
 #endif
 #if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
@@ -19506,11 +19506,11 @@ BACKENDS
 #if defined(MA_SUPPORT_PULSEAUDIO) && !defined(MA_NO_PULSEAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_PULSEAUDIO))
     #define MA_HAS_PULSEAUDIO
 #endif
-#if defined(MA_SUPPORT_ALSA) && !defined(MA_NO_ALSA) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_ALSA))
-    #define MA_HAS_ALSA
-#endif
 #if defined(MA_SUPPORT_JACK) && !defined(MA_NO_JACK) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_JACK))
     #define MA_HAS_JACK
+#endif
+#if defined(MA_SUPPORT_ALSA) && !defined(MA_NO_ALSA) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_ALSA))
+    #define MA_HAS_ALSA
 #endif
 #if defined(MA_SUPPORT_SNDIO) && !defined(MA_NO_SNDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_SNDIO))
     #define MA_HAS_SNDIO
@@ -19703,27 +19703,6 @@ MA_API ma_device_config_pulseaudio ma_device_config_pulseaudio_init(void)
 /* END PULSEAUDIO */
 
 
-/* BEG ALSA */
-MA_API ma_context_config_alsa ma_context_config_alsa_init(void)
-{
-    ma_context_config_alsa config;
-
-    MA_ZERO_OBJECT(&config);
-
-    return config;
-}
-
-MA_API ma_device_config_alsa ma_device_config_alsa_init(void)
-{
-    ma_device_config_alsa config;
-
-    MA_ZERO_OBJECT(&config);
-
-    return config;
-}
-/* END ALSA */
-
-
 /* BEG JACK */
 MA_API ma_context_config_jack ma_context_config_jack_init(void)
 {
@@ -19743,6 +19722,27 @@ MA_API ma_device_config_jack ma_device_config_jack_init(void)
     return config;
 }
 /* END JACK */
+
+
+/* BEG ALSA */
+MA_API ma_context_config_alsa ma_context_config_alsa_init(void)
+{
+    ma_context_config_alsa config;
+
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
+
+MA_API ma_device_config_alsa ma_device_config_alsa_init(void)
+{
+    ma_device_config_alsa config;
+
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
+/* END ALSA */
 
 
 /* BEG AAUDIO */
@@ -44785,11 +44785,11 @@ static const void* ma_context_config_find_backend_config(const ma_context_config
         if (pVTable == ma_device_backend_pulseaudio) {
             return &pConfig->pulseaudio;
         }
-        if (pVTable == ma_device_backend_alsa) {
-            return &pConfig->alsa;
-        }
         if (pVTable == ma_device_backend_jack) {
             return &pConfig->jack;
+        }
+        if (pVTable == ma_device_backend_alsa) {
+            return &pConfig->alsa;
         }
         if (pVTable == ma_device_backend_sndio) {
             return &pConfig->sndio;
@@ -44829,8 +44829,8 @@ MA_API ma_uint32 ma_get_stock_device_backends(ma_device_backend_config* pBackend
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_winmm,      NULL); }
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_coreaudio,  NULL); }
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_pulseaudio, NULL); }
-    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_alsa,       NULL); }
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_jack,       NULL); }
+    if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_alsa,       NULL); }
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_sndio,      NULL); }
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_audio4,     NULL); }
     if (backendsCap > count) { pBackends[count++] = ma_device_backend_config_init(ma_device_backend_oss,        NULL); }
@@ -45275,11 +45275,11 @@ static const void* ma_device_config_find_backend_config(const ma_device_config* 
         if (pVTable == ma_device_backend_pulseaudio) {
             return &pConfig->pulseaudio;
         }
-        if (pVTable == ma_device_backend_alsa) {
-            return &pConfig->alsa;
-        }
         if (pVTable == ma_device_backend_jack) {
             return &pConfig->jack;
+        }
+        if (pVTable == ma_device_backend_alsa) {
+            return &pConfig->alsa;
         }
         if (pVTable == ma_device_backend_sndio) {
             return &pConfig->sndio;

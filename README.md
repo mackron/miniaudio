@@ -190,9 +190,9 @@ Backends
 - DirectSound
 - WinMM
 - Core Audio (Apple)
-- ALSA
 - PulseAudio
 - JACK
+- ALSA
 - sndio (OpenBSD)
 - audio(4) (NetBSD and OpenBSD)
 - OSS (FreeBSD)
