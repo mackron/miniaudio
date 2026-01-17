@@ -1826,6 +1826,10 @@ static int ma_on_metadata_property_default__pipewire(void* data, ma_uint32 subje
     (void)subject;
     (void)type;
 
+    if (key == NULL) {
+        return 0;
+    }
+
     /*
     Well this is fun. To get the default device we need to get the value of the "default.audio.sink" and "default.audio.source" keys. Sounds
     simple enough, except that the value is actually JSON... Why is the default device stored as a JSON string? Who does this? We're just
