@@ -31163,15 +31163,33 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
     ma_log* pLog = ma_context_get_log(pContext);
     ma_result result;
     ma_bool32 tryAutoSpawn = MA_FALSE;
+    size_t applicationNameAllocSize = 0;
+    size_t serverNameAllocSize = 0;
 
     if (pContextConfigPulseAudio == NULL) {
         defaultConfigPulseAudio  = ma_context_config_pulseaudio_init();
         pContextConfigPulseAudio = &defaultConfigPulseAudio;
     }
 
-    pContextStatePulseAudio = (ma_context_state_pulseaudio*)ma_calloc(sizeof(*pContextStatePulseAudio), ma_context_get_allocation_callbacks(pContext));
+    if (pContextConfigPulseAudio->pApplicationName != NULL) {
+        applicationNameAllocSize = ma_align_64(strlen(pContextConfigPulseAudio->pApplicationName) + 1);
+    }
+    if (pContextConfigPulseAudio->pServerName != NULL) {
+        serverNameAllocSize = ma_align_64(strlen(pContextConfigPulseAudio->pServerName) + 1);
+    }
+
+    pContextStatePulseAudio = (ma_context_state_pulseaudio*)ma_calloc(ma_align_64(sizeof(*pContextStatePulseAudio)) + applicationNameAllocSize + serverNameAllocSize, ma_context_get_allocation_callbacks(pContext));
     if (pContextStatePulseAudio == NULL) {
         return MA_OUT_OF_MEMORY;
+    }
+
+    if (pContextConfigPulseAudio->pApplicationName != NULL) {
+        pContextStatePulseAudio->pApplicationName = (char*)ma_offset_ptr(pContextStatePulseAudio, ma_align_64(sizeof(*pContextStatePulseAudio)));
+        ma_strcpy_s(pContextStatePulseAudio->pApplicationName, applicationNameAllocSize, pContextConfigPulseAudio->pApplicationName);
+    }
+    if (pContextConfigPulseAudio->pServerName != NULL) {
+        pContextStatePulseAudio->pServerName = (char*)ma_offset_ptr(pContextStatePulseAudio, ma_align_64(sizeof(*pContextStatePulseAudio)) + applicationNameAllocSize);
+        ma_strcpy_s(pContextStatePulseAudio->pServerName, serverNameAllocSize, pContextConfigPulseAudio->pServerName);
     }
 
     #ifndef MA_NO_RUNTIME_LINKING
@@ -31388,41 +31406,12 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
     }
     #endif
 
-    /* We need to make a copy of the application and server names so we can pass them to the pa_context of each device. */
-    if (pContextConfigPulseAudio->pApplicationName != NULL) {
-        pContextStatePulseAudio->pApplicationName = ma_copy_string(pContextConfigPulseAudio->pApplicationName, ma_context_get_allocation_callbacks(pContext));
-        if (pContextStatePulseAudio->pApplicationName == NULL) {
-            ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
-            #ifndef MA_NO_RUNTIME_LINKING
-            {
-                ma_dlclose(pLog, pContextStatePulseAudio->pulseSO);
-            }
-            #endif
-            return MA_OUT_OF_MEMORY;
-        }
-    }
-
-    if (pContextConfigPulseAudio->pServerName != NULL) {
-        pContextStatePulseAudio->pServerName = ma_copy_string(pContextConfigPulseAudio->pServerName, ma_context_get_allocation_callbacks(pContext));
-        if (pContextStatePulseAudio->pServerName == NULL) {
-            ma_free(pContextStatePulseAudio->pApplicationName, ma_context_get_allocation_callbacks(pContext));
-            #ifndef MA_NO_RUNTIME_LINKING
-            {
-                ma_dlclose(pLog, pContextStatePulseAudio->pulseSO);
-            }
-            #endif
-            ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
-            return MA_OUT_OF_MEMORY;
-        }
-    }
 
     tryAutoSpawn = pContextConfigPulseAudio->tryAutoSpawn;
 
 
     result = ma_init_pa_mainloop_and_pa_context__pulseaudio(pContext, pContextStatePulseAudio, pContextStatePulseAudio->pApplicationName, pContextStatePulseAudio->pServerName, tryAutoSpawn, &pContextStatePulseAudio->pMainLoop, &pContextStatePulseAudio->pPulseContext);
     if (result != MA_SUCCESS) {
-        ma_free(pContextStatePulseAudio->pServerName, ma_context_get_allocation_callbacks(pContext));
-        ma_free(pContextStatePulseAudio->pApplicationName, ma_context_get_allocation_callbacks(pContext));
         #ifndef MA_NO_RUNTIME_LINKING
         {
             ma_dlclose(pLog, pContextStatePulseAudio->pulseSO);
@@ -31447,9 +31436,6 @@ static void ma_context_uninit__pulseaudio(ma_context* pContext)
     pContextStatePulseAudio->pa_context_disconnect(pContextStatePulseAudio->pPulseContext);
     pContextStatePulseAudio->pa_context_unref(pContextStatePulseAudio->pPulseContext);
     pContextStatePulseAudio->pa_mainloop_free(pContextStatePulseAudio->pMainLoop);
-
-    ma_free(pContextStatePulseAudio->pServerName,      ma_context_get_allocation_callbacks(pContext));
-    ma_free(pContextStatePulseAudio->pApplicationName, ma_context_get_allocation_callbacks(pContext));
 
     #ifndef MA_NO_RUNTIME_LINKING
     {
