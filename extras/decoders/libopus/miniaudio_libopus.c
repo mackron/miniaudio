@@ -465,6 +465,16 @@ MA_API ma_result ma_libopus_get_length_in_pcm_frames(ma_libopus* pOpus, ma_uint6
 The code below defines the vtable that you'll plug into your `ma_decoder_config` object.
 */
 #if !defined(MA_NO_LIBOPUS)
+static void ma_decoding_backend_info__libopus(void* pUserData, ma_decoding_backend_info* pInfo)
+{
+    (void)pUserData;
+
+    pInfo->pName          = "Opus";
+    pInfo->pLibraryName   = "libopus";
+    pInfo->pVendor        = "Xiph.Org";
+    pInfo->encodingFormat = ma_encoding_format_opus;
+}
+
 static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -521,34 +531,14 @@ static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source*
     ma_free(pOpus, pAllocationCallbacks);
 }
 
-static ma_encoding_format ma_decoding_backend_get_encoding_format__libopus(void* pUserData, ma_data_source* pBackend)
-{
-    (void)pUserData;
-    (void)pBackend;
-
-    /*
-    When pBackend is null, return ma_encoding_format_unknown if the backend supports multiple
-    formats. An example might be an FFmpeg backend. If the backend only supports a single format,
-    like this one, return the format directly (if it's not recognized by miniaudio, return
-    ma_encoding_format_unknown).
-
-    When pBackend is non-null, return the encoded format of the data source. If the format is not
-    recognized by miniaudio, return ma_encoding_format_unknown.
-
-    Since this backend only operates on Opus streams, we can just return ma_encoding_format_opus
-    in all cases.
-    */
-    return ma_encoding_format_opus;
-}
-
 static ma_decoding_backend_vtable ma_gDecodingBackendVTable_libopus =
 {
+    ma_decoding_backend_info__libopus,
     ma_decoding_backend_init__libopus,
     ma_decoding_backend_init_file__libopus,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libopus,
-    ma_decoding_backend_get_encoding_format__libopus
+    ma_decoding_backend_uninit__libopus
 };
 ma_decoding_backend_vtable* ma_decoding_backend_libopus = &ma_gDecodingBackendVTable_libopus;
 #else

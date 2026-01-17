@@ -519,6 +519,16 @@ MA_API ma_result ma_libvorbis_get_length_in_pcm_frames(ma_libvorbis* pVorbis, ma
 The code below defines the vtable that you'll plug into your `ma_decoder_config` object.
 */
 #if !defined(MA_NO_LIBVORBIS)
+static void ma_decoding_backend_info__libvorbis(void* pUserData, ma_decoding_backend_info* pInfo)
+{
+    (void)pUserData;
+
+    pInfo->pName          = "Vorbis";
+    pInfo->pLibraryName   = "libvorbis";
+    pInfo->pVendor        = "Xiph.Org";
+    pInfo->encodingFormat = ma_encoding_format_vorbis;
+}
+
 static ma_result ma_decoding_backend_init__libvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -575,34 +585,14 @@ static void ma_decoding_backend_uninit__libvorbis(void* pUserData, ma_data_sourc
     ma_free(pVorbis, pAllocationCallbacks);
 }
 
-static ma_encoding_format ma_decoding_backend_get_encoding_format__libvorbis(void* pUserData, ma_data_source* pBackend)
-{
-    (void)pUserData;
-    (void)pBackend;
-
-    /*
-    When pBackend is null, return ma_encoding_format_unknown if the backend supports multiple
-    formats. An example might be an FFmpeg backend. If the backend only supports a single format,
-    like this one, return the format directly (if it's not recognized by miniaudio, return
-    ma_encoding_format_unknown).
-
-    When pBackend is non-null, return the encoded format of the data source. If the format is not
-    recognized by miniaudio, return ma_encoding_format_unknown.
-
-    Since this backend only operates on Vorbis streams, we can just return ma_encoding_format_vorbis
-    in all cases.
-    */
-    return ma_encoding_format_vorbis;
-}
-
 static ma_decoding_backend_vtable ma_gDecodingBackendVTable_libvorbis =
 {
+    ma_decoding_backend_info__libvorbis,
     ma_decoding_backend_init__libvorbis,
     ma_decoding_backend_init_file__libvorbis,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libvorbis,
-    ma_decoding_backend_get_encoding_format__libvorbis
+    ma_decoding_backend_uninit__libvorbis
 };
 ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = &ma_gDecodingBackendVTable_libvorbis;
 #else

@@ -2623,12 +2623,12 @@ you want to use, and in the order in which you want them to be tried.
 The `ma_decoding_backend_vtable` vtable has the following functions:
 
     ```
+    onInfo
     onInit
     onInitFile
     onInitFileW
     onInitMemory
     onUninit,
-    onGetEncodingFormat
     ```
 
 There are only two functions that must be implemented - `onInit` and `onUninit`. The other
@@ -2661,10 +2661,10 @@ initialization routine is clean.
 When a decoder is uninitialized, the `onUninit` callback will be fired which will give you an
 opportunity to clean up and internal data.
 
-The `onGetEncodingFormat` function is used to retrieve the encoding format of the data source. This
-is used as a hint to help miniaudio determine which decoding backend to use. If you don't know the
-encoding format, you can return `ma_encoding_format_unknown` and miniaudio will deal with it for
-you through trial and error.
+The `onInfo` function is used to retrieve information about the decoding backend, such as its name
+and encoding format. The encoding format is used as a hint to help miniaudio determine which
+decoding backend to use. If you don't know the encoding format, you can set it to
+`ma_encoding_format_unknown` and miniaudio will deal with it for you through trial and error.
 
 The miniaudio repository includes some examples of custom decoders in the "extras" folder. The
 "custom_decoder" example demonstrates how to use a custom decoder with miniaudio.
@@ -9856,14 +9856,22 @@ typedef struct
     ma_encoding_format encodingFormat;  /* This is the encoding format that the caller wants to use. If set to ma_encoding_format_unknown, the decoding backend should try initializing from any of it's supported formats. */
 } ma_decoding_backend_config;
 
+typedef struct ma_decoding_backend_info
+{
+    const char* pName;
+    const char* pLibraryName;
+    const char* pVendor;
+    ma_encoding_format encodingFormat;  /* Set to the encoding format of the decoder if recognized by miniaudio. It's OK for this to be set to `ma_encoding_format_unknown`. This is only used as a hint for the initialization process in miniaudio. If your decoding backend supports multiple encoding formats just set this to `ma_encoding_format_unknown`. */
+} ma_decoding_backend_info;
+
 typedef struct
 {
-    ma_result          (* onInit             )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
-    ma_result          (* onInitFile         )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
-    ma_result          (* onInitFileW        )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
-    ma_result          (* onInitMemory       )(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
-    void               (* onUninit           )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
-    ma_encoding_format (* onGetEncodingFormat)(void* pUserData, ma_data_source* pBackend);  /* Optional, in which case ma_encoding_format_unknown will be assumed. When pBackend is not null, return the actual encoding format of the decoder if known. If pBackend is null, return the format supported by the backend. Return ma_encoding_format_unknown if the backend supports multiple formats. */
+    void      (* onInfo      )(void* pUserData, ma_decoding_backend_info* pInfo);
+    ma_result (* onInit      )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
+    ma_result (* onInitFile  )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
+    ma_result (* onInitFileW )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
+    ma_result (* onInitMemory)(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
+    void      (* onUninit    )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
 } ma_decoding_backend_vtable;
 
 
@@ -9891,22 +9899,22 @@ typedef struct
 struct ma_decoder
 {
     ma_data_source_base ds;
-    ma_data_source* pBackend;                   /* The decoding backend we'll be pulling data from. */
-    const ma_decoding_backend_vtable* pBackendVTable; /* The vtable for the decoding backend. This needs to be stored so we can access the onUninit() callback. */
+    ma_data_source* pBackend;                           /* The decoding backend we'll be pulling data from. */
+    const ma_decoding_backend_vtable* pBackendVTable;   /* The vtable for the decoding backend. */
     void* pBackendUserData;
     ma_decoder_read_proc onRead;
     ma_decoder_seek_proc onSeek;
     ma_decoder_tell_proc onTell;
     void* pUserData;
-    ma_uint64 readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
+    ma_uint64 readPointerInPCMFrames;                   /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
     ma_format outputFormat;
     ma_uint32 outputChannels;
     ma_uint32 outputSampleRate;
-    ma_data_converter converter;    /* Data conversion is achieved by running frames through this. */
-    void* pInputCache;              /* In input format. Can be null if it's not needed. */
-    ma_uint64 inputCacheCap;        /* The capacity of the input cache. */
-    ma_uint64 inputCacheConsumed;   /* The number of frames that have been consumed in the cache. Used for determining the next valid frame. */
-    ma_uint64 inputCacheRemaining;  /* The number of valid frames remaining in the cache. */
+    ma_data_converter converter;                        /* Data conversion is achieved by running frames through this. */
+    void* pInputCache;                                  /* In input format. Can be null if it's not needed. */
+    ma_uint64 inputCacheCap;                            /* The capacity of the input cache. */
+    ma_uint64 inputCacheConsumed;                       /* The number of frames that have been consumed in the cache. Used for determining the next valid frame. */
+    ma_uint64 inputCacheRemaining;                      /* The number of valid frames remaining in the cache. */
     ma_allocation_callbacks allocationCallbacks;
     union
     {
@@ -9938,6 +9946,26 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
 Uninitializes a decoder.
 */
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
+
+/*
+Retrieves a pointer to the backend vtable used by this decoder.
+
+This is useful for getting an idea on the encoding format of the file being decoded. You can compare the return
+value from this function like so:
+
+    if (ma_decoder_get_backend_vtable(pDecoder) == ma_decoding_backend_wav) {
+        printf("Decoding WAV file...\n");
+    }
+    
+You can also use `ma_decoder_get_backend_info()` to get information about the decoding backend.
+*/
+MA_API const ma_decoding_backend_vtable* ma_decoder_get_backend_vtable(ma_decoder* pDecoder);
+
+/*
+Retrieves information about the decoding backend.
+*/
+MA_API ma_result ma_decoder_get_backend_info(ma_decoder* pDecoder, ma_decoding_backend_info* pInfo);
+
 
 /*
 Reads PCM frames from the given decoder.
@@ -9990,13 +10018,6 @@ returned.
 */
 MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames);
 
-/*
-Retrieves the encoding format of the given decoder.
-
-This is just a hint, and some decoding backends may return `ma_encoding_format_unknown`. This is not an error as
-it may just mean the decoding backend is a format not recognized by the enumeration in miniaudio.
-*/
-MA_API ma_encoding_format ma_decoder_get_encoding_format(const ma_decoder* pDecoder);
 
 /*
 Helper for opening and decoding a file into a heap allocated block of memory. Free the returned pointer with ma_free(). On input,
@@ -65480,6 +65501,15 @@ MA_API ma_result ma_wav_get_length_in_pcm_frames(ma_wav* pWav, ma_uint64* pLengt
     #endif
 }
 
+static void ma_decoding_backend_info__wav(void* pUserData, ma_decoding_backend_info* pInfo)
+{
+    (void)pUserData;
+
+    pInfo->pName          = "WAV";
+    pInfo->pLibraryName   = "miniaudio";
+    pInfo->pVendor        = "miniaudio";
+    pInfo->encodingFormat = ma_encoding_format_wav;
+}
 
 static ma_result ma_decoding_backend_init__wav(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
@@ -65587,22 +65617,14 @@ static void ma_decoding_backend_uninit__wav(void* pUserData, ma_data_source* pBa
     ma_free(pWav, pAllocationCallbacks);
 }
 
-static ma_encoding_format ma_decoding_backend_get_encoding_format__wav(void* pUserData, ma_data_source* pBackend)
-{
-    (void)pUserData;
-    (void)pBackend;
-
-    return ma_encoding_format_wav;
-}
-
 static ma_decoding_backend_vtable ma_gDecodingBackendVTable_WAV =
 {
+    ma_decoding_backend_info__wav,
     ma_decoding_backend_init__wav,
     ma_decoding_backend_init_file__wav,
     ma_decoding_backend_init_file_w__wav,
     ma_decoding_backend_init_memory__wav,
-    ma_decoding_backend_uninit__wav,
-    ma_decoding_backend_get_encoding_format__wav
+    ma_decoding_backend_uninit__wav
 };
 ma_decoding_backend_vtable* ma_decoding_backend_wav = &ma_gDecodingBackendVTable_WAV;
 #else
@@ -66122,6 +66144,16 @@ MA_API ma_result ma_flac_get_length_in_pcm_frames(ma_flac* pFlac, ma_uint64* pLe
 }
 
 
+static void ma_decoding_backend_info__flac(void* pUserData, ma_decoding_backend_info* pInfo)
+{
+    (void)pUserData;
+
+    pInfo->pName          = "FLAC";
+    pInfo->pLibraryName   = "miniaudio";
+    pInfo->pVendor        = "miniaudio";
+    pInfo->encodingFormat = ma_encoding_format_flac;
+}
+
 static ma_result ma_decoding_backend_init__flac(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -66228,22 +66260,14 @@ static void ma_decoding_backend_uninit__flac(void* pUserData, ma_data_source* pB
     ma_free(pFlac, pAllocationCallbacks);
 }
 
-static ma_encoding_format ma_decoding_backend_get_encoding_format__flac(void* pUserData, ma_data_source* pBackend)
-{
-    (void)pUserData;
-    (void)pBackend;
-
-    return ma_encoding_format_flac;
-}
-
 static ma_decoding_backend_vtable ma_gDecodingBackendVTable_FLAC =
 {
+    ma_decoding_backend_info__flac,
     ma_decoding_backend_init__flac,
     ma_decoding_backend_init_file__flac,
     ma_decoding_backend_init_file_w__flac,
     ma_decoding_backend_init_memory__flac,
-    ma_decoding_backend_uninit__flac,
-    ma_decoding_backend_get_encoding_format__flac
+    ma_decoding_backend_uninit__flac
 };
 ma_decoding_backend_vtable* ma_decoding_backend_flac = &ma_gDecodingBackendVTable_FLAC;
 #else
@@ -66817,6 +66841,16 @@ MA_API ma_result ma_mp3_get_length_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pLengt
 }
 
 
+static void ma_decoding_backend_info__mp3(void* pUserData, ma_decoding_backend_info* pInfo)
+{
+    (void)pUserData;
+
+    pInfo->pName          = "MP3";
+    pInfo->pLibraryName   = "miniaudio";
+    pInfo->pVendor        = "miniaudio";
+    pInfo->encodingFormat = ma_encoding_format_mp3;
+}
+
 static ma_result ma_decoding_backend_init__mp3(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -66923,22 +66957,14 @@ static void ma_decoding_backend_uninit__mp3(void* pUserData, ma_data_source* pBa
     ma_free(pMP3, pAllocationCallbacks);
 }
 
-static ma_encoding_format ma_decoding_backend_get_encoding_format__mp3(void* pUserData, ma_data_source* pBackend)
-{
-    (void)pUserData;
-    (void)pBackend;
-
-    return ma_encoding_format_mp3;
-}
-
 static ma_decoding_backend_vtable ma_gDecodingBackendVTable_MP3 =
 {
+    ma_decoding_backend_info__mp3,
     ma_decoding_backend_init__mp3,
     ma_decoding_backend_init_file__mp3,
     ma_decoding_backend_init_file_w__mp3,
     ma_decoding_backend_init_memory__mp3,
-    ma_decoding_backend_uninit__mp3,
-    ma_decoding_backend_get_encoding_format__mp3
+    ma_decoding_backend_uninit__mp3
 };
 ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &ma_gDecodingBackendVTable_MP3;
 #else
@@ -67671,6 +67697,16 @@ MA_API ma_result ma_stbvorbis_get_length_in_pcm_frames(ma_stbvorbis* pVorbis, ma
 }
 
 
+static void ma_decoding_backend_info__stbvorbis(void* pUserData, ma_decoding_backend_info* pInfo)
+{
+    (void)pUserData;
+
+    pInfo->pName          = "Vorbis";
+    pInfo->pLibraryName   = "stb_vorbis";
+    pInfo->pVendor        = "stb_vorbis";
+    pInfo->encodingFormat = ma_encoding_format_vorbis;
+}
+
 static ma_result ma_decoding_backend_init__stbvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -67753,22 +67789,14 @@ static void ma_decoding_backend_uninit__stbvorbis(void* pUserData, ma_data_sourc
     ma_free(pVorbis, pAllocationCallbacks);
 }
 
-static ma_encoding_format ma_decoding_backend_get_encoding_format__stbvorbis(void* pUserData, ma_data_source* pBackend)
-{
-    (void)pUserData;
-    (void)pBackend;
-
-    return ma_encoding_format_vorbis;
-}
-
 static ma_decoding_backend_vtable ma_gDecodingBackendVTable_stbvorbis =
 {
+    ma_decoding_backend_info__stbvorbis,
     ma_decoding_backend_init__stbvorbis,
     ma_decoding_backend_init_file__stbvorbis,
     NULL, /* onInitFileW() */
     ma_decoding_backend_init_memory__stbvorbis,
-    ma_decoding_backend_uninit__stbvorbis,
-    ma_decoding_backend_get_encoding_format__stbvorbis
+    ma_decoding_backend_uninit__stbvorbis
 };
 #endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
 
@@ -68445,8 +68473,11 @@ static ma_bool32 ma_can_decoding_backend_possibly_handle_encoding_format(const m
         return MA_TRUE;    /* The backend can handle anything. */
     }
 
-    if (pBackendVTable != NULL && pBackendVTable->onGetEncodingFormat != NULL) {
-        backendEncodingFormat = pBackendVTable->onGetEncodingFormat(pBackendUserData, NULL);
+    if (pBackendVTable != NULL && pBackendVTable->onInfo != NULL) {
+        ma_decoding_backend_info backendInfo;
+        pBackendVTable->onInfo(pBackendUserData, &backendInfo);
+
+        backendEncodingFormat = backendInfo.encodingFormat;
     }
 
     if (backendEncodingFormat == ma_encoding_format_unknown) {
@@ -68966,6 +68997,38 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
+MA_API const ma_decoding_backend_vtable* ma_decoder_get_backend_vtable(ma_decoder* pDecoder)
+{
+    if (pDecoder == NULL) {
+        return NULL;
+    }
+
+    return pDecoder->pBackendVTable;
+}
+
+MA_API ma_result ma_decoder_get_backend_info(ma_decoder* pDecoder, ma_decoding_backend_info* pInfo)
+{
+    if (pInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pInfo);
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(pDecoder->pBackendVTable != NULL);
+
+    if (pDecoder->pBackendVTable->onInfo == NULL) {
+        return MA_INVALID_OPERATION;    /* Not implemented. */
+    }
+
+    pDecoder->pBackendVTable->onInfo(pDecoder->pBackendUserData, pInfo);
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
@@ -69284,15 +69347,6 @@ MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64
     }
 
     return MA_SUCCESS;
-}
-
-MA_API ma_encoding_format ma_decoder_get_encoding_format(const ma_decoder* pDecoder)
-{
-    if (pDecoder == NULL || pDecoder->pBackendVTable == NULL || pDecoder->pBackendVTable->onGetEncodingFormat == NULL) {
-        return ma_encoding_format_unknown;
-    }
-
-    return pDecoder->pBackendVTable->onGetEncodingFormat(pDecoder->pBackendUserData, pDecoder->pBackend);
 }
 
 
