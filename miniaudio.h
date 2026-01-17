@@ -27278,6 +27278,8 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
     The heap allocated data is allocated like so:
 
     [Capture WAVEHDRs][Playback WAVEHDRs][Capture Intermediary Buffer][Playback Intermediary Buffer]
+
+    We attach this to the end of the device state struct.
     */
     heapSize = 0;
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
@@ -27287,13 +27289,24 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
         heapSize += sizeof(MA_WAVEHDR)*pDescriptorPlayback->periodCount + (pDescriptorPlayback->periodSizeInFrames * pDescriptorPlayback->periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels));
     }
 
-    pDeviceStateWinMM->_pHeapData = (ma_uint8*)ma_calloc(heapSize, ma_device_get_allocation_callbacks(pDevice));
-    if (pDeviceStateWinMM->_pHeapData == NULL) {
-        errorMsg = "[WinMM] Failed to allocate memory for the intermediary buffer.", errorCode = MA_OUT_OF_MEMORY;
-        goto on_error;
-    }
+    {
+        size_t newDeviceStateAllocSize;
+        ma_device_state_winmm* pNewDeviceStateWinMM;
 
-    MA_ZERO_MEMORY(pDeviceStateWinMM->_pHeapData, heapSize);
+        newDeviceStateAllocSize  = 0;
+        newDeviceStateAllocSize += ma_align_64(sizeof(*pDeviceStateWinMM));
+        newDeviceStateAllocSize += ma_align_64(heapSize);
+
+        pNewDeviceStateWinMM = (ma_device_state_winmm*)ma_realloc(pDeviceStateWinMM, newDeviceStateAllocSize, ma_device_get_allocation_callbacks(pDevice));
+        if (pNewDeviceStateWinMM == NULL) {
+            goto on_error;
+        }
+
+        pDeviceStateWinMM = pNewDeviceStateWinMM;
+
+        pDeviceStateWinMM->_pHeapData = (ma_uint8*)ma_offset_ptr(pDeviceStateWinMM, ma_align_64(sizeof(*pDeviceStateWinMM)));
+        MA_ZERO_MEMORY(pDeviceStateWinMM->_pHeapData, heapSize);
+    }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_uint32 iPeriod;
@@ -27374,7 +27387,6 @@ on_error:
         pContextStateWinMM->waveOutClose(pDeviceStateWinMM->hDevicePlayback);
     }
 
-    ma_free(pDeviceStateWinMM->_pHeapData, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStateWinMM, ma_device_get_allocation_callbacks(pDevice));
 
     if (errorMsg != NULL && errorMsg[0] != '\0') {
@@ -27401,7 +27413,6 @@ static void ma_device_uninit__winmm(ma_device* pDevice)
         CloseHandle(pDeviceStateWinMM->hEventPlayback);
     }
 
-    ma_free(pDeviceStateWinMM->_pHeapData, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStateWinMM, ma_device_get_allocation_callbacks(pDevice));
 }
 
