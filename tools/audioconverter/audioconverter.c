@@ -5,15 +5,12 @@ EXAMPLES:
     audioconverter my_file.flac my_file.wav
     audioconverter my_file.flac my_file.wav f32 44100 linear --linear-order 8
 */
-#define _CRT_SECURE_NO_WARNINGS /* For stb_vorbis' usage of fopen() instead of fopen_s(). */
-
-#define STB_VORBIS_HEADER_ONLY
-#include "../../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
-
 #define MA_NO_DEVICE_IO
 #define MA_NO_THREADING
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
+#include "../../extras/decoders/libvorbis/miniaudio_libvorbis.h"
+#include "../../extras/decoders/libopus/miniaudio_libopus.h"
 
 #include <stdio.h>
 
@@ -171,6 +168,14 @@ int main(int argc, char** argv)
     ma_uint32 linearOrder = 8;
     int iarg;
     const char* pOutputFilePath;
+    ma_decoding_backend_vtable* pDecodingBackends[] =
+    {
+        ma_decoding_backend_libvorbis,
+        ma_decoding_backend_libopus,
+        ma_decoding_backend_wav,
+        ma_decoding_backend_flac,
+        ma_decoding_backend_mp3 /* <-- MP3 seems to be worst/slowest at detecting whether or not it's a valid file so we'll put this last. */
+    };
 
     /* Print help if requested. */
     if (argc == 2) {
@@ -228,27 +233,24 @@ int main(int argc, char** argv)
 
     /* Initialize a decoder for the input file. */
     decoderConfig = ma_decoder_config_init(format, channels, rate);
-    decoderConfig.resampling.algorithm = resampleAlgorithm;
+    decoderConfig.ppBackendVTables           = pDecodingBackends;
+    decoderConfig.backendCount               = ma_countof(pDecodingBackends);
+    decoderConfig.resampling.algorithm       = resampleAlgorithm;
     decoderConfig.resampling.linear.lpfOrder = linearOrder;
 
     result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {
-        printf("Failed to open input file. Check the file exists and the format is supported. Supported input formats:\n");
-    #if defined(ma_dr_opus_h)
-        printf("    Opus\n");
-    #endif
-    #if defined(ma_dr_mp3_h)
-        printf("    MP3\n");
-    #endif    
-    #if defined(ma_dr_flac_h)
-        printf("    FLAC\n");
-    #endif    
-    #if defined(STB_VORBIS_INCLUDE_STB_VORBIS_H)
-        printf("    Vorbis\n");
-    #endif
-    #if defined(ma_dr_wav_h)
-        printf("    WAV\n");
-    #endif
+        size_t iDecodingBackend;
+        printf("Failed to open input file. Check the file exists and the format is supported. Supported decoding backends:\n");
+
+        for (iDecodingBackend = 0; iDecodingBackend < ma_countof(pDecodingBackends); iDecodingBackend += 1) {
+            if (pDecodingBackends[iDecodingBackend] != NULL && pDecodingBackends[iDecodingBackend]->onInfo != NULL) {
+                ma_decoding_backend_info backendInfo;
+                pDecodingBackends[iDecodingBackend]->onInfo(NULL, &backendInfo);
+                printf("    %s (via %s)\n", backendInfo.pName, backendInfo.pLibraryName);
+            }
+        }
+
         return (int)result;
     }
 
@@ -283,21 +285,5 @@ int main(int argc, char** argv)
     return (int)result;
 }
 
-
-/* stb_vorbis implementation must come after the implementation of miniaudio. */
-#if defined(_MSC_VER) && !defined(__clang__)
-    #pragma warning(push)
-    #pragma warning(disable:4100)   /* unreferenced formal parameter */
-    #pragma warning(disable:4244)   /* '=': conversion from '' to '', possible loss of data */
-    #pragma warning(disable:4245)   /* '=': conversion from '' to '', signed/unsigned mismatch */
-    #pragma warning(disable:4456)   /* declaration of '' hides previous local declaration */
-    #pragma warning(disable:4457)   /* declaration of '' hides function parameter */
-    #pragma warning(disable:4701)   /* potentially uninitialized local variable '' used */
-#else
-#endif
-#undef STB_VORBIS_HEADER_ONLY
-#include "../../extras/stb_vorbis.c"
-#if defined(_MSC_VER) && !defined(__clang__)
-    #pragma warning(pop)
-#else
-#endif
+#include "../../extras/decoders/libvorbis/miniaudio_libvorbis.c"
+#include "../../extras/decoders/libopus/miniaudio_libopus.c"
