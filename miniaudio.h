@@ -11191,6 +11191,7 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
     ma_bool32 noDevice;                                     /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
+    ma_bool32 noClip;                                       /* When set to true, do not clip samples. */
     ma_mono_expansion_mode monoExpansionMode;               /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
     ma_vfs* pResourceManagerVFS;                            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
     ma_engine_process_proc onProcess;                       /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
@@ -11218,6 +11219,7 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
+    ma_bool8 noClip;
     ma_spinlock inlinedSoundLock;                       /* For synchronizing access to the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;                /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC(4, ma_uint32) inlinedSoundCount;          /* The total number of allocated inlined sound objects. Used for debugging. */
@@ -79161,6 +79163,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     pEngine->onProcess = engineConfig.onProcess;
     pEngine->pProcessUserData = engineConfig.pProcessUserData;
     pEngine->pitchResamplingConfig = engineConfig.pitchResampling;
+    pEngine->noClip = (ma_bool8)engineConfig.noClip;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
     #if !defined(MA_NO_RESOURCE_MANAGER)
@@ -79193,7 +79196,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             deviceConfig.periodSizeInFrames        = engineConfig.periodSizeInFrames;
             deviceConfig.periodSizeInMilliseconds  = engineConfig.periodSizeInMilliseconds;
             deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
-            deviceConfig.noClip                    = MA_TRUE;    /* The engine will do clipping itself. */
+            deviceConfig.noClip                    = engineConfig.noClip;
 
             if (engineConfig.pContext == NULL) {
                 ma_context_config contextConfig = ma_context_config_init();
@@ -79487,6 +79490,17 @@ MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut,
 
     if (pEngine->onProcess) {
         pEngine->onProcess(pEngine->pProcessUserData, (float*)pFramesOut, framesRead);  /* Safe cast to float* because the engine always works on floating point samples. */
+    }
+
+    /* Apply clipping, unless it's been disabled. */
+    if (pEngine->noClip == MA_FALSE) {
+        /* Don't bother clipping if the device is already doing it. */
+        #ifndef MA_NO_DEVICE_IO
+        if (pEngine->pDevice != NULL && pEngine->pDevice->noClip == MA_FALSE)
+        #endif
+        {
+            ma_clip_samples_f32((float*)pFramesOut, (const float*)pFramesOut, frameCount * ma_engine_get_channels(pEngine));
+        }
     }
 
     return MA_SUCCESS;
