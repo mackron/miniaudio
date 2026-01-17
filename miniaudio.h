@@ -42217,7 +42217,8 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 #ifdef MA_ANDROID
     SLDataLocator_AndroidSimpleBufferQueue queue;
     SLresult resultSL;
-    size_t bufferSizeInBytes;
+    size_t bufferSizeInBytesPlayback = 0;
+    size_t bufferSizeInBytesCapture  = 0;
     SLInterfaceID itfIDs[2];
     const SLboolean itfIDsRequired[] = {
         SL_BOOLEAN_TRUE,    /* SL_IID_ANDROIDSIMPLEBUFFERQUEUE */
@@ -42350,14 +42351,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
         pDeviceStateOpenSL->currentBufferIndexCapture = 0;
 
-        bufferSizeInBytes = pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount;
-        pDeviceStateOpenSL->pBufferCapture = (ma_uint8*)ma_calloc(bufferSizeInBytes, ma_device_get_allocation_callbacks(pDevice));
-        if (pDeviceStateOpenSL->pBufferCapture == NULL) {
-            ma_device_uninit__opensl(pDevice);
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.");
-            return MA_OUT_OF_MEMORY;
-        }
-        MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferCapture, bufferSizeInBytes);
+        bufferSizeInBytesCapture = ma_align_64(pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -42471,16 +42465,38 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 
         /* Buffer. */
         pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate);
-        pDeviceStateOpenSL->currentBufferIndexPlayback   = 0;
+        pDeviceStateOpenSL->currentBufferIndexPlayback = 0;
 
-        bufferSizeInBytes = pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodCount;
-        pDeviceStateOpenSL->pBufferPlayback = (ma_uint8*)ma_calloc(bufferSizeInBytes, ma_device_get_allocation_callbacks(pDevice));
-        if (pDeviceStateOpenSL->pBufferPlayback == NULL) {
+        bufferSizeInBytesPlayback = ma_align_64(pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodCount);
+    }
+
+    /* The device state allocation needs to be resized to accomodate our buffers. */
+    {
+        size_t newDeviceStateAllocSize;
+        ma_device_state_opensl* pNewDeviceStateOpenSL;
+
+        newDeviceStateAllocSize  = 0;
+        newDeviceStateAllocSize += ma_align_64(sizeof(*pDeviceStateOpenSL));
+        newDeviceStateAllocSize += bufferSizeInBytesCapture;
+        newDeviceStateAllocSize += bufferSizeInBytesPlayback;
+
+        pNewDeviceStateOpenSL = (ma_device_state_opensl*)ma_realloc(pDeviceStateOpenSL, newDeviceStateAllocSize, ma_device_get_allocation_callbacks(pDevice));
+        if (pNewDeviceStateOpenSL == NULL) {
             ma_device_uninit__opensl(pDevice);
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.");
             return MA_OUT_OF_MEMORY;
         }
-        MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferPlayback, bufferSizeInBytes);
+
+        pDeviceStateOpenSL = pNewDeviceStateOpenSL;
+
+        if (bufferSizeInBytesCapture > 0) {
+            pDeviceStateOpenSL->pBufferCapture = (ma_uint8*)ma_offset_ptr(pDeviceStateOpenSL, ma_align_64(sizeof(*pDeviceStateOpenSL)));
+            MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferCapture, bufferSizeInBytesCapture);
+        }
+
+        if (bufferSizeInBytesPlayback > 0) {
+            pDeviceStateOpenSL->pBufferPlayback = (ma_uint8*)ma_offset_ptr(pDeviceStateOpenSL, ma_align_64(sizeof(*pDeviceStateOpenSL)) + bufferSizeInBytesCapture);
+            MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferPlayback, bufferSizeInBytesPlayback);
+        }
     }
 
     result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateOpenSL->async);
@@ -42513,8 +42529,6 @@ static void ma_device_uninit__opensl(ma_device* pDevice)
         if (pDeviceStateOpenSL->pAudioRecorderObj) {
             MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioRecorderObj)->Destroy(pDeviceStateOpenSL->pAudioRecorderObj);
         }
-
-        ma_free(pDeviceStateOpenSL->pBufferCapture, ma_device_get_allocation_callbacks(pDevice));
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -42524,8 +42538,6 @@ static void ma_device_uninit__opensl(ma_device* pDevice)
         if (pDeviceStateOpenSL->pOutputMixObj) {
             MA_OPENSL_OBJ(pDeviceStateOpenSL->pOutputMixObj)->Destroy(pDeviceStateOpenSL->pOutputMixObj);
         }
-
-        ma_free(pDeviceStateOpenSL->pBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
 
     ma_device_state_async_uninit(&pDeviceStateOpenSL->async, ma_device_get_allocation_callbacks(pDevice));
