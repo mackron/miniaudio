@@ -1722,9 +1722,9 @@ typedef struct
     struct ma_pw_loop* pLoop;
     struct ma_pw_core* pCore;
     struct ma_pw_registry* pRegistry;
-    struct ma_pw_metadata* pMetadata;               /* "default" metadata. */
+    struct ma_pw_metadata* pMetadataDefault;        /* "default" metadata. */
     struct ma_pw_metadata* pMetadataSettings;       /* "settings" metadata. */
-    struct ma_spa_hook metadataListener;            /* "default" metadata */
+    struct ma_spa_hook metadataListenerDefault;     /* "default" metadata */
     struct ma_spa_hook metadataListenerSettings;    /* "settings" metadata. */
     int seqDefaults;
     int seqSettings;
@@ -1878,7 +1878,7 @@ static int ma_on_metadata_property_default__pipewire(void* data, ma_uint32 subje
     return 0;
 }
 
-static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire =
+static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire_Default =
 {
     MA_PW_VERSION_METADATA_EVENTS,
     ma_on_metadata_property_default__pipewire
@@ -2204,12 +2204,12 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
         if (pName != NULL) {
             /* Default devices. */
             if (strcmp(pName, "default") == 0) {
-                pEnumData->pMetadata = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
-                if (pEnumData->pMetadata != NULL) {
-                    MA_PIPEWIRE_ZERO_OBJECT(&pEnumData->metadataListener);
+                pEnumData->pMetadataDefault = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
+                if (pEnumData->pMetadataDefault != NULL) {
+                    MA_PIPEWIRE_ZERO_OBJECT(&pEnumData->metadataListenerDefault);
     
                     /* Not using pw_metadata_add_listener() because it appears to be an inline function and thus not exported by libpipewire. */
-                    ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadata)->cb.funcs)->add_listener(pEnumData->pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);
+                    ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataDefault)->cb.funcs)->add_listener(pEnumData->pMetadataDefault, &pEnumData->metadataListenerDefault, &ma_gMetadataEventsPipeWire_Default, pEnumData);
     
                     /*spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);*/
                     /*pEnumData->pContextStatePipeWire->pw_metadata_add_listener(pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, NULL);*/
