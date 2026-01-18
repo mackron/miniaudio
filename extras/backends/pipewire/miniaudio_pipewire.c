@@ -118,6 +118,7 @@ MA_API MA_NO_INLINE int ma_pipewire_strcat_s(char* dst, size_t dstSizeInBytes, c
 
 #include <string.h> /* memset() */
 #include <assert.h> /* assert() */
+#include <stdlib.h> /* atoi() */
 
 #ifndef MA_PIPEWIRE_ASSERT
 #define MA_PIPEWIRE_ASSERT(x) assert(x)
