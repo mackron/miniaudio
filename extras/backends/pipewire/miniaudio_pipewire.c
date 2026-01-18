@@ -1672,11 +1672,21 @@ static void ma_context_uninit__pipewire(ma_context* pContext)
 }
 
 
-static ma_device_enumeration_result ma_context_enumerate_default_device_by_type__pipewire(ma_context* pContext, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_device_enumeration_result ma_context_enumerate_default_device_by_type__pipewire(ma_context* pContext, ma_device_type deviceType, ma_uint32 sampleRate, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_device_info deviceInfo;
+    ma_uint32 minSampleRate;
+    ma_uint32 maxSampleRate;
 
     (void)pContext;
+
+    if (sampleRate != 0) {
+        minSampleRate = sampleRate;
+        maxSampleRate = sampleRate;
+    } else {
+        minSampleRate = ma_standard_sample_rate_min;
+        maxSampleRate = ma_standard_sample_rate_max;
+    }
 
     MA_PIPEWIRE_ZERO_OBJECT(&deviceInfo);
 
@@ -1693,12 +1703,8 @@ static ma_device_enumeration_result ma_context_enumerate_default_device_by_type_
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "Default Capture Device", (size_t)-1);
     }
 
-    /* Data Format. PipeWire supports everything. Its maximum channel count is 64. */
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s16, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_s24, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-    ma_device_info_add_native_data_format(&deviceInfo, ma_format_u8,  1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+    /* Data Format. */
+    ma_device_info_add_native_data_format(&deviceInfo, ma_format_f32, 1, 64, minSampleRate, maxSampleRate);
 
     return callback(deviceType, &deviceInfo, pUserData);
 }
@@ -1707,6 +1713,7 @@ static ma_device_enumeration_result ma_context_enumerate_default_device_by_type_
 
 #define MA_PW_CORE_SYNC_FLAG_ENUM_DONE      (1 << 0)
 #define MA_PW_CORE_SYNC_FLAG_DEFAULTS_DONE  (1 << 1)
+#define MA_PW_CORE_SYNC_FLAG_SETTINGS_DONE  (1 << 2)
 
 typedef struct
 {
@@ -1714,11 +1721,15 @@ typedef struct
     struct ma_pw_loop* pLoop;
     struct ma_pw_core* pCore;
     struct ma_pw_registry* pRegistry;
-    struct ma_pw_metadata* pMetadata;
-    struct ma_spa_hook metadataListener;
+    struct ma_pw_metadata* pMetadata;               /* "default" metadata. */
+    struct ma_pw_metadata* pMetadataSettings;       /* "settings" metadata. */
+    struct ma_spa_hook metadataListener;            /* "default" metadata */
+    struct ma_spa_hook metadataListenerSettings;    /* "settings" metadata. */
     int seqDefaults;
+    int seqSettings;
     int seqEnumeration;
     ma_uint32 syncFlags;
+    ma_uint32 clockRate;    /* "clock.rate" from the "settings" metadata. */
     const ma_allocation_callbacks* pAllocationCallbacks;
     struct
     {
@@ -1870,6 +1881,33 @@ static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire =
 {
     MA_PW_VERSION_METADATA_EVENTS,
     ma_on_metadata_property_default__pipewire
+};
+
+
+static int ma_on_metadata_property_settings__pipewire(void* data, ma_uint32 subject, const char* key, const char* type, const char* value)
+{
+    ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)data;
+
+    (void)pEnumData;
+    (void)subject;
+    (void)type;
+
+    if (key == NULL) {
+        return 0;
+    }
+
+    if (strcmp(key, "clock.rate") == 0) {
+        pEnumData->clockRate = (ma_uint32)atoi(value);
+    }
+
+    /*printf("Metadata Property: Subject=%u, Key=%s, Type=%s, Value=%s\n", subject, key, type, value);*/
+    return 0;
+}
+
+static struct ma_pw_metadata_events ma_gMetadataEventsPipeWire_Settings =
+{
+    MA_PW_VERSION_METADATA_EVENTS,
+    ma_on_metadata_property_settings__pipewire
 };
 
 
@@ -2106,16 +2144,6 @@ static void ma_add_native_data_format__pipewire(ma_context_state_pipewire* pCont
 }
 #endif
 
-static void ma_add_native_data_format__pipewire(ma_context_state_pipewire* pContextStatePipeWire, struct ma_pw_core* pCore, struct ma_pw_loop* pLoop, ma_device_type deviceType, ma_device_info* pDeviceInfo)
-{
-    (void)pContextStatePipeWire;
-    (void)pCore;
-    (void)pLoop;
-    (void)deviceType;
-
-    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-}
-
 static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props, ma_device_type deviceType)
 {
     ma_device_info deviceInfo;
@@ -2167,25 +2195,40 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
         return;
     }
 
-    /* We need to check for our default devices. */
+    /* Some device info needs to be retrieved from metadata. */
     if (strcmp(type, MA_PW_TYPE_INTERFACE_Metadata) == 0) {
         const char* pName;
 
         pName = ma_spa_dict_lookup(props, MA_PW_KEY_METADATA_NAME);
-        if (pName != NULL && strcmp(pName, "default") == 0) {
-            pEnumData->pMetadata = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
-            if (pEnumData->pMetadata != NULL) {
-                MA_PIPEWIRE_ZERO_OBJECT(&pEnumData->metadataListener);
+        if (pName != NULL) {
+            /* Default devices. */
+            if (strcmp(pName, "default") == 0) {
+                pEnumData->pMetadata = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
+                if (pEnumData->pMetadata != NULL) {
+                    MA_PIPEWIRE_ZERO_OBJECT(&pEnumData->metadataListener);
+    
+                    /* Not using pw_metadata_add_listener() because it appears to be an inline function and thus not exported by libpipewire. */
+                    ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadata)->cb.funcs)->add_listener(pEnumData->pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);
+    
+                    /*spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);*/
+                    /*pEnumData->pContextStatePipeWire->pw_metadata_add_listener(pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, NULL);*/
 
-                /* Not using pw_metadata_add_listener() because it appears to be an inline function and thus not exported by libpipewire. */
-                ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadata)->cb.funcs)->add_listener(pEnumData->pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);
+                    pEnumData->seqDefaults = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                }
+            }
 
-                /*spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);*/
-                /*pEnumData->pContextStatePipeWire->pw_metadata_add_listener(pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, NULL);*/
+            /* Sample rate. */
+            if (strcmp(pName, "settings") == 0) {
+                pEnumData->pMetadataSettings = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
+                if (pEnumData->pMetadataSettings != NULL) {
+                    MA_PIPEWIRE_ZERO_OBJECT(&pEnumData->metadataListenerSettings);
+                    ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataSettings)->cb.funcs)->add_listener(pEnumData->pMetadataSettings, &pEnumData->metadataListenerSettings, &ma_gMetadataEventsPipeWire_Settings, pEnumData);
 
-                pEnumData->seqDefaults = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                    pEnumData->seqSettings = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                }
             }
         }
+
 
         return;
     }
@@ -2281,12 +2324,18 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     for (;;) {
         pContextStatePipeWire->pw_loop_iterate(pLoop, -1);
 
-        if (enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_ENUM_DONE) {
+        if ((enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_ENUM_DONE) != 0) {
             if (enumData.seqDefaults == 0) {
                 break;  /* We don't have a "default" metadata. */
             }
+            if ((enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_DEFAULTS_DONE) != 0) {
+                break;
+            }
 
-            if (enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_DEFAULTS_DONE) {
+            if (enumData.seqSettings == 0) {
+                break;  /* We don't have a "settings" metadata. */
+            }
+            if ((enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_SETTINGS_DONE) != 0) {
                 break;
             }
         }
@@ -2298,6 +2347,16 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
         size_t iDevice;
         ma_bool32 hasDefaultPlaybackDevice = MA_FALSE;
         ma_bool32 hasDefaultCaptureDevice  = MA_FALSE;
+        ma_uint32 minSampleRate;
+        ma_uint32 maxSampleRate;
+
+        if (enumData.clockRate != 0) {
+            minSampleRate = enumData.clockRate;
+            maxSampleRate = enumData.clockRate;
+        } else {
+            minSampleRate = ma_standard_sample_rate_min;
+            maxSampleRate = ma_standard_sample_rate_max;
+        }
 
         /* Playback devices. */
         for (iDevice = 0; iDevice < enumData.playback.deviceInfoCount; iDevice += 1) {
@@ -2308,7 +2367,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
                 }
 
                 /* Now we need to open the stream and get it's native data format. */
-                ma_add_native_data_format__pipewire(pContextStatePipeWire, pCore, pLoop, ma_device_type_playback, &enumData.playback.pDeviceInfos[iDevice]);
+                ma_device_info_add_native_data_format(&enumData.playback.pDeviceInfos[iDevice], ma_format_f32, 1, 64, minSampleRate, maxSampleRate);
 
                 cbResult = callback(ma_device_type_playback, &enumData.playback.pDeviceInfos[iDevice], pUserData);
             }
@@ -2316,7 +2375,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 
         if (enumData.playback.deviceInfoCount > 0 && !hasDefaultPlaybackDevice) {
             if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-                cbResult = ma_context_enumerate_default_device_by_type__pipewire(pContext, ma_device_type_playback, callback, pUserData);
+                cbResult = ma_context_enumerate_default_device_by_type__pipewire(pContext, ma_device_type_playback, enumData.clockRate, callback, pUserData);
             }
         }
 
@@ -2330,7 +2389,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
                 }
 
                 /* Now we need to open the stream and get it's native data format. */
-                ma_add_native_data_format__pipewire(pContextStatePipeWire, pCore, pLoop, ma_device_type_capture, &enumData.capture.pDeviceInfos[iDevice]);
+                ma_device_info_add_native_data_format(&enumData.capture.pDeviceInfos[iDevice], ma_format_f32, 1, 64, minSampleRate, maxSampleRate);
 
                 cbResult = callback(ma_device_type_capture, &enumData.capture.pDeviceInfos[iDevice], pUserData);
             }
@@ -2338,7 +2397,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 
         if (enumData.capture.deviceInfoCount > 0 && !hasDefaultCaptureDevice) {
             if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-                cbResult = ma_context_enumerate_default_device_by_type__pipewire(pContext, ma_device_type_capture, callback, pUserData);
+                cbResult = ma_context_enumerate_default_device_by_type__pipewire(pContext, ma_device_type_capture, enumData.clockRate, callback, pUserData);
             }
         }
 
