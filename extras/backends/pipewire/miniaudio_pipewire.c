@@ -1718,6 +1718,12 @@ static ma_device_enumeration_result ma_context_enumerate_default_device_by_type_
 
 typedef struct
 {
+    ma_device_info info;
+    ma_uint32 pwID;
+} ma_enumerate_devices_entry_pipewire;
+
+typedef struct
+{
     ma_context_state_pipewire* pContextStatePipeWire;
     struct ma_pw_loop* pLoop;
     struct ma_pw_core* pCore;
@@ -1735,7 +1741,7 @@ typedef struct
     struct
     {
         ma_device_id defaultDeviceID;
-        ma_device_info* pDeviceInfos;
+        ma_enumerate_devices_entry_pipewire* pDevices;
         size_t deviceInfoCount;
         size_t deviceInfoCap;
     } playback, capture;
@@ -1786,45 +1792,46 @@ static void ma_enumerate_devices_data_pipewire_init(ma_enumerate_devices_data_pi
 static void ma_enumerate_devices_data_pipewire_uninit(ma_enumerate_devices_data_pipewire* pEnumData)
 {
     /* TODO: Delete pMetadata object. */
-    ma_free(pEnumData->playback.pDeviceInfos, pEnumData->pAllocationCallbacks);
-    ma_free(pEnumData->capture.pDeviceInfos, pEnumData->pAllocationCallbacks);
+    ma_free(pEnumData->playback.pDevices, pEnumData->pAllocationCallbacks);
+    ma_free(pEnumData->capture.pDevices, pEnumData->pAllocationCallbacks);
 }
 
-static ma_result ma_enumerate_devices_data_pipewire_add(ma_enumerate_devices_data_pipewire* pEnumData, ma_device_type deviceType, const ma_device_info* pDeviceInfo)
+static ma_result ma_enumerate_devices_data_pipewire_add(ma_enumerate_devices_data_pipewire* pEnumData, ma_device_type deviceType, ma_uint32 pwID, const ma_device_info* pDeviceInfo)
 {
-    ma_device_info* pNewDeviceInfos;
-    size_t* pDeviceInfoCount;
-    size_t* pDeviceInfoCap;
-    ma_device_info** ppDeviceInfos;
+    size_t* pDeviceCount;
+    size_t* pDeviceCap;
+    ma_enumerate_devices_entry_pipewire** ppDevices;
 
     if (deviceType == ma_device_type_playback) {
-        pDeviceInfoCount = &pEnumData->playback.deviceInfoCount;
-        pDeviceInfoCap   = &pEnumData->playback.deviceInfoCap;
-        ppDeviceInfos    = &pEnumData->playback.pDeviceInfos;
+        pDeviceCount = &pEnumData->playback.deviceInfoCount;
+        pDeviceCap   = &pEnumData->playback.deviceInfoCap;
+        ppDevices    = &pEnumData->playback.pDevices;
     } else {
-        pDeviceInfoCount = &pEnumData->capture.deviceInfoCount;
-        pDeviceInfoCap   = &pEnumData->capture.deviceInfoCap;
-        ppDeviceInfos    = &pEnumData->capture.pDeviceInfos;
+        pDeviceCount = &pEnumData->capture.deviceInfoCount;
+        pDeviceCap   = &pEnumData->capture.deviceInfoCap;
+        ppDevices    = &pEnumData->capture.pDevices;
     }
 
-    if (*pDeviceInfoCount + 1 > *pDeviceInfoCap) {
-        size_t newCap = *pDeviceInfoCap * 2;
-        
+    if (*pDeviceCount + 1 > *pDeviceCap) {
+        size_t newCap = *pDeviceCap * 2;
+        ma_enumerate_devices_entry_pipewire* pNewDevices;
+
         if (newCap == 0) {
             newCap = 8;
         }
 
-        pNewDeviceInfos = (ma_device_info*)ma_realloc(*ppDeviceInfos, newCap * sizeof(ma_device_info), pEnumData->pAllocationCallbacks);
-        if (pNewDeviceInfos == NULL) {
+        pNewDevices = (ma_enumerate_devices_entry_pipewire*)ma_realloc(*ppDevices, newCap * sizeof(*pNewDevices), pEnumData->pAllocationCallbacks);
+        if (pNewDevices == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
-        *ppDeviceInfos  = pNewDeviceInfos;
-        *pDeviceInfoCap = newCap;
+        *ppDevices  = pNewDevices;
+        *pDeviceCap = newCap;
     }
 
-    MA_PIPEWIRE_COPY_MEMORY(&(*ppDeviceInfos)[*pDeviceInfoCount], pDeviceInfo, sizeof(ma_device_info));
-    *pDeviceInfoCount += 1;
+    ((*ppDevices)[*pDeviceCount]).info = *pDeviceInfo;
+    ((*ppDevices)[*pDeviceCount]).pwID = pwID;
+    *pDeviceCount += 1;
 
     return MA_SUCCESS;
 }
@@ -2153,7 +2160,6 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
 
     (void)permissions;
     (void)version;
-    (void)id;
     (void)type;
 
     /* The node name is the ID. */
@@ -2181,7 +2187,7 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
 
 
     /* Finally we can add the device into to our internal list. */
-    ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, &deviceInfo);
+    ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, id, &deviceInfo);
 
     /*printf("Registry Global Added By Type: ID=%u, Type=%s, DeviceType=%d, NiceName=%s\n", id, type, deviceType, pNiceName);*/
 }
@@ -2348,6 +2354,8 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
         size_t iDevice;
         ma_bool32 hasDefaultPlaybackDevice = MA_FALSE;
         ma_bool32 hasDefaultCaptureDevice  = MA_FALSE;
+        ma_uint32 minChannels = 1;
+        ma_uint32 maxChannels = 64;
         ma_uint32 minSampleRate;
         ma_uint32 maxSampleRate;
 
@@ -2362,15 +2370,15 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
         /* Playback devices. */
         for (iDevice = 0; iDevice < enumData.playback.deviceInfoCount; iDevice += 1) {
             if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-                if (enumData.playback.defaultDeviceID.custom.s[0] != '\0' && strcmp(enumData.playback.pDeviceInfos[iDevice].id.custom.s, enumData.playback.defaultDeviceID.custom.s) == 0) {
-                    enumData.playback.pDeviceInfos[iDevice].isDefault = MA_TRUE;
+                if (enumData.playback.defaultDeviceID.custom.s[0] != '\0' && strcmp(enumData.playback.pDevices[iDevice].info.id.custom.s, enumData.playback.defaultDeviceID.custom.s) == 0) {
+                    enumData.playback.pDevices[iDevice].info.isDefault = MA_TRUE;
                     hasDefaultPlaybackDevice = MA_TRUE;
                 }
 
                 /* Now we need to open the stream and get it's native data format. */
-                ma_device_info_add_native_data_format(&enumData.playback.pDeviceInfos[iDevice], ma_format_f32, 1, 64, minSampleRate, maxSampleRate);
+                ma_device_info_add_native_data_format(&enumData.playback.pDevices[iDevice].info, ma_format_f32, minChannels, maxChannels, minSampleRate, maxSampleRate);
 
-                cbResult = callback(ma_device_type_playback, &enumData.playback.pDeviceInfos[iDevice], pUserData);
+                cbResult = callback(ma_device_type_playback, &enumData.playback.pDevices[iDevice].info, pUserData);
             }
         }
 
@@ -2384,15 +2392,15 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
         /* Capture devices. */
         for (iDevice = 0; iDevice < enumData.capture.deviceInfoCount; iDevice += 1) {
             if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-                if (enumData.capture.defaultDeviceID.custom.s[0] != '\0' && strcmp(enumData.capture.pDeviceInfos[iDevice].id.custom.s, enumData.capture.defaultDeviceID.custom.s) == 0) {
-                    enumData.capture.pDeviceInfos[iDevice].isDefault = MA_TRUE;
+                if (enumData.capture.defaultDeviceID.custom.s[0] != '\0' && strcmp(enumData.capture.pDevices[iDevice].info.id.custom.s, enumData.capture.defaultDeviceID.custom.s) == 0) {
+                    enumData.capture.pDevices[iDevice].info.isDefault = MA_TRUE;
                     hasDefaultCaptureDevice = MA_TRUE;
                 }
 
                 /* Now we need to open the stream and get it's native data format. */
-                ma_device_info_add_native_data_format(&enumData.capture.pDeviceInfos[iDevice], ma_format_f32, 1, 64, minSampleRate, maxSampleRate);
+                ma_device_info_add_native_data_format(&enumData.capture.pDevices[iDevice].info, ma_format_f32, minChannels, maxChannels, minSampleRate, maxSampleRate);
 
-                cbResult = callback(ma_device_type_capture, &enumData.capture.pDeviceInfos[iDevice], pUserData);
+                cbResult = callback(ma_device_type_capture, &enumData.capture.pDevices[iDevice].info, pUserData);
             }
         }
 
