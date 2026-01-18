@@ -1961,6 +1961,22 @@ static void ma_pipewire_audio_info_parse(const struct ma_spa_pod* pParam, ma_log
 }
 
 
+/*
+NOTE
+
+The commented out code below was my first attempt to extract the "native" channel count and sample rate of
+a device. Essentially what it's doing is probing each device by creating stream, connecting it, and then
+querying the chosen channels and rate. This was a complete fail because there's what I consider to be a bug
+somewhere in the PipeWire/ALSA pipeline. I have S/PDIF device with no device actually physically connected
+to it. When I probe that device, the system volume for the entire operating system will suddenly go full
+blast. This is clearly not something that can be shipped so I've had to comment out this code. I'm leaving
+it here more as a reference and a reminder.
+
+This can be replicated from the OS itself without needing to run a program. In my case, if I switch the
+default device to the S/PDIF device, and then back to my headphones, everything goes full volume and your
+ears will get blown out.
+*/
+#if 0
 typedef struct
 {
     ma_log* pLog;
@@ -2087,6 +2103,17 @@ static void ma_add_native_data_format__pipewire(ma_context_state_pipewire* pCont
     if (pDeviceInfo->nativeDataFormatCount == 0) {
         ma_device_info_add_native_data_format(pDeviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     }
+}
+#endif
+
+static void ma_add_native_data_format__pipewire(ma_context_state_pipewire* pContextStatePipeWire, struct ma_pw_core* pCore, struct ma_pw_loop* pLoop, ma_device_type deviceType, ma_device_info* pDeviceInfo)
+{
+    (void)pContextStatePipeWire;
+    (void)pCore;
+    (void)pLoop;
+    (void)deviceType;
+
+    ma_device_info_add_native_data_format(pDeviceInfo, ma_format_f32, 1, 64, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 }
 
 static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumerate_devices_data_pipewire* pEnumData, ma_uint32 id, ma_uint32 permissions, const char* type, ma_uint32 version, const struct ma_spa_dict* props, ma_device_type deviceType)
