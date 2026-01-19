@@ -1791,7 +1791,13 @@ static void ma_enumerate_devices_data_pipewire_init(ma_enumerate_devices_data_pi
 
 static void ma_enumerate_devices_data_pipewire_uninit(ma_enumerate_devices_data_pipewire* pEnumData)
 {
-    /* TODO: Delete pMetadata object. */
+    if (pEnumData->pMetadataDefault != NULL) {
+        pEnumData->pContextStatePipeWire->pw_proxy_destroy((struct ma_pw_proxy*)pEnumData->pMetadataDefault);
+    }
+    if (pEnumData->pMetadataSettings != NULL) {
+        pEnumData->pContextStatePipeWire->pw_proxy_destroy((struct ma_pw_proxy*)pEnumData->pMetadataSettings);
+    }
+
     ma_free(pEnumData->playback.pDevices, pEnumData->pAllocationCallbacks);
     ma_free(pEnumData->capture.pDevices, pEnumData->pAllocationCallbacks);
 }
