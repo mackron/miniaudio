@@ -607,24 +607,6 @@ target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
 # Extra Backends
 if(NOT MINIAUDIO_NO_DEVICEIO)
-    if(NOT MINIAUDIO_NO_PIPEWIRE)
-        add_library(miniaudio_pipewire STATIC
-            extras/backends/pipewire/miniaudio_pipewire.c
-            extras/backends/pipewire/miniaudio_pipewire.h
-        )
-
-        list(APPEND LIBS_TO_INSTALL miniaudio_pipewire)
-        install(FILES extras/backends/pipewire/miniaudio_pipewire.h DESTINATION include/miniaudio/extras/backends/pipewire)
-
-        target_include_directories(miniaudio_pipewire PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/pipewire)
-        target_compile_options    (miniaudio_pipewire PRIVATE ${COMPILE_OPTIONS})
-        target_compile_definitions(miniaudio_pipewire PRIVATE ${COMPILE_DEFINES})
-
-        if(MINIAUDIO_NO_RUNTIME_LINKING AND TARGET PkgConfig::PipeWire AND TARGET PkgConfig::SPA)
-            target_link_libraries(miniaudio_pipewire PRIVATE PkgConfig::PipeWire PkgConfig::SPA)
-        endif()
-    endif()
-
     if(NOT MINIAUDIO_NO_SDL2)
         add_library(miniaudio_sdl2 STATIC
             extras/backends/sdl2/miniaudio_sdl2.c
@@ -757,8 +739,7 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
         if(TARGET PkgConfig::PipeWire AND TARGET PkgConfig::SPA)
             target_link_libraries(miniaudio      PRIVATE   PkgConfig::PipeWire PkgConfig::SPA)
             target_link_libraries(miniaudio_test INTERFACE PkgConfig::PipeWire PkgConfig::SPA)
-            list(APPEND LINKED_LIBS libpipewire-0.3)
-            list(APPEND LINKED_LIBS libspa-0.2)
+            list(APPEND LINKED_LIBS libpipewire-0.3 libspa-0.2)
         endif()
     endif()
 
@@ -806,10 +787,6 @@ if(MINIAUDIO_BUILD_TESTS)
     function(add_miniaudio_test name source)
         add_executable(${name} ${TESTS_DIR}/${source})
         target_link_libraries(${name} PRIVATE miniaudio_test)
-        if(TARGET miniaudio_pipewire)
-            target_link_libraries(${name} PRIVATE miniaudio_pipewire)
-            target_compile_definitions(${name} PRIVATE MA_TESTS_INCLUDE_PIPEWIRE)
-        endif()
     endfunction()
 
     # Disable C++ tests when forcing C89. This is needed because we'll be passing -std=c89 which will cause errors when trying to compile a C++ file.

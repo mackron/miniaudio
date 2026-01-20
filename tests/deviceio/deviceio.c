@@ -52,10 +52,6 @@ are specified the last one on the command line will have priority.
 #include "../common/common.c"
 #include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 
-#if defined(MA_TESTS_INCLUDE_PIPEWIRE)
-#include "../../extras/backends/pipewire/miniaudio_pipewire.h"
-#endif
-
 #ifndef AUTO_CLOSE_TIME_IN_MILLISECONDS
 #define AUTO_CLOSE_TIME_IN_MILLISECONDS 5000
 #endif
@@ -170,6 +166,10 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_oss, NULL);
         goto done;
     }
+    if (strcmp(arg, "pipewire") == 0) {
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_pipewire, NULL);
+        goto done;
+    }
     if (strcmp(arg, "pulseaudio") == 0 || strcmp(arg, "pulse") == 0) {
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_pulseaudio, NULL);
         goto done;
@@ -200,14 +200,6 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
     }
     if (strcmp(arg, "sdl2") == 0) {
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl2, NULL);
-        goto done;
-    }
-    if (strcmp(arg, "pipewire") == 0) {
-        #if defined(MA_TESTS_INCLUDE_PIPEWIRE)
-        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_pipewire, NULL);
-        #else
-        printf("ERROR: Attempting to use PipeWire, but it was not compiled in. Compile with MA_TESTS_INCLUDE_PIPEWIRE.");
-        #endif
         goto done;
     }
 
@@ -305,15 +297,6 @@ void print_enabled_backends(void)
     if (ma_device_backend_sdl2 != NULL) {
         printf("    SDL2\n");
     }
-
-    #if defined(MA_TESTS_INCLUDE_PIPEWIRE)
-    {
-        if (ma_device_backend_pipewire != NULL) {
-            printf("    PipeWire\n");
-        }
-    }
-    #endif
-
 
     printf("\n");
 }
