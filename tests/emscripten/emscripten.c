@@ -22,9 +22,8 @@ ma_waveform sineWave;   /* For playback example. */
 
 void main_loop__em(void* pUserData)
 {
-    ma_device* pDevice = (ma_device*)pUserData;
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        ma_device_step(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
+    if (threadingMode == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_step((ma_device*)pUserData, MA_BLOCKING_MODE_NON_BLOCKING);
     }
 }
 
@@ -97,7 +96,6 @@ static void do_duplex()
     deviceConfig.capture.pDeviceID  = NULL;
     deviceConfig.capture.format     = DEVICE_FORMAT;
     deviceConfig.capture.channels   = 2;
-    deviceConfig.capture.shareMode  = ma_share_mode_shared;
     deviceConfig.playback.pDeviceID = NULL;
     deviceConfig.playback.format    = DEVICE_FORMAT;
     deviceConfig.playback.channels  = 2;
@@ -117,13 +115,102 @@ static void do_duplex()
 }
 
 
+ma_device loopbackPlaybackDevice;
+ma_pcm_rb loopbackRB;
+
+void data_callback_loopback_capture(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    ma_uint32 framesToWrite;
+    void* pBuffer;
+
+    (void)pDevice;
+    (void)pOutput;
+
+    /* Write to the ring buffer. */
+    framesToWrite = frameCount;
+    ma_pcm_rb_acquire_write(&loopbackRB, &framesToWrite, &pBuffer);
+    MA_COPY_MEMORY(pBuffer, pInput, framesToWrite);
+    ma_pcm_rb_commit_write(&loopbackRB, framesToWrite);
+}
+
+void data_callback_loopback_playback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    ma_uint32 framesToRead;
+    void* pBuffer;
+
+    (void)pDevice;
+    (void)pInput;
+
+    /* Read from the ring buffer. */
+    framesToRead = frameCount;
+    ma_pcm_rb_acquire_read(&loopbackRB, &framesToRead, &pBuffer);
+    MA_COPY_MEMORY(pOutput, pBuffer, framesToRead);
+    ma_pcm_rb_commit_read(&loopbackRB, framesToRead);
+}
+
+static void do_loopback()
+{
+    ma_result result;
+    ma_device_config deviceConfig;
+    ma_device_backend_config backend;
+
+    backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
+
+    deviceConfig = ma_device_config_init(ma_device_type_loopback);
+    deviceConfig.threadingMode      = threadingMode;
+    deviceConfig.capture.format     = DEVICE_FORMAT;
+    deviceConfig.capture.channels   = 2;
+    deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
+    deviceConfig.dataCallback       = data_callback_loopback_capture;
+    deviceConfig.pBackendConfigs    = &backend;
+    deviceConfig.backendConfigCount = 1;
+    result = ma_device_init_ex(&backend, 1, NULL, &deviceConfig, &device);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize loopback device.\n");
+        return;
+    }
+
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.threadingMode      = threadingMode;
+    deviceConfig.playback.format    = DEVICE_FORMAT;
+    deviceConfig.playback.channels  = 2;
+    deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
+    deviceConfig.dataCallback       = data_callback_loopback_playback;
+    deviceConfig.pBackendConfigs    = &backend;
+    deviceConfig.backendConfigCount = 1;
+    result = ma_device_init_ex(&backend, 1, NULL, &deviceConfig, &loopbackPlaybackDevice);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize loopback playback device.\n");
+        return;
+    }
+
+
+    /* We need a ring buffer. */
+    printf("device.capture.internalPeriodSizeInFrames = %u\n", device.capture.internalPeriodSizeInFrames);
+    ma_pcm_rb_init(DEVICE_FORMAT, device.capture.channels, device.capture.internalPeriodSizeInFrames * 100, NULL, NULL, &loopbackRB);
+
+
+    if (ma_device_start(&loopbackPlaybackDevice) != MA_SUCCESS) {
+        printf("Failed to start loopback playback device.");
+        return;
+    }
+
+    if (ma_device_start(&device) != MA_SUCCESS) {
+        printf("Failed to start device.");
+        return;
+    }
+}
+
+
 static EM_BOOL on_canvas_click(int eventType, const EmscriptenMouseEvent* pMouseEvent, void* pUserData)
 {
     if (isRunning == MA_FALSE) {
-        if (pMouseEvent->button == 0) { /* Left click. */
+        /*  */ if (pMouseEvent->button == 0) {  /* Left click. */
             do_playback();
-        } else if (pMouseEvent->button == 2) { /* Right click. */
+        } else if (pMouseEvent->button == 2) {  /* Right click. */
             do_duplex();
+        } else if (pMouseEvent->button == 1) {  /* Middle click. */
+            do_loopback();
         }
 
         isRunning = MA_TRUE;
@@ -208,6 +295,7 @@ int main(int argc, char** argv)
     printf("Click inside canvas to start playing:\n");
     printf("    Left click for playback\n");
     printf("    Right click for duplex\n");
+    printf("    Middle click for loopback\n");
 
     /* The device must be started in response to an input event. */
     emscripten_set_mouseup_callback("canvas", &device, 0, on_canvas_click);
