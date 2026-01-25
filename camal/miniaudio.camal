@@ -1,10 +1,12 @@
-miniaudio_h := <../miniaudio.h>;
-miniaudio_c := <../miniaudio.c>;
-dr_wav_h    :: <../../dr_libs/dr_wav.h>;
-dr_flac_h   :: <../../dr_libs/dr_flac.h>;
-dr_mp3_h    :: <../../dr_libs/dr_mp3.h>;
-c89atomic_h :: <../../c89atomic/c89atomic.h>;
-c89atomic_c :: <../../c89atomic/c89atomic.c>;
+miniaudio_h             := <../miniaudio.h>;
+miniaudio_c             := <../miniaudio.c>;
+dr_wav_h                :: <../../dr_libs/dr_wav.h>;
+dr_flac_h               :: <../../dr_libs/dr_flac.h>;
+dr_mp3_h                :: <../../dr_libs/dr_mp3.h>;
+c89atomic_h             :: <../../c89atomic/c89atomic.h>;
+c89atomic_c             :: <../../c89atomic/c89atomic.c>;
+c89atomic_ring_buffer_h :: <../../c89atomic/extras/c89atomic_ring_buffer.h>;
+c89atomic_ring_buffer_c :: <../../c89atomic/extras/c89atomic_ring_buffer.c>;
 
 minify :: function(src:string) string
 {
@@ -274,6 +276,26 @@ convert_c89atomic_h :: function(src:string) string
 }
 
 miniaudio_h("/\* c89atomic.h begin \*/\R":"\R/\* c89atomic.h end \*/") = convert_c89atomic_h(@(c89atomic_h["#ifndef c89atomic_h\R":"\R#endif  /\* c89atomic_h \*/"]));
+
+
+// Ring Buffer
+rename_c89atomic_ring_buffer_namespace :: function(src:string) string
+{
+    return rename_c89atomic_namespace(src)
+        ["\bma_atomic_ring_buffer"]      <= "ma_ring_buffer"
+        ["\bMA_ATOMIC"]                  <= "MA"
+        ["\bMA_RING_BUFFER_API"]         <= "MA_API"
+        ["\bMA_RING_BUFFER_ASSERT"]      <= "MA_ASSERT"
+        ["\bMA_RING_BUFFER_COPY_MEMORY"] <= "MA_COPY_MEMORY"
+        ["\bMA_RING_BUFFER_OFFSET_PTR"]  <= "ma_offset_ptr"
+
+        // Alignment hack.
+        ["void\* pBuffer;       "]       <= "void* pBuffer;"
+    ;
+}
+
+miniaudio_h("/\* BEG ma_ring_buffer.h \*/\R":"\R/\* END ma_ring_buffer.h \*/") = rename_c89atomic_ring_buffer_namespace(@(c89atomic_ring_buffer_h("/\* BEG c89atomic_ring_buffer.h \*/\R":"\R/\* END c89atomic_ring_buffer.h \*/")));
+miniaudio_h("/\* BEG ma_ring_buffer.c \*/\R":"\R/\* END ma_ring_buffer.c \*/") = rename_c89atomic_ring_buffer_namespace(@(c89atomic_ring_buffer_c("/\* BEG c89atomic_ring_buffer.c \*/\R":"\R/\* END c89atomic_ring_buffer.c \*/")));
 
 
 // Cleanup. If we don't normalize line endings we'll fail to compile on old versions of GCC.
