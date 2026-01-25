@@ -116,36 +116,22 @@ static void do_duplex()
 
 
 ma_device loopbackPlaybackDevice;
-ma_pcm_rb loopbackRB;
+ma_audio_ring_buffer loopbackRB;
 
 void data_callback_loopback_capture(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_uint32 framesToWrite;
-    void* pBuffer;
-
     (void)pDevice;
     (void)pOutput;
 
-    /* Write to the ring buffer. */
-    framesToWrite = frameCount;
-    ma_pcm_rb_acquire_write(&loopbackRB, &framesToWrite, &pBuffer);
-    MA_COPY_MEMORY(pBuffer, pInput, framesToWrite);
-    ma_pcm_rb_commit_write(&loopbackRB, framesToWrite);
+    ma_audio_ring_buffer_write_pcm_frames(&loopbackRB, pInput, frameCount, NULL);
 }
 
 void data_callback_loopback_playback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_uint32 framesToRead;
-    void* pBuffer;
-
     (void)pDevice;
     (void)pInput;
 
-    /* Read from the ring buffer. */
-    framesToRead = frameCount;
-    ma_pcm_rb_acquire_read(&loopbackRB, &framesToRead, &pBuffer);
-    MA_COPY_MEMORY(pOutput, pBuffer, framesToRead);
-    ma_pcm_rb_commit_read(&loopbackRB, framesToRead);
+    ma_audio_ring_buffer_read_pcm_frames(&loopbackRB, pOutput, frameCount, NULL);
 }
 
 static void do_loopback()
@@ -187,7 +173,7 @@ static void do_loopback()
 
     /* We need a ring buffer. */
     printf("device.capture.internalPeriodSizeInFrames = %u\n", device.capture.internalPeriodSizeInFrames);
-    ma_pcm_rb_init(DEVICE_FORMAT, device.capture.channels, device.capture.internalPeriodSizeInFrames * 100, NULL, NULL, &loopbackRB);
+    ma_audio_ring_buffer_init(DEVICE_FORMAT, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 100, NULL, &loopbackRB);
 
 
     if (ma_device_start(&loopbackPlaybackDevice) != MA_SUCCESS) {
