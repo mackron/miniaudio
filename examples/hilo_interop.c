@@ -17,43 +17,18 @@ may be updated to make use of a more advanced data source that handles all of th
 */
 #include "../miniaudio.c"
 
-static ma_pcm_rb rb;
+static ma_audio_ring_buffer rb;
 static ma_device device;
 static ma_engine engine;
 static ma_sound sound;  /* The sound will be the playback of the capture side. */
 
 void capture_data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
-    ma_result result;
-    ma_uint32 framesWritten;
-
     (void)pFramesOut;
+    (void)pDevice;
 
-    /* We need to write to the ring buffer. Need to do this in a loop. */
-    framesWritten = 0;
-    while (framesWritten < frameCount) {
-        void* pMappedBuffer;
-        ma_uint32 framesToWrite = frameCount - framesWritten;
-
-        result = ma_pcm_rb_acquire_write(&rb, &framesToWrite, &pMappedBuffer);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        if (framesToWrite == 0) {
-            break;
-        }
-
-        /* Copy the data from the capture buffer to the ring buffer. */
-        ma_copy_pcm_frames(pMappedBuffer, ma_offset_pcm_frames_const_ptr_f32((const float*)pFramesIn, framesWritten, pDevice->capture.channels), framesToWrite, pDevice->capture.format, pDevice->capture.channels);
-
-        result = ma_pcm_rb_commit_write(&rb, framesToWrite);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        framesWritten += framesToWrite;
-    }
+    /* We need to write to the ring buffer. */
+    ma_audio_ring_buffer_write_pcm_frames(&rb, pFramesIn, frameCount, NULL);
 }
 
 int main(int argc, char** argv)
@@ -83,19 +58,12 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    /* Initialize the ring buffer. */
-    result = ma_pcm_rb_init(device.capture.format, device.capture.channels, device.capture.internalPeriodSizeInFrames * 5, NULL, NULL, &rb);
+    /* Initialize the ring buffer. Make sure the sample rate is set so the engine can resample it if necessary. */
+    result = ma_audio_ring_buffer_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3, NULL, &rb);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize the ring buffer.");
         return -1;
     }
-
-    /*
-    Ring buffers don't require a sample rate for their normal operation, but we can associate it
-    with a sample rate. We'll want to do this so the engine can resample if necessary.
-    */
-    ma_pcm_rb_set_sample_rate(&rb, device.sampleRate);
-
 
 
     /*
@@ -137,7 +105,7 @@ int main(int argc, char** argv)
     ma_sound_uninit(&sound);
     ma_engine_uninit(&engine);
     ma_device_uninit(&device);
-    ma_pcm_rb_uninit(&rb);
+    ma_audio_ring_buffer_uninit(&rb);
 
 
     (void)argc;
