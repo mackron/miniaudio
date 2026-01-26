@@ -61,7 +61,7 @@ MA_API ma_result ma_channel_combiner_node_init(ma_node_graph* pNodeGraph, const 
     outputChannels[0] = pConfig->channels;
 
     baseConfig = pConfig->nodeConfig;
-    baseConfig.vtable          = &g_ma_channel_combiner_node_vtable;
+    baseConfig.pVTable         = &g_ma_channel_combiner_node_vtable;
     baseConfig.inputBusCount   = pConfig->channels; /* The vtable has an unknown channel count, so must specify it here. */
     baseConfig.pInputChannels  = inputChannels;
     baseConfig.pOutputChannels = outputChannels;

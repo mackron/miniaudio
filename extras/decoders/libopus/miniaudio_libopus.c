@@ -123,7 +123,7 @@ static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pCon
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &ma_gDataSourceVTable_libopus;
+    dataSourceConfig.pVTable = &ma_gDataSourceVTable_libopus;
 
     result = ma_data_source_init(&dataSourceConfig, &pOpus->ds);
     if (result != MA_SUCCESS) {

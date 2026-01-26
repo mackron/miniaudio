@@ -91,7 +91,7 @@ MA_API ma_result ma_ltrim_node_init(ma_node_graph* pNodeGraph, const ma_ltrim_no
     pTrimNode->foundStart = MA_FALSE;
 
     baseConfig = pConfig->nodeConfig;
-    baseConfig.vtable          = &g_ma_ltrim_node_vtable;
+    baseConfig.pVTable         = &g_ma_ltrim_node_vtable;
     baseConfig.pInputChannels  = &pConfig->channels;
     baseConfig.pOutputChannels = &pConfig->channels;
 

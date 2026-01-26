@@ -65,7 +65,7 @@ MA_API ma_result ma_channel_separator_node_init(ma_node_graph* pNodeGraph, const
     }
 
     baseConfig = pConfig->nodeConfig;
-    baseConfig.vtable          = &g_ma_channel_separator_node_vtable;
+    baseConfig.pVTable         = &g_ma_channel_separator_node_vtable;
     baseConfig.outputBusCount  = pConfig->channels; /* The vtable has an unknown channel count, so must specify it here. */
     baseConfig.pInputChannels  = inputChannels;
     baseConfig.pOutputChannels = outputChannels;

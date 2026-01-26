@@ -183,7 +183,7 @@ MA_API ma_result ma_steamaudio_binaural_node_init(ma_node_graph* pNodeGraph, con
     channelsOut = 2;    /* Always stereo output. */
 
     baseConfig = ma_node_config_init();
-    baseConfig.vtable          = &g_ma_steamaudio_binaural_node_vtable;
+    baseConfig.pVTable         = &g_ma_steamaudio_binaural_node_vtable;
     baseConfig.pInputChannels  = &channelsIn;
     baseConfig.pOutputChannels = &channelsOut;
     result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pBinauralNode->baseNode);

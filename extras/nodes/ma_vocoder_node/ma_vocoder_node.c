@@ -65,7 +65,7 @@ MA_API ma_result ma_vocoder_node_init(ma_node_graph* pNodeGraph, const ma_vocode
     outputChannels[0] = pConfig->channels;   /* Output channels is always the same as the source/carrier. */
 
     baseConfig = pConfig->nodeConfig;
-    baseConfig.vtable          = &g_ma_vocoder_node_vtable;
+    baseConfig.pVTable         = &g_ma_vocoder_node_vtable;
     baseConfig.pInputChannels  = inputChannels;
     baseConfig.pOutputChannels = outputChannels;
 
