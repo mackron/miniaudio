@@ -14,12 +14,12 @@ effect.
 #define DEVICE_FORMAT      ma_format_f32    /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS    1                /* For this example, always set to 1. */
 
-static ma_waveform         g_sourceData;    /* The underlying data source of the source node. */
-static ma_audio_queue      g_exciteData;    /* The underlying data source of the excite node. */
-static ma_data_source_node g_sourceNode;    /* A data source node containing the source data we'll be sending through to the vocoder. This will be routed into the first bus of the vocoder node. */
-static ma_data_source_node g_exciteNode;    /* A data source node containing the excite data we'll be sending through to the vocoder. This will be routed into the second bus of the vocoder node. */
-static ma_vocoder_node     g_vocoderNode;   /* The vocoder node. */
-static ma_node_graph       g_nodeGraph;
+static ma_waveform          g_sourceData;    /* The underlying data source of the source node. */
+static ma_audio_ring_buffer g_exciteData;    /* The underlying data source of the excite node. */
+static ma_data_source_node  g_sourceNode;    /* A data source node containing the source data we'll be sending through to the vocoder. This will be routed into the first bus of the vocoder node. */
+static ma_data_source_node  g_exciteNode;    /* A data source node containing the excite data we'll be sending through to the vocoder. This will be routed into the second bus of the vocoder node. */
+static ma_vocoder_node      g_vocoderNode;   /* The vocoder node. */
+static ma_node_graph        g_nodeGraph;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
@@ -37,7 +37,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     the data source is our `pInput` buffer. We need to update the underlying data source so that it
     read data from `pInput`.
     */
-    ma_audio_queue_push_pcm_frames(&g_exciteData, pInput, frameCount);
+    ma_audio_ring_buffer_write_pcm_frames(&g_exciteData, pInput, frameCount, NULL);
 
     /* With the source buffer configured we can now read directly from the node graph. */
     ma_node_graph_read_pcm_frames(&g_nodeGraph, pOutput, frameCount, NULL);
@@ -53,7 +53,6 @@ int main(int argc, char** argv)
     ma_data_source_node_config sourceNodeConfig;
     ma_data_source_node_config exciteNodeConfig;
     ma_waveform_config waveformConfig;
-    ma_audio_queue_config audioQueueConfig;
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
@@ -116,9 +115,7 @@ int main(int argc, char** argv)
 
 
     /* Excite/modulator. Attached to input bus 1 of the vocoder node. */
-    audioQueueConfig = ma_audio_queue_config_init(device.capture.format, device.capture.channels, device.sampleRate, 0);
-
-    result = ma_audio_queue_init(&audioQueueConfig, &g_exciteData);
+    result = ma_audio_ring_buffer_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3, NULL, &g_exciteData);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize audio buffer for source.");
         goto done2;
