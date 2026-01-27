@@ -53,6 +53,7 @@ int main(int argc, char** argv)
     ma_data_source_node_config sourceNodeConfig;
     ma_data_source_node_config exciteNodeConfig;
     ma_waveform_config waveformConfig;
+    ma_audio_ring_buffer_config ringBufferConfig;
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
@@ -115,7 +116,9 @@ int main(int argc, char** argv)
 
 
     /* Excite/modulator. Attached to input bus 1 of the vocoder node. */
-    result = ma_audio_ring_buffer_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3, NULL, &g_exciteData);
+    ringBufferConfig = ma_audio_ring_buffer_config_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3);
+
+    result = ma_audio_ring_buffer_init(&ringBufferConfig, &g_exciteData);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize audio buffer for source.");
         goto done2;

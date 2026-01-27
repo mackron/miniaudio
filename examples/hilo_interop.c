@@ -35,6 +35,7 @@ int main(int argc, char** argv)
 {
     ma_result result;
     ma_device_config deviceConfig;
+    ma_audio_ring_buffer_config ringBufferConfig;
 
     /*
     The first thing we'll do is set up the capture side. There are two parts to this. The first is
@@ -59,7 +60,9 @@ int main(int argc, char** argv)
     }
 
     /* Initialize the ring buffer. Make sure the sample rate is set so the engine can resample it if necessary. */
-    result = ma_audio_ring_buffer_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3, NULL, &rb);
+    ringBufferConfig = ma_audio_ring_buffer_config_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3);
+    
+    result = ma_audio_ring_buffer_init(&ringBufferConfig, &rb);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize the ring buffer.");
         return -1;
