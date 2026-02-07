@@ -19358,7 +19358,7 @@ MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename)
             #else
                 /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
                 WCHAR filenameW[4096];
-                if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+                if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW) / sizeof(WCHAR)) == 0) {
                     handle = NULL;
                 } else {
                     handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
@@ -29734,7 +29734,9 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         if (resultPoll > 0) {
             ma_uint64 t;
             resultRead = read(((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture)[0].fd, &t, sizeof(t));
-            if (resultRead != sizeof(t)) {
+            if (resultRead == -1) {
+                perror("read error");
+            } else if (resultRead != sizeof(t)) {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Failed to read from capture wakeupfd. read() = %d\n", resultRead);
             }
         }
@@ -29758,7 +29760,9 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         if (resultPoll > 0) {
             ma_uint64 t;
             resultRead = read(((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback)[0].fd, &t, sizeof(t));
-            if (resultRead != sizeof(t)) {
+            if (resultRead == -1) {
+                perror("read error");
+            } else if (resultRead != sizeof(t)) {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Failed to read from playback wakeupfd. read() = %d\n", resultRead);
             }
         }
@@ -59357,7 +59361,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 
     /* Keep reading until we've read as many frames as possible. */
     while (totalFramesProcessed < frameCount) {
-        ma_uint64 framesProcessed;
+        ma_uint64 framesProcessed = 0;
         ma_uint64 framesRemaining = frameCount - totalFramesProcessed;
 
         /* We need to resolve the data source that we'll actually be reading from. */
@@ -92933,7 +92937,9 @@ static unsigned ma_dr_mp3_hdr_frame_samples(const ma_uint8 *h)
 }
 static int ma_dr_mp3_hdr_frame_bytes(const ma_uint8 *h, int free_format_size)
 {
-    int frame_bytes = ma_dr_mp3_hdr_frame_samples(h)*ma_dr_mp3_hdr_bitrate_kbps(h)*125/ma_dr_mp3_hdr_sample_rate_hz(h);
+    unsigned int sampleRate = ma_dr_mp3_hdr_sample_rate_hz(h);
+    if (sampleRate == 0) return 0;
+    int frame_bytes = ma_dr_mp3_hdr_frame_samples(h)*ma_dr_mp3_hdr_bitrate_kbps(h)*125/sampleRate;
     if (MA_DR_MP3_HDR_IS_LAYER_1(h))
     {
         frame_bytes &= ~3;
@@ -94498,6 +94504,8 @@ static size_t ma_dr_mp3__on_read(ma_dr_mp3* pMP3, void* pBufferOut, size_t bytes
     size_t bytesRead;
     MA_DR_MP3_ASSERT(pMP3         != NULL);
     MA_DR_MP3_ASSERT(pMP3->onRead != NULL);
+    if (pMP3->pUserData == NULL)
+        return 0;      
     if (bytesToRead == 0) {
         return 0;
     }
