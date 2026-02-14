@@ -41495,11 +41495,33 @@ Web Audio Backend
 #ifdef MA_HAS_WEBAUDIO
 #include <emscripten/emscripten.h>
 
-#if (__EMSCRIPTEN_major__ > 3) || (__EMSCRIPTEN_major__ == 3 && (__EMSCRIPTEN_minor__ > 1 || (__EMSCRIPTEN_minor__ == 1 && __EMSCRIPTEN_tiny__ >= 32)))
+#ifndef MA_EMSCRIPTEN_MAJOR
+    #if defined(__EMSCRIPTEN_MAJOR__)
+        #define MA_EMSCRIPTEN_MAJOR __EMSCRIPTEN_MAJOR__
+    #else
+        #define MA_EMSCRIPTEN_MAJOR __EMSCRIPTEN_major__
+    #endif
+#endif
+#ifndef MA_EMSCRIPTEN_MINOR
+    #if defined(__EMSCRIPTEN_MINOR__)
+        #define MA_EMSCRIPTEN_MINOR __EMSCRIPTEN_MINOR__
+    #else
+        #define MA_EMSCRIPTEN_MINOR __EMSCRIPTEN_minor__
+    #endif
+#endif
+#ifndef MA_EMSCRIPTEN_TINY
+    #if defined(__EMSCRIPTEN_TINY__)
+        #define MA_EMSCRIPTEN_TINY __EMSCRIPTEN_TINY__
+    #else
+        #define MA_EMSCRIPTEN_TINY __EMSCRIPTEN_tiny__
+    #endif
+#endif
+
+#if (MA_EMSCRIPTEN_MAJOR > 3) || (MA_EMSCRIPTEN_MAJOR == 3 && (MA_EMSCRIPTEN_MINOR > 1 || (MA_EMSCRIPTEN_MINOR == 1 && MA_EMSCRIPTEN_TINY >= 32)))
     #include <emscripten/webaudio.h>
     #define MA_SUPPORT_AUDIO_WORKLETS
 
-    #if (__EMSCRIPTEN_major__ > 3) || (__EMSCRIPTEN_major__ == 3 && (__EMSCRIPTEN_minor__ > 1 || (__EMSCRIPTEN_minor__ == 1 && __EMSCRIPTEN_tiny__ >= 70)))
+    #if (MA_EMSCRIPTEN_MAJOR > 3) || (MA_EMSCRIPTEN_MAJOR == 3 && (MA_EMSCRIPTEN_MINOR > 1 || (MA_EMSCRIPTEN_MINOR == 1 && MA_EMSCRIPTEN_TINY >= 70)))
         #define MA_SUPPORT_AUDIO_WORKLETS_VARIABLE_BUFFER_SIZE
     #endif
 #endif
