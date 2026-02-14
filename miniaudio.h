@@ -41504,9 +41504,6 @@ Web Audio Backend
     #endif
 #endif
 
-/*
-TODO: Version 0.12: Swap this logic around so that AudioWorklets are used by default. Add MA_NO_AUDIO_WORKLETS.
-*/
 #if defined(MA_ENABLE_AUDIO_WORKLETS) && defined(MA_SUPPORT_AUDIO_WORKLETS)
     #define MA_USE_AUDIO_WORKLETS
 #endif
