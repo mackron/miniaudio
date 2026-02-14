@@ -1,3 +1,8 @@
+v0.11.25 - TBD
+=====================
+* Fixed warnings with the Emscripten build.
+
+
 v0.11.24 - 2026-01-17
 =====================
 * Fixed a possible glitch when processing the audio of a `ma_sound` when doing resampling.
