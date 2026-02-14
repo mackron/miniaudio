@@ -59262,6 +59262,10 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
     ma_uint64 framesRead = 0;
     ma_bool32 loop = ma_data_source_is_looping(pDataSource);
 
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
     if (pDataSourceBase == NULL) {
         return MA_AT_END;
     }
