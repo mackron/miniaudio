@@ -251,7 +251,11 @@ void resampler_listening_test(void)
 
     ma_device_start(&device);
 
-    ma_sleep(100000);
+    #ifndef __EMSCRIPTEN__
+    {
+        ma_sleep(100000);
+    }
+    #endif
 
     ma_device_uninit(&device);
     ma_waveform_uninit(&callbackData.waveform);
