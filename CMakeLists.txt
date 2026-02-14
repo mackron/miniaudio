@@ -498,6 +498,51 @@ if(NOT MINIAUDIO_NO_LIBOPUS)
     endif()
 endif()
 
+# libsamplerate
+if(NOT TARGET samplerate)
+    # Try pkg-config first
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(samplerate IMPORTED_TARGET samplerate)
+    endif()
+
+    if(TARGET PkgConfig::samplerate)
+        add_library(samplerate ALIAS PkgConfig::samplerate)
+    else()
+        message(STATUS "libsamplerate not found.")
+    endif()
+endif()
+
+# speexdsp
+if(NOT TARGET speexdsp)
+    # Try pkg-config first
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(speexdsp IMPORTED_TARGET speexdsp)
+    endif()
+
+    if(TARGET PkgConfig::speexdsp)
+        add_library(speexdsp ALIAS PkgConfig::speexdsp)
+    else()
+        message(STATUS "speexdsp not found.")
+    endif()
+endif()
+
+# soxr
+if(NOT TARGET soxr)
+    # Try pkg-config first
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(soxr IMPORTED_TARGET soxr)
+    endif()
+
+    if(TARGET PkgConfig::soxr)
+        add_library(soxr ALIAS PkgConfig::soxr)
+    else()
+        message(STATUS "soxr not found.")
+    endif()
+endif()
+
 
 # SteamAudio has an annoying SDK setup. In the lib folder there is a folder for each platform. We need to specify the
 # platform we're compiling for.
@@ -837,6 +882,27 @@ if(MINIAUDIO_BUILD_TESTS)
     
     add_miniaudio_test(miniaudio_generation generation/generation.c)
     add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
+
+    add_miniaudio_test(miniaudio_resampling resampling/resampling.c)
+    #add_test(NAME miniaudio_resampling COMMAND miniaudio_resampling)
+    if(TARGET samplerate)
+        target_link_libraries(miniaudio_resampling PRIVATE samplerate)
+        target_compile_definitions(miniaudio_resampling PRIVATE MA_HAS_LIBSAMPLERATE)
+    else()
+        message(STATUS "libsamplerate not found. Sample rate conversion will be disabled in miniaudio_resampling.")
+    endif()
+    if(TARGET speexdsp)
+        target_link_libraries(miniaudio_resampling PRIVATE speexdsp)
+        target_compile_definitions(miniaudio_resampling PRIVATE MA_HAS_SPEEXDSP)
+    else()
+        message(STATUS "speexdsp not found. Speex resampler will be disabled in miniaudio_resampling.")
+    endif()
+    if(TARGET soxr)
+        target_link_libraries(miniaudio_resampling PRIVATE soxr)
+        target_compile_definitions(miniaudio_resampling PRIVATE MA_HAS_SOXR)
+    else()
+        message(STATUS "soxr not found. SoX resampler will be disabled in miniaudio_resampling.")
+    endif()
 endif()
 
 # Examples
