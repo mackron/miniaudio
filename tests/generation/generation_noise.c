@@ -35,7 +35,7 @@ ma_result test_noise__by_format_and_type(ma_format format, ma_noise_type type, c
     return MA_SUCCESS;
 }
 
-ma_result test_noise__f32()
+ma_result test_noise__f32(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
@@ -62,7 +62,7 @@ ma_result test_noise__f32()
     }
 }
 
-ma_result test_noise__s16()
+ma_result test_noise__s16(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
@@ -89,7 +89,7 @@ ma_result test_noise__s16()
     }
 }
 
-ma_result test_noise__u8()
+ma_result test_noise__u8(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;

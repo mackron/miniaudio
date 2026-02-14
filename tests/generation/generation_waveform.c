@@ -35,7 +35,7 @@ ma_result test_waveform__by_format_and_type(ma_format format, ma_waveform_type t
     return MA_SUCCESS;
 }
 
-ma_result test_waveform__f32()
+ma_result test_waveform__f32(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
@@ -93,7 +93,7 @@ ma_result test_waveform__f32()
     }
 }
 
-ma_result test_waveform__s16()
+ma_result test_waveform__s16(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
@@ -151,7 +151,7 @@ ma_result test_waveform__s16()
     }
 }
 
-ma_result test_waveform__u8()
+ma_result test_waveform__u8(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
