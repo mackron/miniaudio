@@ -19358,7 +19358,7 @@ MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename)
             #else
                 /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
                 WCHAR filenameW[4096];
-                if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+                if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, ma_countof(filenameW)) == 0) {
                     handle = NULL;
                 } else {
                     handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);

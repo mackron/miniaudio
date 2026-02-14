@@ -1,6 +1,7 @@
 v0.11.25 - TBD
 =====================
-* Fixed warnings with the Emscripten build.
+* Fixed warnings with the Emscripten build relating to the renaming of of `__EMSCRIPTEN_major/minor/tiny__` macros.
+* Win32: Fixed an error with runtime linking on the UWP build. This is actually a non issue in practice because it would require miniaudio to pass in a DLL name of longer than 2048 characters which it never does.
 
 
 v0.11.24 - 2026-01-17
