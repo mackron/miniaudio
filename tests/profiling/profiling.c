@@ -63,7 +63,7 @@ ma_bool32 verify_deinterleaving_by_format(ma_format format, ma_uint32 channels)
         pDeinterleavedOptimized[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
     }
 
-    fill_debug_frames(pInterleavedReference, frameCount, format, channels);
+    fill_debug_frames(pInterleavedReference, format, channels, frameCount);
     MA_COPY_MEMORY(pInterleavedOptimized, pInterleavedReference, frameCount * bpf);
 
 
