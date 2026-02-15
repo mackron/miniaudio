@@ -338,8 +338,8 @@ static void profile_resampler_miniaudio(resampling_api api, ma_format format, ma
                     while (totalFramesRead < RESAMPLING_FRAMES_PER_ITERATION) {
                         SRC_DATA data;
 
-                        data.data_in       = ma_offset_pcm_frames_ptr(pSamplesIn, totalFramesRead, format, channels);
-                        data.data_out      = pSamplesOut;
+                        data.data_in       = (float*)ma_offset_pcm_frames_ptr(pSamplesIn, totalFramesRead, format, channels);
+                        data.data_out      = (float*)pSamplesOut;
                         data.input_frames  = RESAMPLING_FRAMES_PER_ITERATION - totalFramesRead;
                         data.output_frames = framesOutCap;
                         data.src_ratio     = (double)sampleRateOut / sampleRateIn;  /* I think libsamplerate's ratio is out/in, whereas miniaudio is in/out. Advice welcome if I am wrong about this. */
@@ -379,9 +379,9 @@ static void profile_resampler_miniaudio(resampling_api api, ma_format format, ma
                         spx_uint32_t out_len = (spx_uint32_t)framesOutCap;
 
                         if (format == ma_format_f32) {
-                            speex_resampler_process_interleaved_float(pState, ma_offset_pcm_frames_ptr(pSamplesIn, totalFramesRead, format, channels), &in_len, pSamplesOut, &out_len);
+                            speex_resampler_process_interleaved_float(pState, (const float*)ma_offset_pcm_frames_ptr(pSamplesIn, totalFramesRead, format, channels), &in_len, (float*)pSamplesOut, &out_len);
                         } else {
-                            speex_resampler_process_interleaved_int(pState, ma_offset_pcm_frames_ptr(pSamplesIn, totalFramesRead, format, channels), &in_len, pSamplesOut, &out_len);
+                            speex_resampler_process_interleaved_int(pState, (const spx_int16_t*)ma_offset_pcm_frames_ptr(pSamplesIn, totalFramesRead, format, channels), &in_len, (spx_int16_t*)pSamplesOut, &out_len);
                         }
                         
                         totalFramesRead += in_len;
