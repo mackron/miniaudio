@@ -32,6 +32,11 @@
 /tests/_build/a.out
 /tests/_build/a.exe
 /tests/debugging/archive/
+/tests/dreamcast/miniaudio.elf
+/tests/dreamcast/miniaudio_dreamcast_test.o
+/tests/dreamcast/romdisk.img
+/tests/dreamcast/romdisk.o
+/tests/dreamcast/romdisk/
 /tests/*.c
 /tests/*.cpp
 /website/docs/
