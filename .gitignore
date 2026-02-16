@@ -36,7 +36,7 @@
 /tests/dreamcast/miniaudio_dreamcast_test.o
 /tests/dreamcast/romdisk.img
 /tests/dreamcast/romdisk.o
-/tests/dreamcast/romdisk/
+/tests/dreamcast/romdisk/test.mp3
 /tests/*.c
 /tests/*.cpp
 /website/docs/
