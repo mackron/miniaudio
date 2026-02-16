@@ -191,6 +191,7 @@ Backends
 - DirectSound
 - WinMM
 - Core Audio (Apple)
+- PipeWire
 - PulseAudio
 - JACK
 - ALSA
