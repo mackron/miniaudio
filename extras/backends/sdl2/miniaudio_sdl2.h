@@ -6,6 +6,8 @@ and device configs.
 #ifndef miniaudio_backend_sdl2_h
 #define miniaudio_backend_sdl2_h
 
+#include "../../../miniaudio.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
