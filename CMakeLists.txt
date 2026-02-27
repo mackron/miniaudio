@@ -678,6 +678,16 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
             target_link_libraries(miniaudio_sdl2 PRIVATE PkgConfig::SDL2)
         endif()
     endif()
+
+    # Template Backend (for build validation only, not installed)
+    add_library(miniaudio_backend_template STATIC
+        extras/backends/template/miniaudio_backend_template.c
+        extras/backends/template/miniaudio_backend_template.h
+    )
+
+    target_include_directories(miniaudio_backend_template PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/template)
+    target_compile_options    (miniaudio_backend_template PRIVATE ${COMPILE_OPTIONS})
+    target_compile_definitions(miniaudio_backend_template PRIVATE ${COMPILE_DEFINES})
 endif()
 
 
