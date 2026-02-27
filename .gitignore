@@ -37,6 +37,12 @@
 /tests/dreamcast/romdisk.img
 /tests/dreamcast/romdisk.o
 /tests/dreamcast/romdisk/test.mp3
+/tests/xbox/bin/
+/tests/xbox/*.d
+/tests/xbox/*.obj
+/tests/xbox/*.iso
+/tests/xbox/*.exe
+/tests/xbox/test.mp3
 /tests/*.c
 /tests/*.cpp
 /website/docs/

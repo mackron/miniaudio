@@ -180,6 +180,7 @@ Supported Platforms
 - Raspberry Pi
 - Emscripten / HTML5
 - Dreamcast (via KallistiOS)
+- Original Xbox (via NXDK)
 
 miniaudio should compile clean on other platforms, but it will not include any support for playback or capture
 by default. To support that, you would need to implement a custom backend. You can do this without needing to
@@ -202,6 +203,7 @@ Backends
 - OpenSL|ES (Android only)
 - Web Audio (Emscripten)
 - Dreamcast (via KallistiOS)
+- XAudio (Original Xbox via NXDK)
 - Null (Silence)
 - Custom
 
