@@ -43,6 +43,7 @@
 /tests/xbox/*.iso
 /tests/xbox/*.exe
 /tests/xbox/test.mp3
+/tests/vita/build/
 /tests/*.c
 /tests/*.cpp
 /website/docs/
