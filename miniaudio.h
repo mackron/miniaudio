@@ -61944,7 +61944,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     14
-#define MA_DR_WAV_VERSION_REVISION  4
+#define MA_DR_WAV_VERSION_REVISION  5
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -80526,6 +80526,13 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_smpl_to_metadata_obj(ma_dr_wav__metadata_pa
     MA_DR_WAV_ASSERT(pChunkHeader != NULL);
     if (pMetadata != NULL && bytesJustRead == sizeof(smplHeaderData)) {
         ma_uint32 iSampleLoop;
+        ma_uint32 loopCount;
+        ma_uint32 calculatedLoopCount;
+        loopCount = ma_dr_wav_bytes_to_u32(smplHeaderData + 28);
+        calculatedLoopCount = (pChunkHeader->sizeInBytes - MA_DR_WAV_SMPL_BYTES) / MA_DR_WAV_SMPL_LOOP_BYTES;
+        if (loopCount != calculatedLoopCount) {
+            return totalBytesRead;
+        }
         pMetadata->type                                     = ma_dr_wav_metadata_type_smpl;
         pMetadata->data.smpl.manufacturerId                 = ma_dr_wav_bytes_to_u32(smplHeaderData + 0);
         pMetadata->data.smpl.productId                      = ma_dr_wav_bytes_to_u32(smplHeaderData + 4);
@@ -80536,7 +80543,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_smpl_to_metadata_obj(ma_dr_wav__metadata_pa
         pMetadata->data.smpl.smpteOffset                    = ma_dr_wav_bytes_to_u32(smplHeaderData + 24);
         pMetadata->data.smpl.sampleLoopCount                = ma_dr_wav_bytes_to_u32(smplHeaderData + 28);
         pMetadata->data.smpl.samplerSpecificDataSizeInBytes = ma_dr_wav_bytes_to_u32(smplHeaderData + 32);
-        if (pMetadata->data.smpl.sampleLoopCount == (pChunkHeader->sizeInBytes - MA_DR_WAV_SMPL_BYTES) / MA_DR_WAV_SMPL_LOOP_BYTES) {
+        if (pMetadata->data.smpl.sampleLoopCount == calculatedLoopCount) {
             pMetadata->data.smpl.pLoops = (ma_dr_wav_smpl_loop*)ma_dr_wav__metadata_get_memory(pParser, sizeof(ma_dr_wav_smpl_loop) * pMetadata->data.smpl.sampleLoopCount, MA_DR_WAV_METADATA_ALIGNMENT);
             for (iSampleLoop = 0; iSampleLoop < pMetadata->data.smpl.sampleLoopCount; ++iSampleLoop) {
                 ma_uint8 smplLoopData[MA_DR_WAV_SMPL_LOOP_BYTES];
@@ -80557,6 +80564,8 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_smpl_to_metadata_obj(ma_dr_wav__metadata_pa
                 MA_DR_WAV_ASSERT(pMetadata->data.smpl.pSamplerSpecificData != NULL);
                 ma_dr_wav__metadata_parser_read(pParser, pMetadata->data.smpl.pSamplerSpecificData, pMetadata->data.smpl.samplerSpecificDataSizeInBytes, &totalBytesRead);
             }
+        } else {
+            MA_DR_WAV_ZERO_OBJECT(&pMetadata->data.smpl);
         }
     }
     return totalBytesRead;
@@ -83172,19 +83181,13 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__msadpcm(ma_dr_wav* pWav, ma_
                     newSample0  = ((pWav->msadpcm.prevFrames[0][1] * coeff1Table[pWav->msadpcm.predictor[0]]) + (pWav->msadpcm.prevFrames[0][0] * coeff2Table[pWav->msadpcm.predictor[0]])) >> 8;
                     newSample0 += nibble0 * pWav->msadpcm.delta[0];
                     newSample0  = ma_dr_wav_clamp(newSample0, -32768, 32767);
-                    pWav->msadpcm.delta[0] = (adaptationTable[((nibbles & 0xF0) >> 4)] * pWav->msadpcm.delta[0]) >> 8;
-                    if (pWav->msadpcm.delta[0] < 16) {
-                        pWav->msadpcm.delta[0] = 16;
-                    }
+                    pWav->msadpcm.delta[0] = (ma_int32)ma_dr_wav_clamp(((ma_int64)adaptationTable[((nibbles & 0xF0) >> 4)] * pWav->msadpcm.delta[0]) >> 8, 16, 0x7FFFFFFF);
                     pWav->msadpcm.prevFrames[0][0] = pWav->msadpcm.prevFrames[0][1];
                     pWav->msadpcm.prevFrames[0][1] = newSample0;
                     newSample1  = ((pWav->msadpcm.prevFrames[0][1] * coeff1Table[pWav->msadpcm.predictor[0]]) + (pWav->msadpcm.prevFrames[0][0] * coeff2Table[pWav->msadpcm.predictor[0]])) >> 8;
                     newSample1 += nibble1 * pWav->msadpcm.delta[0];
                     newSample1  = ma_dr_wav_clamp(newSample1, -32768, 32767);
-                    pWav->msadpcm.delta[0] = (adaptationTable[((nibbles & 0x0F) >> 0)] * pWav->msadpcm.delta[0]) >> 8;
-                    if (pWav->msadpcm.delta[0] < 16) {
-                        pWav->msadpcm.delta[0] = 16;
-                    }
+                    pWav->msadpcm.delta[0] = (ma_int32)ma_dr_wav_clamp(((ma_int64)adaptationTable[((nibbles & 0x0F) >> 0)] * pWav->msadpcm.delta[0]) >> 8, 16, 0x7FFFFFFF);
                     pWav->msadpcm.prevFrames[0][0] = pWav->msadpcm.prevFrames[0][1];
                     pWav->msadpcm.prevFrames[0][1] = newSample1;
                     pWav->msadpcm.cachedFrames[2] = newSample0;
@@ -83199,10 +83202,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__msadpcm(ma_dr_wav* pWav, ma_
                     newSample0  = ((pWav->msadpcm.prevFrames[0][1] * coeff1Table[pWav->msadpcm.predictor[0]]) + (pWav->msadpcm.prevFrames[0][0] * coeff2Table[pWav->msadpcm.predictor[0]])) >> 8;
                     newSample0 += nibble0 * pWav->msadpcm.delta[0];
                     newSample0  = ma_dr_wav_clamp(newSample0, -32768, 32767);
-                    pWav->msadpcm.delta[0] = (adaptationTable[((nibbles & 0xF0) >> 4)] * pWav->msadpcm.delta[0]) >> 8;
-                    if (pWav->msadpcm.delta[0] < 16) {
-                        pWav->msadpcm.delta[0] = 16;
-                    }
+                    pWav->msadpcm.delta[0] = (ma_int32)ma_dr_wav_clamp(((ma_int64)adaptationTable[((nibbles & 0xF0) >> 4)] * pWav->msadpcm.delta[0]) >> 8, 16, 0x7FFFFFFF);
                     pWav->msadpcm.prevFrames[0][0] = pWav->msadpcm.prevFrames[0][1];
                     pWav->msadpcm.prevFrames[0][1] = newSample0;
                     if (pWav->msadpcm.predictor[1] >= ma_dr_wav_countof(coeff1Table) || pWav->msadpcm.predictor[1] >= ma_dr_wav_countof(coeff2Table)) {
@@ -83211,10 +83211,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__msadpcm(ma_dr_wav* pWav, ma_
                     newSample1  = ((pWav->msadpcm.prevFrames[1][1] * coeff1Table[pWav->msadpcm.predictor[1]]) + (pWav->msadpcm.prevFrames[1][0] * coeff2Table[pWav->msadpcm.predictor[1]])) >> 8;
                     newSample1 += nibble1 * pWav->msadpcm.delta[1];
                     newSample1  = ma_dr_wav_clamp(newSample1, -32768, 32767);
-                    pWav->msadpcm.delta[1] = (adaptationTable[((nibbles & 0x0F) >> 0)] * pWav->msadpcm.delta[1]) >> 8;
-                    if (pWav->msadpcm.delta[1] < 16) {
-                        pWav->msadpcm.delta[1] = 16;
-                    }
+                    pWav->msadpcm.delta[1] = (ma_int32)ma_dr_wav_clamp(((ma_int64)adaptationTable[((nibbles & 0x0F) >> 0)] * pWav->msadpcm.delta[1]) >> 8, 16, 0x7FFFFFFF);
                     pWav->msadpcm.prevFrames[1][0] = pWav->msadpcm.prevFrames[1][1];
                     pWav->msadpcm.prevFrames[1][1] = newSample1;
                     pWav->msadpcm.cachedFrames[2] = newSample0;
