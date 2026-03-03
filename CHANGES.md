@@ -1,5 +1,6 @@
-v0.11.25 - TBD
+v0.11.25 - 2026-03-04
 =====================
+* Bug fixes to the WAV decoder.
 * Fixed warnings with the Emscripten build relating to the renaming of of `__EMSCRIPTEN_major/minor/tiny__` macros.
 * Win32: Fixed an error with runtime linking on the UWP build. This is actually a non issue in practice because it would require miniaudio to pass in a DLL name of longer than 2048 characters which it never does.
 
