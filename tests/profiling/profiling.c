@@ -5,6 +5,23 @@
 #include "../../miniaudio-11.h"
 #endif
 
+
+void profile_sizeof()
+{
+    printf("sizeof(ma_context):           %lu\n", sizeof(ma_context));
+    printf("sizeof(ma_device):            %lu\n", sizeof(ma_device));
+    printf("sizeof(ma_device.playback):   %lu\n", sizeof(((ma_device*)0)->playback));
+    printf("sizeof(ma_duplex_rb):         %lu\n", sizeof(ma_duplex_rb));
+    printf("sizeof(ma_data_converter):    %lu\n", sizeof(ma_data_converter));
+    printf("sizeof(ma_channel_converter): %lu\n", sizeof(ma_channel_converter));
+    printf("sizeof(ma_resampler):         %lu\n", sizeof(ma_resampler));
+    printf("sizeof(ma_lpf):               %lu\n", sizeof(ma_lpf));
+    printf("sizeof(ma_mutex):             %lu\n", sizeof(ma_mutex));
+    printf("sizeof(ma_event):             %lu\n", sizeof(ma_event));
+    printf("\n");
+}
+
+
 const char* format_short_name(ma_format format)
 {
     switch (format)
@@ -328,6 +345,7 @@ void profile_interleaving(void)
 
 int main(int argc, char** argv)
 {
+    profile_sizeof();
     profile_deinterleaving();
     profile_interleaving();
 
