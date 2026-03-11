@@ -62865,6 +62865,10 @@ static ma_result ma_decoder_seek_bytes(ma_decoder* pDecoder, ma_int64 byteOffset
 {
     MA_ASSERT(pDecoder != NULL);
 
+    if (pDecoder->onSeek != NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     return pDecoder->onSeek(pDecoder, byteOffset, origin);
 }
 
