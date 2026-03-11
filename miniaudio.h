@@ -9974,7 +9974,19 @@ typedef struct
 } ma_decoding_backend_vtable;
 
 
-typedef ma_result (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);         /* Returns the number of bytes read. */
+/*
+The read callback should return MA_SUCCESS if more than zero bytes were successfully read. If zero
+bytes can be read because it reached the end of the file, return MA_AT_END. If any other error
+occurs just return any other error code (it's fine to just generically return MA_ERROR).
+
+Return the actual number of bytes read in `pBytesRead`. Important note: if the number of bytes
+actually read is less than the number of bytes requested (bytesToRead), miniaudio will treat it as
+if the end of the file has been reached and it will stop decoding. This becomes relevant for things
+like streaming data sources, such as internet streams. If you haven't yet received `bytesToRead`
+from the network, you need to have your callback wait for it and then only return when the full
+number of bytes can be output, or when you've reached the genuine end of the stream.
+*/
+typedef ma_result (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);
 typedef ma_result (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
 typedef ma_result (* ma_decoder_tell_proc)(ma_decoder* pDecoder, ma_int64* pCursor);
 
