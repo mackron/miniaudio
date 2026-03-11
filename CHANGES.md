@@ -1,3 +1,8 @@
+v0.11.26 - TBD
+=====================
+* Fixed a crash when passing in null for the read or seek callbacks for a decoder.
+
+
 v0.11.25 - 2026-03-04
 =====================
 * Bug fixes to the WAV decoder.
