@@ -66237,11 +66237,6 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
 
     MA_ZERO_OBJECT(pDecoder);
 
-    /* A read callback must be available. */
-    if (onRead == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.vtable = &g_ma_decoder_data_source_vtable;
 
