@@ -42101,7 +42101,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
                 state:    1, /* 1 = ma_device_state_stopped */
                 pDevice: $1
             });
-        }, pDevice->webaudio.audioContext, pDevice);
+        }, pDevice->webaudio.audioContext, (ma_uintptr)pDevice);
 
         return MA_SUCCESS;
     }
@@ -42182,7 +42182,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
             /* The node processing callback. */
             device.scriptNode.onaudioprocess = function(e) {
                 if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0) {
-                    device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, pIntermediaryBuffer, bufferSize * channels);
+                    device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, Number(pIntermediaryBuffer), bufferSize * channels);
                 }
 
                 /* Do the capture side first. */
@@ -42239,7 +42239,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
             device.pDevice = pDevice;
 
             return window.miniaudio.track_device(device);
-        }, pConfig->deviceType, channels, sampleRate, periodSizeInFrames, pDevice->webaudio.pIntermediaryBuffer, pDevice);
+        }, pConfig->deviceType, channels, sampleRate, periodSizeInFrames, (ma_uintptr)pDevice->webaudio.pIntermediaryBuffer, (ma_uintptr)pDevice);
 
         if (deviceIndex < 0) {
             return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
