@@ -34697,7 +34697,6 @@ static ma_result ma_init_pa_mainloop_and_pa_context__pulseaudio(ma_context* pCon
     MA_ASSERT(ppMainLoop     != NULL);
     MA_ASSERT(ppPulseContext != NULL);
 
-    /* The PulseAudio context maps well to miniaudio's notion of a context. The pa_context object will be initialized as part of the ma_context. */
     pMainLoop = pContextStatePulseAudio->pa_mainloop_new();
     if (pMainLoop == NULL) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create mainloop.");
@@ -34711,7 +34710,6 @@ static ma_result ma_init_pa_mainloop_and_pa_context__pulseaudio(ma_context* pCon
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    /* Now we need to connect to the context. Everything is asynchronous so we need to wait for it to connect before returning. */
     result = ma_result_from_pulseaudio(pContextStatePulseAudio->pa_context_connect(pPulseContext, pServerName, (tryAutoSpawn) ? MA_PA_CONTEXT_NOFLAGS : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
     if (result != MA_SUCCESS) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.");
@@ -34720,7 +34718,7 @@ static ma_result ma_init_pa_mainloop_and_pa_context__pulseaudio(ma_context* pCon
         return result;
     }
 
-    /* Since ma_context_init() runs synchronously we need to wait for the PulseAudio context to connect before we return. */
+    /* PulseAudio uses an asynchronous initialization process, whereas miniaudio is synchronous. We need to wait for PulseAudio to finish. */
     result = ma_wait_for_pa_context_to_connect__pulseaudio(pContext, pContextStatePulseAudio, pMainLoop, pPulseContext);
     if (result != MA_SUCCESS) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[PulseAudio] Waiting for connection failed.");
