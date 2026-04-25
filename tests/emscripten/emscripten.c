@@ -139,6 +139,7 @@ static void do_loopback()
     ma_result result;
     ma_device_config deviceConfig;
     ma_device_backend_config backend;
+    ma_audio_ring_buffer_config ringBufferConfig;
 
     backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
 
@@ -173,7 +174,9 @@ static void do_loopback()
 
     /* We need a ring buffer. */
     printf("device.capture.internalPeriodSizeInFrames = %u\n", device.capture.internalPeriodSizeInFrames);
-    ma_audio_ring_buffer_init(DEVICE_FORMAT, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 100, NULL, &loopbackRB);
+
+    ringBufferConfig = ma_audio_ring_buffer_config_init(DEVICE_FORMAT, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 100);
+    ma_audio_ring_buffer_init(&ringBufferConfig, &loopbackRB);
 
 
     if (ma_device_start(&loopbackPlaybackDevice) != MA_SUCCESS) {
