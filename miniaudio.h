@@ -3965,7 +3965,7 @@ extern "C" {
 #endif
 
 
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__) || defined(__ppc64__)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC) || defined(__powerpc64__) || defined(__ppc64__)
     #define MA_SIZEOF_PTR   8
 #else
     #define MA_SIZEOF_PTR   4
@@ -4095,7 +4095,7 @@ typedef ma_uint16 wchar_t;
     #define MA_ARM64
 #endif
 
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__x86_64__) || (defined(_M_X64) && !defined(_M_ARM64EC))
     #define MA_X64
 #elif defined(__i386) || defined(_M_IX86)
     #define MA_X86
@@ -12181,7 +12181,7 @@ IMPLEMENTATION
 #endif
 
 #if defined(MA_ARM)
-    #if !defined(MA_NO_NEON) && (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
+    #if !defined(MA_NO_NEON) && (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC))
         #define MA_SUPPORT_NEON
         #include <arm_neon.h>
     #endif
@@ -12621,7 +12621,7 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 #ifdef MA_ANDROID
 #include <sys/system_properties.h>
 
-int ma_android_sdk_version(void)
+static int ma_android_sdk_version(void)
 {
     char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
     if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
@@ -47551,7 +47551,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                 state:    1, /* 1 = ma_device_status_stopped */
                 pDevice: $1
             });
-        }, pDeviceStateWebAudio->audioContext, pDevice);
+        }, pDeviceStateWebAudio->audioContext, (ma_uintptr)pDevice);
 
         /*
         We now have enough to initialize the audio worklet. This is asynchronous. Waiting for it to complete will
@@ -47637,7 +47637,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             /* The node processing callback. */
             device.scriptNode.onaudioprocess = function(e) {
                 if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0) {
-                    device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, pIntermediaryBuffer, bufferSize * channels);
+                    device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, Number(pIntermediaryBuffer), bufferSize * channels);
                 }
 
                 /* Do the capture side first. */
@@ -47710,7 +47710,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             device.pDevice = pDevice;
 
             return window.miniaudio.track_device(device);
-        }, deviceType, channels, sampleRate, periodSizeInFrames, pDeviceStateWebAudio->pIntermediaryBuffer, pDevice);
+        }, deviceType, channels, sampleRate, periodSizeInFrames, (ma_uintptr)pDeviceStateWebAudio->pIntermediaryBuffer, (ma_uintptr)pDevice);
 
         if (deviceIndex < 0) {
             ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
