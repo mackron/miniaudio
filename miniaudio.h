@@ -42181,7 +42181,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
 
             /* The node processing callback. */
             device.scriptNode.onaudioprocess = function(e) {
-                if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0) {
+                if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0 || device.intermediaryBufferView.buffer !== HEAPF32.buffer) {
                     device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, Number(pIntermediaryBuffer), bufferSize * channels);
                 }
 
