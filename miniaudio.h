@@ -32024,12 +32024,33 @@ static void ma_backend_info__pipewire(ma_device_backend_info* pBackendInfo)
     pBackendInfo->pName = "PipeWire";
 }
 
+#ifndef MA_NO_RUNTIME_LINKING
+    #define MA_PIPEWIRE_SYM(functionName) \
+        pContextStatePipeWire->functionName = (ma_##functionName##_proc)ma_dlsym(pLog, hPipeWire, #functionName); \
+        if (pContextStatePipeWire->functionName == NULL) { \
+            ma_dlclose(pLog, hPipeWire); \
+            ma_free(pContextStatePipeWire, ma_context_get_allocation_callbacks(pContext)); \
+            return MA_NO_BACKEND; \
+        }
+#else
+    #define MA_PIPEWIRE_SYM(functionName) \
+        pContextStatePipeWire->functionName = pContextStatePipeWire->functionName;
+#endif
+
 static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
 {
     /* We'll use a list of possible shared object names for easier extensibility. */
     ma_context_state_pipewire* pContextStatePipeWire;
     ma_context_config_pipewire* pContextConfigPipeWire = (ma_context_config_pipewire*)pContextBackendConfig;
     ma_log* pLog = ma_context_get_log(pContext);
+#ifndef MA_NO_RUNTIME_LINKING
+    ma_handle hPipeWire;
+    size_t iName;
+    const char* pSONames[] = {
+        "libpipewire-0.3.so.0",
+        "libpipewire.so"
+    };
+#endif
 
     (void)pContextConfigPipeWire;
 
@@ -32040,17 +32061,9 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
 
     pContextStatePipeWire->pLog = pLog;
 
-
     /* Check if we have a PipeWire SO. If we can't find this we need to abort. */
     #ifndef MA_NO_RUNTIME_LINKING
     {
-        ma_handle hPipeWire;
-        size_t iName;
-        const char* pSONames[] = {
-            "libpipewire-0.3.so.0",
-            "libpipewire.so"
-        };
-
         for (iName = 0; iName < ma_countof(pSONames); iName += 1) {
             hPipeWire = ma_dlopen(pLog, pSONames[iName]);
             if (hPipeWire != NULL) {
@@ -32064,89 +32077,64 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
         }
 
         pContextStatePipeWire->hPipeWire = hPipeWire;
-        pContextStatePipeWire->pw_init                     = (ma_pw_init_proc                    )ma_dlsym(pLog, hPipeWire, "pw_init");
-        pContextStatePipeWire->pw_deinit                   = (ma_pw_deinit_proc                  )ma_dlsym(pLog, hPipeWire, "pw_deinit");
-        pContextStatePipeWire->pw_loop_new                 = (ma_pw_loop_new_proc                )ma_dlsym(pLog, hPipeWire, "pw_loop_new");
-        pContextStatePipeWire->pw_loop_destroy             = (ma_pw_loop_destroy_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_destroy");
-        pContextStatePipeWire->pw_loop_set_name            = (ma_pw_loop_set_name_proc           )ma_dlsym(pLog, hPipeWire, "pw_loop_set_name");
-        pContextStatePipeWire->pw_loop_enter               = (ma_pw_loop_enter_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_enter");
-        pContextStatePipeWire->pw_loop_leave               = (ma_pw_loop_leave_proc              )ma_dlsym(pLog, hPipeWire, "pw_loop_leave");
-        pContextStatePipeWire->pw_loop_iterate             = (ma_pw_loop_iterate_proc            )ma_dlsym(pLog, hPipeWire, "pw_loop_iterate");
-        pContextStatePipeWire->pw_loop_add_event           = (ma_pw_loop_add_event_proc          )ma_dlsym(pLog, hPipeWire, "pw_loop_add_event");
-        pContextStatePipeWire->pw_loop_signal_event        = (ma_pw_loop_signal_event_proc       )ma_dlsym(pLog, hPipeWire, "pw_loop_signal_event");
-        pContextStatePipeWire->pw_thread_loop_new          = (ma_pw_thread_loop_new_proc         )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_new");
-        pContextStatePipeWire->pw_thread_loop_destroy      = (ma_pw_thread_loop_destroy_proc     )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_destroy");
-        pContextStatePipeWire->pw_thread_loop_get_loop     = (ma_pw_thread_loop_get_loop_proc    )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_get_loop");
-        pContextStatePipeWire->pw_thread_loop_start        = (ma_pw_thread_loop_start_proc       )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_start");
-        pContextStatePipeWire->pw_thread_loop_lock         = (ma_pw_thread_loop_lock_proc        )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_lock");
-        pContextStatePipeWire->pw_thread_loop_unlock       = (ma_pw_thread_loop_unlock_proc      )ma_dlsym(pLog, hPipeWire, "pw_thread_loop_unlock");
-        pContextStatePipeWire->pw_context_new              = (ma_pw_context_new_proc             )ma_dlsym(pLog, hPipeWire, "pw_context_new");
-        pContextStatePipeWire->pw_context_destroy          = (ma_pw_context_destroy_proc         )ma_dlsym(pLog, hPipeWire, "pw_context_destroy");
-        pContextStatePipeWire->pw_context_connect          = (ma_pw_context_connect_proc         )ma_dlsym(pLog, hPipeWire, "pw_context_connect");
-        pContextStatePipeWire->pw_core_disconnect          = (ma_pw_core_disconnect_proc         )ma_dlsym(pLog, hPipeWire, "pw_core_disconnect");
-        pContextStatePipeWire->pw_core_add_listener        = (ma_pw_core_add_listener_proc       )ma_dlsym(pLog, hPipeWire, "pw_core_add_listener");
-        pContextStatePipeWire->pw_core_get_registry        = (ma_pw_core_get_registry_proc       )ma_dlsym(pLog, hPipeWire, "pw_core_get_registry");
-        pContextStatePipeWire->pw_core_sync                = (ma_pw_core_sync_proc               )ma_dlsym(pLog, hPipeWire, "pw_core_sync");
-        pContextStatePipeWire->pw_registry_add_listener    = (ma_pw_registry_add_listener_proc   )ma_dlsym(pLog, hPipeWire, "pw_registry_add_listener");
-        pContextStatePipeWire->pw_registry_bind            = (ma_pw_registry_bind_proc           )ma_dlsym(pLog, hPipeWire, "pw_registry_bind");
-        pContextStatePipeWire->pw_proxy_destroy            = (ma_pw_proxy_destroy_proc           )ma_dlsym(pLog, hPipeWire, "pw_proxy_destroy");
-        pContextStatePipeWire->pw_properties_new           = (ma_pw_properties_new_proc          )ma_dlsym(pLog, hPipeWire, "pw_properties_new");
-        pContextStatePipeWire->pw_properties_free          = (ma_pw_properties_free_proc         )ma_dlsym(pLog, hPipeWire, "pw_properties_free");
-        pContextStatePipeWire->pw_properties_set           = (ma_pw_properties_set_proc          )ma_dlsym(pLog, hPipeWire, "pw_properties_set");
-        pContextStatePipeWire->pw_stream_new               = (ma_pw_stream_new_proc              )ma_dlsym(pLog, hPipeWire, "pw_stream_new");
-        pContextStatePipeWire->pw_stream_destroy           = (ma_pw_stream_destroy_proc          )ma_dlsym(pLog, hPipeWire, "pw_stream_destroy");
-        pContextStatePipeWire->pw_stream_add_listener      = (ma_pw_stream_add_listener_proc     )ma_dlsym(pLog, hPipeWire, "pw_stream_add_listener");
-        pContextStatePipeWire->pw_stream_connect           = (ma_pw_stream_connect_proc          )ma_dlsym(pLog, hPipeWire, "pw_stream_connect");
-        pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc       )ma_dlsym(pLog, hPipeWire, "pw_stream_set_active");
-        pContextStatePipeWire->pw_stream_dequeue_buffer    = (ma_pw_stream_dequeue_buffer_proc   )ma_dlsym(pLog, hPipeWire, "pw_stream_dequeue_buffer");
-        pContextStatePipeWire->pw_stream_queue_buffer      = (ma_pw_stream_queue_buffer_proc     )ma_dlsym(pLog, hPipeWire, "pw_stream_queue_buffer");
-        pContextStatePipeWire->pw_stream_update_params     = (ma_pw_stream_update_params_proc    )ma_dlsym(pLog, hPipeWire, "pw_stream_update_params");
-        pContextStatePipeWire->pw_stream_update_properties = (ma_pw_stream_update_properties_proc)ma_dlsym(pLog, hPipeWire, "pw_stream_update_properties");
-        pContextStatePipeWire->pw_stream_get_time_n        = (ma_pw_stream_get_time_n_proc       )ma_dlsym(pLog, hPipeWire, "pw_stream_get_time_n");
+    }
+    #endif
+
+    MA_PIPEWIRE_SYM(pw_init)
+    MA_PIPEWIRE_SYM(pw_deinit)
+    MA_PIPEWIRE_SYM(pw_loop_new)
+    MA_PIPEWIRE_SYM(pw_loop_destroy)
+    MA_PIPEWIRE_SYM(pw_loop_set_name)
+    MA_PIPEWIRE_SYM(pw_loop_enter)
+    MA_PIPEWIRE_SYM(pw_loop_leave)
+    MA_PIPEWIRE_SYM(pw_loop_iterate)
+    MA_PIPEWIRE_SYM(pw_loop_add_event)
+    MA_PIPEWIRE_SYM(pw_loop_signal_event)
+    MA_PIPEWIRE_SYM(pw_thread_loop_new)
+    MA_PIPEWIRE_SYM(pw_thread_loop_destroy)
+    MA_PIPEWIRE_SYM(pw_thread_loop_get_loop)
+    MA_PIPEWIRE_SYM(pw_thread_loop_start)
+    MA_PIPEWIRE_SYM(pw_thread_loop_lock)
+    MA_PIPEWIRE_SYM(pw_thread_loop_unlock)
+    MA_PIPEWIRE_SYM(pw_context_new)
+    MA_PIPEWIRE_SYM(pw_context_destroy)
+    MA_PIPEWIRE_SYM(pw_context_connect)
+    MA_PIPEWIRE_SYM(pw_core_disconnect)
+    MA_PIPEWIRE_SYM(pw_core_add_listener)
+    MA_PIPEWIRE_SYM(pw_core_get_registry)
+    MA_PIPEWIRE_SYM(pw_core_sync)
+    MA_PIPEWIRE_SYM(pw_registry_add_listener)
+    MA_PIPEWIRE_SYM(pw_registry_bind)
+    MA_PIPEWIRE_SYM(pw_proxy_destroy)
+    MA_PIPEWIRE_SYM(pw_properties_new)
+    MA_PIPEWIRE_SYM(pw_properties_free)
+    MA_PIPEWIRE_SYM(pw_properties_set)
+    MA_PIPEWIRE_SYM(pw_stream_new)
+    MA_PIPEWIRE_SYM(pw_stream_destroy)
+    MA_PIPEWIRE_SYM(pw_stream_add_listener)
+    MA_PIPEWIRE_SYM(pw_stream_connect)
+    MA_PIPEWIRE_SYM(pw_stream_dequeue_buffer)
+    MA_PIPEWIRE_SYM(pw_stream_queue_buffer)
+    MA_PIPEWIRE_SYM(pw_stream_update_params)
+    MA_PIPEWIRE_SYM(pw_stream_update_properties)
+    MA_PIPEWIRE_SYM(pw_stream_get_time_n)
+
+    /*
+    Just an annoying detail here for functions that use `bool`. For C89 compatibility we don't actually use `bool`, but
+    instead `unsigned char`. This requires an explicit cast. We'll just do a hack here to work around it. We could update
+    `MA_PIPEWIRE_SYM` to do a cast in the general case, but I want the compile time linking path to catch any potential
+    API and ABI compatibility errors in our own function declarations.
+    */
+    #ifndef MA_NO_RUNTIME_LINKING
+    {
+        MA_PIPEWIRE_SYM(pw_stream_set_active)
     }
     #else
     {
-        pContextStatePipeWire->pw_init                     = pw_init;
-        pContextStatePipeWire->pw_deinit                   = pw_deinit;
-        pContextStatePipeWire->pw_loop_new                 = pw_loop_new;
-        pContextStatePipeWire->pw_loop_destroy             = pw_loop_destroy;
-        pContextStatePipeWire->pw_loop_set_name            = pw_loop_set_name;
-        pContextStatePipeWire->pw_loop_enter               = pw_loop_enter;
-        pContextStatePipeWire->pw_loop_leave               = pw_loop_leave;
-        pContextStatePipeWire->pw_loop_iterate             = pw_loop_iterate;
-        pContextStatePipeWire->pw_loop_add_event           = pw_loop_add_event;
-        pContextStatePipeWire->pw_loop_signal_event        = pw_loop_signal_event;       
-        pContextStatePipeWire->pw_thread_loop_new          = pw_thread_loop_new;
-        pContextStatePipeWire->pw_thread_loop_destroy      = pw_thread_loop_destroy;
-        pContextStatePipeWire->pw_thread_loop_get_loop     = pw_thread_loop_get_loop;
-        pContextStatePipeWire->pw_thread_loop_start        = pw_thread_loop_start;
-        pContextStatePipeWire->pw_thread_loop_lock         = pw_thread_loop_lock;
-        pContextStatePipeWire->pw_thread_loop_unlock       = pw_thread_loop_unlock;
-        pContextStatePipeWire->pw_context_new              = pw_context_new;
-        pContextStatePipeWire->pw_context_destroy          = pw_context_destroy;
-        pContextStatePipeWire->pw_context_connect          = pw_context_connect;
-        pContextStatePipeWire->pw_core_disconnect          = pw_core_disconnect;
-        pContextStatePipeWire->pw_core_add_listener        = pw_core_add_listener;
-        pContextStatePipeWire->pw_core_get_registry        = pw_core_get_registry;
-        pContextStatePipeWire->pw_core_sync                = pw_core_sync;
-        pContextStatePipeWire->pw_registry_add_listener    = pw_registry_add_listener;
-        pContextStatePipeWire->pw_registry_bind            = pw_registry_bind;
-        pContextStatePipeWire->pw_proxy_destroy            = pw_proxy_destroy;
-        pContextStatePipeWire->pw_properties_new           = pw_properties_new;
-        pContextStatePipeWire->pw_properties_free          = pw_properties_free;
-        pContextStatePipeWire->pw_properties_set           = pw_properties_set;
-        pContextStatePipeWire->pw_stream_new               = pw_stream_new;
-        pContextStatePipeWire->pw_stream_destroy           = pw_stream_destroy;
-        pContextStatePipeWire->pw_stream_add_listener      = pw_stream_add_listener;
-        pContextStatePipeWire->pw_stream_connect           = pw_stream_connect;
-        pContextStatePipeWire->pw_stream_set_active        = (ma_pw_stream_set_active_proc)(void*)pw_stream_set_active;    /* This cast is because we use `unsigned char` instead of `bool`. */
-        pContextStatePipeWire->pw_stream_dequeue_buffer    = pw_stream_dequeue_buffer;
-        pContextStatePipeWire->pw_stream_queue_buffer      = pw_stream_queue_buffer;
-        pContextStatePipeWire->pw_stream_update_params     = pw_stream_update_params;
-        pContextStatePipeWire->pw_stream_update_properties = pw_stream_update_properties;
-        pContextStatePipeWire->pw_stream_get_time_n        = pw_stream_get_time_n;
+        pContextStatePipeWire->pw_stream_set_active = (ma_pw_stream_set_active_proc)(void*)pw_stream_set_active;
     }
     #endif
+    
 
     if (pContextStatePipeWire->pw_init != NULL) {
         pContextStatePipeWire->pw_init(NULL, NULL);
