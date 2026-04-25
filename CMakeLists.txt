@@ -706,6 +706,7 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
     target_include_directories(miniaudio_backend_template PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/template)
     target_compile_options    (miniaudio_backend_template PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_backend_template PRIVATE ${COMPILE_DEFINES})
+    target_compile_definitions(miniaudio_backend_template PRIVATE MA_ENABLE_ONLY_SPECIFIC_BACKENDS) # This just disables all backends so that the build works with MA_NO_RUNTIME_LINKING enabled.
 endif()
 
 
