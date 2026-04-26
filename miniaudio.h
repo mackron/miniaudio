@@ -14238,7 +14238,8 @@ typedef int ma_atomic_memory_order;
     !defined(MA_ATOMIC_LEGACY_MSVC_ASM) && \
     !defined(MA_ATOMIC_MODERN_GCC) && \
     !defined(MA_ATOMIC_LEGACY_GCC) && \
-    !defined(MA_ATOMIC_LEGACY_GCC_ASM)
+    !defined(MA_ATOMIC_LEGACY_GCC_ASM) && \
+    !defined(MA_ATOMIC_CHIBICC)
     #if defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__) || defined(__BORLANDC__)
         #if (defined(_MSC_VER) && _MSC_VER > 1600)
             #define MA_ATOMIC_MODERN_MSVC
@@ -14251,12 +14252,12 @@ typedef int ma_atomic_memory_order;
         #endif
     #elif (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7))) || defined(__clang__)
         #define MA_ATOMIC_MODERN_GCC
+    #elif (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1)))
+        #define MA_ATOMIC_LEGACY_GCC
+    #elif defined(__chibicc__)
+        #define MA_ATOMIC_CHIBICC
     #else
-        #if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1))
-            #define MA_ATOMIC_LEGACY_GCC
-        #else
-            #define MA_ATOMIC_LEGACY_GCC_ASM
-        #endif
+        #define MA_ATOMIC_LEGACY_GCC_ASM
     #endif
 #endif
 #if defined(MA_ATOMIC_MODERN_MSVC) || defined(MA_ATOMIC_LEGACY_MSVC)
@@ -14566,6 +14567,24 @@ typedef int ma_atomic_memory_order;
             #error Unsupported architecture.
         }
         #endif
+    }
+#endif
+#if defined(MA_ATOMIC_CHIBICC)
+    #define ma_atomic_memory_order_relaxed                   0
+    #define ma_atomic_memory_order_consume                   1
+    #define ma_atomic_memory_order_acquire                   2
+    #define ma_atomic_memory_order_release                   3
+    #define ma_atomic_memory_order_acq_rel                   4
+    #define ma_atomic_memory_order_seq_cst                   5
+    typedef ma_uint32 ma_atomic_flag;
+    #define ma_atomic_flag_test_and_set_explicit(dst, order) __builtin_atomic_exchange(dst, 1)
+    #define ma_atomic_flag_clear_explicit(dst, order)        __builtin_atomic_exchange(dst, 0)
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_load_explicit(volatile const ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        ma_atomic_flag expected;
+        expected = 0;
+        __builtin_compare_and_swap(dst, &expected, 0);
+        return expected;
     }
 #endif
 #define ma_atomic_flag_test_and_set(dst) ma_atomic_flag_test_and_set_explicit(dst, ma_atomic_memory_order_acquire)
@@ -16941,6 +16960,88 @@ ma_atomic_spinlock ma_atomic_global_lock;
     #else
         #error Unsupported compiler.
     #endif
+#endif
+#if defined(MA_ATOMIC_CHIBICC)
+    #define MA_ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE
+    static void ma_atomic_thread_fence(ma_atomic_memory_order order)
+    {
+        static ma_uint32 dummy;
+        __builtin_atomic_exchange(&dummy, 0);
+        (void)dummy;
+    }
+    #define ma_atomic_signal_fence(order)                           ma_atomic_thread_fence(order)
+    #define ma_atomic_is_lock_free_8(ptr)                           1
+    #define ma_atomic_is_lock_free_16(ptr)                          1
+    #define ma_atomic_is_lock_free_32(ptr)                          1
+    #define ma_atomic_is_lock_free_64(ptr)                          1
+    #define ma_atomic_store_explicit_8( dst, src, order)            __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_store_explicit_16(dst, src, order)            __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_store_explicit_32(dst, src, order)            __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_store_explicit_64(dst, src, order)            __builtin_atomic_exchange(dst, src)
+    #define MA_ATOMIC_CHIBICC_LOAD(sizeInBits) \
+        static MA_INLINE ma_uint##sizeInBits ma_atomic_load_explicit_##sizeInBits(volatile ma_uint##sizeInBits* dst, ma_atomic_memory_order order) \
+        { \
+            ma_uint##sizeInBits expected = 0; \
+            __builtin_compare_and_swap(dst, &expected, 0); \
+            return expected; \
+        }
+    MA_ATOMIC_CHIBICC_LOAD(8)
+    MA_ATOMIC_CHIBICC_LOAD(16)
+    MA_ATOMIC_CHIBICC_LOAD(32)
+    MA_ATOMIC_CHIBICC_LOAD(64)
+    #define ma_atomic_exchange_explicit_8( dst, src, order)         __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_exchange_explicit_16(dst, src, order)         __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_exchange_explicit_32(dst, src, order)         __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_exchange_explicit_64(dst, src, order)         __builtin_atomic_exchange(dst, src)
+    #define ma_atomic_compare_exchange_strong_explicit_8( dst, expected, replacement, successOrder, failureOrder)   __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_strong_explicit_16(dst, expected, replacement, successOrder, failureOrder)   __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_strong_explicit_32(dst, expected, replacement, successOrder, failureOrder)   __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_strong_explicit_64(dst, expected, replacement, successOrder, failureOrder)   __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_weak_explicit_8( dst, expected, replacement, successOrder, failureOrder)     __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_weak_explicit_16(dst, expected, replacement, successOrder, failureOrder)     __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_weak_explicit_32(dst, expected, replacement, successOrder, failureOrder)     __builtin_compare_and_swap(dst, expected, replacement)
+    #define ma_atomic_compare_exchange_weak_explicit_64(dst, expected, replacement, successOrder, failureOrder)     __builtin_compare_and_swap(dst, expected, replacement)
+    static MA_INLINE ma_uint8  ma_atomic_compare_and_swap_8 (volatile ma_uint8*  dst, ma_uint8  expected, ma_uint8  replacement) { __builtin_compare_and_swap(dst, &expected, replacement); return expected; }
+    static MA_INLINE ma_uint16 ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 replacement) { __builtin_compare_and_swap(dst, &expected, replacement); return expected; }
+    static MA_INLINE ma_uint32 ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 replacement) { __builtin_compare_and_swap(dst, &expected, replacement); return expected; }
+    static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 replacement) { __builtin_compare_and_swap(dst, &expected, replacement); return expected; }
+    #define MA_ATOMIC_CHIBICC_FETCH_OP(sizeInBits, opName, opInst) \
+        static MA_INLINE ma_uint##sizeInBits ma_atomic_fetch_##opName##_explicit_##sizeInBits(volatile ma_uint##sizeInBits* dst, ma_uint##sizeInBits src, ma_atomic_memory_order order) \
+        { \
+            ma_uint##sizeInBits oldValue; \
+            ma_uint##sizeInBits newValue; \
+            do { \
+                oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+                newValue = oldValue opInst src; \
+            } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, newValue) != oldValue); \
+            (void)order; \
+            return oldValue; \
+        }
+    #define MA_ATOMIC_CHIBICC_FETCH_ADD(sizeInBits) MA_ATOMIC_CHIBICC_FETCH_OP(sizeInBits, add, +)
+    MA_ATOMIC_CHIBICC_FETCH_ADD(8)
+    MA_ATOMIC_CHIBICC_FETCH_ADD(16)
+    MA_ATOMIC_CHIBICC_FETCH_ADD(32)
+    MA_ATOMIC_CHIBICC_FETCH_ADD(64)
+    #define MA_ATOMIC_CHIBICC_FETCH_SUB(sizeInBits) MA_ATOMIC_CHIBICC_FETCH_OP(sizeInBits, sub, -)
+    MA_ATOMIC_CHIBICC_FETCH_SUB(8)
+    MA_ATOMIC_CHIBICC_FETCH_SUB(16)
+    MA_ATOMIC_CHIBICC_FETCH_SUB(32)
+    MA_ATOMIC_CHIBICC_FETCH_SUB(64)
+    #define MA_ATOMIC_CHIBICC_FETCH_OR(sizeInBits) MA_ATOMIC_CHIBICC_FETCH_OP(sizeInBits, or, |)
+    MA_ATOMIC_CHIBICC_FETCH_OR(8)
+    MA_ATOMIC_CHIBICC_FETCH_OR(16)
+    MA_ATOMIC_CHIBICC_FETCH_OR(32)
+    MA_ATOMIC_CHIBICC_FETCH_OR(64)
+    #define MA_ATOMIC_CHIBICC_FETCH_XOR(sizeInBits) MA_ATOMIC_CHIBICC_FETCH_OP(sizeInBits, xor, ^)
+    MA_ATOMIC_CHIBICC_FETCH_XOR(8)
+    MA_ATOMIC_CHIBICC_FETCH_XOR(16)
+    MA_ATOMIC_CHIBICC_FETCH_XOR(32)
+    MA_ATOMIC_CHIBICC_FETCH_XOR(64)
+    #define MA_ATOMIC_CHIBICC_FETCH_AND(sizeInBits) MA_ATOMIC_CHIBICC_FETCH_OP(sizeInBits, and, &)
+    MA_ATOMIC_CHIBICC_FETCH_AND(8)
+    MA_ATOMIC_CHIBICC_FETCH_AND(16)
+    MA_ATOMIC_CHIBICC_FETCH_AND(32)
+    MA_ATOMIC_CHIBICC_FETCH_AND(64)
 #endif
 #if !defined(MA_ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE)
     static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_8(volatile ma_uint8* dst, ma_uint8* expected, ma_uint8 replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
