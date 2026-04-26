@@ -80825,7 +80825,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_bext_to_metadata_obj(ma_dr_wav__metadata_pa
             if (extraBytes > 0) {
                 pMetadata->data.bext.pCodingHistory = (char*)ma_dr_wav__metadata_get_memory(pParser, extraBytes + 1, 1);
                 MA_DR_WAV_ASSERT(pMetadata->data.bext.pCodingHistory != NULL);
-                pMetadata->data.bext.codingHistorySize = ma_dr_wav__metadata_parser_read(pParser, pMetadata->data.bext.pCodingHistory, extraBytes, NULL);
+                pMetadata->data.bext.codingHistorySize = (ma_uint32)ma_dr_wav__metadata_parser_read(pParser, pMetadata->data.bext.pCodingHistory, extraBytes, NULL);
                 pMetadata->data.bext.pCodingHistory[pMetadata->data.bext.codingHistorySize] = '\0';
                 bytesRead += pMetadata->data.bext.codingHistorySize;
             } else {
