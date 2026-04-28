@@ -120,7 +120,7 @@ static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pCon
     }
 
     memset(pOpus, 0, sizeof(*pOpus));
-    ma_allocation_callbacks_init_copy(&pOpus->allocationCallbacks, pAllocationCallbacks);
+    pOpus->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
     pOpus->format = ma_format_f32;    /* f32 by default. */
 
     if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16)) {

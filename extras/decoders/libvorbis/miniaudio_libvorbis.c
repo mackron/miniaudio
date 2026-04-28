@@ -123,7 +123,7 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
     }
 
     memset(pVorbis, 0, sizeof(*pVorbis));
-    ma_allocation_callbacks_init_copy(&pVorbis->allocationCallbacks, pAllocationCallbacks);
+    pVorbis->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
     pVorbis->format = ma_format_f32;    /* f32 by default. */
 
     if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16)) {

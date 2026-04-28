@@ -6314,7 +6314,7 @@ typedef struct
     ma_uint32 sampleRate;
     ma_uint64 sizeInFrames;
     const void* pData;  /* If set to NULL, will allocate a block of memory for you. */
-    ma_allocation_callbacks allocationCallbacks;
+    const ma_allocation_callbacks* pAllocationCallbacks;
 } ma_audio_buffer_config;
 
 MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks);
@@ -6507,7 +6507,7 @@ Retrieves a human readable description of the given result code.
 MA_API const char* ma_result_description(ma_result result);
 
 MA_API ma_allocation_callbacks ma_allocation_callbacks_init_default(void);
-MA_API ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst, const ma_allocation_callbacks* pSrc);
+MA_API ma_allocation_callbacks ma_allocation_callbacks_init_copy(const ma_allocation_callbacks* pSrc);
 
 /*
 malloc()
@@ -14053,7 +14053,7 @@ MA_API ma_result ma_log_init(const ma_allocation_callbacks* pAllocationCallbacks
     }
 
     MA_ZERO_OBJECT(pLog);
-    ma_allocation_callbacks_init_copy(&pLog->allocationCallbacks, pAllocationCallbacks);
+    pLog->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
 
     /* We need a mutex for thread safety. */
     #ifndef MA_NO_THREADING
@@ -18940,8 +18940,8 @@ MA_API ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
 #endif
 
     pProxyData->entryProc = entryProc;
-    pProxyData->pData     = pData;
-    ma_allocation_callbacks_init_copy(&pProxyData->allocationCallbacks, pAllocationCallbacks);
+    pProxyData->pData = pData;
+    pProxyData->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
 
 #if defined(MA_THREADING_BACKEND_VITA)
     result = ma_thread_create__vita(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
@@ -50333,10 +50333,7 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
     }
 
     /* Allocation callbacks need to come first because they'll be passed around to other areas. */
-    result = ma_allocation_callbacks_init_copy(&pContext->allocationCallbacks, &pConfig->allocationCallbacks);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    pContext->allocationCallbacks = ma_allocation_callbacks_init_copy(&pConfig->allocationCallbacks);
 
     /* Get a lot set up first so we can start logging ASAP. */
     if (pConfig->pLog != NULL) {
@@ -51195,10 +51192,7 @@ MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma
     }
 
     if (pContextConfig != NULL) {
-        result = ma_allocation_callbacks_init_copy(&allocationCallbacks, &pContextConfig->allocationCallbacks);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        allocationCallbacks = ma_allocation_callbacks_init_copy(&pContextConfig->allocationCallbacks);
     } else {
         allocationCallbacks = ma_allocation_callbacks_init_default();
     }
@@ -68458,12 +68452,12 @@ MA_API ma_result ma_audio_ring_buffer_init(const ma_audio_ring_buffer_config* pC
 
     /* Now for the ring buffer. */
     ma_ring_buffer_init(pConfig->sizeInFrames, bpf, pConfig->flags, pBuffer, &pRingBuffer->rb);
-    pRingBuffer->format          = pConfig->format;
-    pRingBuffer->channels        = pConfig->channels;
-    pRingBuffer->sampleRate      = pConfig->sampleRate;
-    pRingBuffer->isOwnerOfBuffer = isOwnerOfBuffer;
-    pRingBuffer->pBuffer         = pBuffer;
-    ma_allocation_callbacks_init_copy(&pRingBuffer->allocationCallbacks, pConfig->pAllocationCallbacks);
+    pRingBuffer->format              = pConfig->format;
+    pRingBuffer->channels            = pConfig->channels;
+    pRingBuffer->sampleRate          = pConfig->sampleRate;
+    pRingBuffer->isOwnerOfBuffer     = isOwnerOfBuffer;
+    pRingBuffer->pBuffer             = pBuffer;
+    pRingBuffer->allocationCallbacks = ma_allocation_callbacks_init_copy(pConfig->pAllocationCallbacks);
 
     return MA_SUCCESS;
 }
@@ -68754,27 +68748,22 @@ MA_API ma_allocation_callbacks ma_allocation_callbacks_init_default(void)
     return callbacks;
 }
 
-MA_API ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst, const ma_allocation_callbacks* pSrc)
+MA_API ma_allocation_callbacks ma_allocation_callbacks_init_copy(const ma_allocation_callbacks* pSrc)
 {
-    if (pDst == NULL) {
-        return MA_INVALID_ARGS;
+    if (pSrc == NULL) {
+        return ma_allocation_callbacks_init_default();
     }
 
-    if (pSrc == NULL) {
-        *pDst = ma_allocation_callbacks_init_default();
+    if (pSrc->pUserData == NULL && pSrc->onFree == NULL && pSrc->onMalloc == NULL && pSrc->onRealloc == NULL) {
+        return ma_allocation_callbacks_init_default();
     } else {
-        if (pSrc->pUserData == NULL && pSrc->onFree == NULL && pSrc->onMalloc == NULL && pSrc->onRealloc == NULL) {
-            *pDst = ma_allocation_callbacks_init_default();
+        if (pSrc->onFree == NULL || (pSrc->onMalloc == NULL && pSrc->onRealloc == NULL)) {
+            MA_ASSERT(!"Allocation callbacks must have either all callbacks non-NULL, or all callbacks NULL. Fix your code.");
+            return ma_allocation_callbacks_init_default();
         } else {
-            if (pSrc->onFree == NULL || (pSrc->onMalloc == NULL && pSrc->onRealloc == NULL)) {
-                return MA_INVALID_ARGS;    /* Invalid allocation callbacks. */
-            } else {
-                *pDst = *pSrc;
-            }
+            return *pSrc;
         }
     }
-
-    return MA_SUCCESS;
 }
 
 MA_API void* ma_malloc(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -70048,12 +70037,12 @@ MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_u
     ma_audio_buffer_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.format       = format;
-    config.channels     = channels;
-    config.sampleRate   = sampleRate;
-    config.sizeInFrames = sizeInFrames;
-    config.pData        = pData;
-    ma_allocation_callbacks_init_copy(&config.allocationCallbacks, pAllocationCallbacks);
+    config.format               = format;
+    config.channels             = channels;
+    config.sampleRate           = sampleRate;
+    config.sizeInFrames         = sizeInFrames;
+    config.pData                = pData;
+    config.pAllocationCallbacks = pAllocationCallbacks;
 
     return config;
 }
@@ -70081,7 +70070,7 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
         return result;
     }
 
-    ma_allocation_callbacks_init_copy(&pAudioBuffer->allocationCallbacks, &pConfig->allocationCallbacks);
+    pAudioBuffer->allocationCallbacks = ma_allocation_callbacks_init_copy(pConfig->pAllocationCallbacks);
 
     if (doCopy) {
         ma_uint64 allocationSizeInBytes;
@@ -70158,14 +70147,14 @@ MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pC
     }
 
     innerConfig = *pConfig;
-    ma_allocation_callbacks_init_copy(&innerConfig.allocationCallbacks, &pConfig->allocationCallbacks);
+    innerConfig.pAllocationCallbacks = pConfig->pAllocationCallbacks;
 
     allocationSizeInBytes = sizeof(*pAudioBuffer) - sizeof(pAudioBuffer->_pExtraData) + (pConfig->sizeInFrames * ma_get_bytes_per_frame(pConfig->format, pConfig->channels));
     if (allocationSizeInBytes > MA_SIZE_MAX) {
         return MA_OUT_OF_MEMORY;    /* Too big. */
     }
 
-    pAudioBuffer = (ma_audio_buffer*)ma_malloc((size_t)allocationSizeInBytes, &innerConfig.allocationCallbacks);  /* Safe cast to size_t. */
+    pAudioBuffer = (ma_audio_buffer*)ma_malloc((size_t)allocationSizeInBytes, innerConfig.pAllocationCallbacks);  /* Safe cast to size_t. */
     if (pAudioBuffer == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -70180,7 +70169,7 @@ MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pC
 
     result = ma_audio_buffer_init_ex(&innerConfig, MA_FALSE, pAudioBuffer);
     if (result != MA_SUCCESS) {
-        ma_free(pAudioBuffer, &innerConfig.allocationCallbacks);
+        ma_free(pAudioBuffer, innerConfig.pAllocationCallbacks);
         return result;
     }
 
@@ -71549,7 +71538,7 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
     pVFS->cb.onSeek  = ma_default_vfs_seek;
     pVFS->cb.onTell  = ma_default_vfs_tell;
     pVFS->cb.onInfo  = ma_default_vfs_info;
-    ma_allocation_callbacks_init_copy(&pVFS->allocationCallbacks, pAllocationCallbacks);
+    pVFS->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
 
     return MA_SUCCESS;
 }
@@ -75582,15 +75571,14 @@ static ma_result ma_decoder_init_from_memory__internal(const ma_decoding_backend
 
 
 
-static ma_result ma_decoder__init_allocation_callbacks(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+static void ma_decoder__init_allocation_callbacks(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     MA_ASSERT(pDecoder != NULL);
 
     if (pConfig != NULL) {
-        return ma_allocation_callbacks_init_copy(&pDecoder->allocationCallbacks, &pConfig->allocationCallbacks);
+        pDecoder->allocationCallbacks = ma_allocation_callbacks_init_copy(&pConfig->allocationCallbacks);
     } else {
         pDecoder->allocationCallbacks = ma_allocation_callbacks_init_default();
-        return MA_SUCCESS;
     }
 }
 
@@ -75661,12 +75649,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->onSeek    = onSeek;
     pDecoder->onTell    = onTell;
     pDecoder->pUserData = pUserData;
-
-    result = ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        ma_data_source_base_uninit(&pDecoder->ds);
-        return result;
-    }
+    ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
 
     return MA_SUCCESS;
 }
@@ -76822,8 +76805,6 @@ MA_API ma_encoder_config ma_encoder_config_init(ma_encoding_format encodingForma
 
 MA_API ma_result ma_encoder_preinit(const ma_encoder_config* pConfig, ma_encoder* pEncoder)
 {
-    ma_result result;
-
     if (pEncoder == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -76839,11 +76820,7 @@ MA_API ma_result ma_encoder_preinit(const ma_encoder_config* pConfig, ma_encoder
     }
 
     pEncoder->config = *pConfig;
-
-    result = ma_allocation_callbacks_init_copy(&pEncoder->config.allocationCallbacks, &pConfig->allocationCallbacks);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    pEncoder->config.allocationCallbacks = ma_allocation_callbacks_init_copy(&pConfig->allocationCallbacks);
 
     return MA_SUCCESS;
 }
@@ -77825,7 +77802,7 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocati
         return result;
     }
 
-    ma_allocation_callbacks_init_copy(&pNoise->allocationCallbacks, pAllocationCallbacks);
+    pNoise->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
 
     pNoise->_ownsHeap = MA_TRUE;
     return MA_SUCCESS;
@@ -78901,7 +78878,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     #endif
 
     pResourceManager->config = *pConfig;
-    ma_allocation_callbacks_init_copy(&pResourceManager->config.allocationCallbacks, &pConfig->allocationCallbacks);
+    pResourceManager->config.allocationCallbacks = ma_allocation_callbacks_init_copy(&pConfig->allocationCallbacks);
 
     /* Get the log set up early so we can start using it as soon as possible. */
     if (pResourceManager->config.pLog == NULL) {
@@ -82551,7 +82528,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
     MA_ZERO_OBJECT(pNodeGraph);
-    ma_allocation_callbacks_init_copy(&pNodeGraph->allocationCallbacks, pAllocationCallbacks);
+    pNodeGraph->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -86448,7 +86425,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     pEngine->pProcessUserData = engineConfig.pProcessUserData;
     pEngine->pitchResamplingConfig = engineConfig.pitchResampling;
     pEngine->noClip = (ma_bool8)engineConfig.noClip;
-    ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
+    pEngine->allocationCallbacks = ma_allocation_callbacks_init_copy(&engineConfig.allocationCallbacks);
 
     #if !defined(MA_NO_RESOURCE_MANAGER)
     {
@@ -86624,13 +86601,13 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             }
 
             resourceManagerConfig = ma_resource_manager_config_init();
-            resourceManagerConfig.pLog              = pEngine->pLog;    /* Always use the engine's log for internally-managed resource managers. */
-            resourceManagerConfig.decodedFormat     = ma_format_f32;
-            resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
-            resourceManagerConfig.decodedSampleRate = ma_engine_get_sample_rate(pEngine);
-            ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
-            resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
-            resourceManagerConfig.resampling        = engineConfig.resourceManagerResampling;
+            resourceManagerConfig.pLog                = pEngine->pLog;    /* Always use the engine's log for internally-managed resource managers. */
+            resourceManagerConfig.decodedFormat       = ma_format_f32;
+            resourceManagerConfig.decodedChannels     = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
+            resourceManagerConfig.decodedSampleRate   = ma_engine_get_sample_rate(pEngine);
+            resourceManagerConfig.allocationCallbacks = ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks);
+            resourceManagerConfig.pVFS                = engineConfig.pResourceManagerVFS;
+            resourceManagerConfig.resampling          = engineConfig.resourceManagerResampling;
 
             /* The Emscripten build cannot use threads unless it's targeting pthreads. */
             #if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
