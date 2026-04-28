@@ -656,18 +656,18 @@ int main(int argc, char** argv)
     }
 
     deviceConfig = ma_device_config_init(deviceType);
-    deviceConfig.playback.shareMode       = shareMode;
-    deviceConfig.capture.shareMode        = shareMode;
-    deviceConfig.threadingMode            = threadingMode;
-    deviceConfig.playback.format          = deviceFormat;
-    deviceConfig.playback.channels        = deviceChannels;
-    deviceConfig.capture.format           = deviceFormat;
-    deviceConfig.capture.channels         = deviceChannels;
-    deviceConfig.sampleRate               = deviceSampleRate;
-    deviceConfig.periods                  = devicePeriods;
-    deviceConfig.periodSizeInFrames       = devicePeriodSizeInFrames;
-    deviceConfig.dataCallback             = on_data;
-    deviceConfig.notificationCallback     = on_notification;
+    deviceConfig.playback.shareMode   = shareMode;
+    deviceConfig.capture.shareMode    = shareMode;
+    deviceConfig.threadingMode        = threadingMode;
+    deviceConfig.playback.format      = deviceFormat;
+    deviceConfig.playback.channels    = deviceChannels;
+    deviceConfig.capture.format       = deviceFormat;
+    deviceConfig.capture.channels     = deviceChannels;
+    deviceConfig.sampleRate           = deviceSampleRate;
+    deviceConfig.periods              = devicePeriods;
+    deviceConfig.periodSizeInFrames   = devicePeriodSizeInFrames;
+    deviceConfig.dataCallback         = on_data;
+    deviceConfig.notificationCallback = on_notification;
 
     if (playbackDeviceIndex != -1) {
         if (playbackDeviceIndex < (int)g_State.playbackDeviceCount) {
