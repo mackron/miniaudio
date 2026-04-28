@@ -133,14 +133,14 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
         dataSourceConfig = ma_data_source_config_init();
         dataSourceConfig.vtable = &ma_gDataSourceVTable_libvorbis;
 
-        result = ma_data_source_init(&dataSourceConfig, &pVorbis->ds);
+        result = ma_data_source_base_init(&dataSourceConfig, &pVorbis->ds);
         if (result != MA_SUCCESS) {
             return result;  /* Failed to initialize the base data source. */
         }
 
         pVorbis->vf = (OggVorbis_File*)ma_malloc(sizeof(OggVorbis_File), pAllocationCallbacks);
         if (pVorbis->vf == NULL) {
-            ma_data_source_uninit(&pVorbis->ds);
+            ma_data_source_base_uninit(&pVorbis->ds);
             return MA_OUT_OF_MEMORY;
         }
 
@@ -189,7 +189,7 @@ MA_API ma_result ma_libvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
 
         libvorbisResult = ov_open_callbacks(pVorbis, (OggVorbis_File*)pVorbis->vf, NULL, 0, libvorbisCallbacks);
         if (libvorbisResult < 0) {
-            ma_data_source_uninit(&pVorbis->ds);
+            ma_data_source_base_uninit(&pVorbis->ds);
             ma_free(pVorbis->vf, pAllocationCallbacks);
             return MA_INVALID_FILE;
         }
@@ -221,7 +221,7 @@ MA_API ma_result ma_libvorbis_init_file(const char* pFilePath, const ma_decoding
 
         libvorbisResult = ov_fopen(pFilePath, (OggVorbis_File*)pVorbis->vf);
         if (libvorbisResult < 0) {
-            ma_data_source_uninit(&pVorbis->ds);
+            ma_data_source_base_uninit(&pVorbis->ds);
             ma_free(pVorbis->vf, pAllocationCallbacks);
             return MA_INVALID_FILE;
         }
@@ -256,7 +256,7 @@ MA_API void ma_libvorbis_uninit(ma_libvorbis* pVorbis, const ma_allocation_callb
     }
     #endif
 
-    ma_data_source_uninit(&pVorbis->ds);
+    ma_data_source_base_uninit(&pVorbis->ds);
     ma_free(pVorbis->vf, pAllocationCallbacks);
 }
 

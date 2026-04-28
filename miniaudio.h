@@ -798,8 +798,8 @@ If you don't need the number of frames that were successfully read you can pass 
 the end of the file has been reached. `MA_AT_END` will be returned only when the number of frames
 read is 0.
 
-When calling any data source function, with the exception of `ma_data_source_init()` and
-`ma_data_source_uninit()`, you can pass in any object that implements a data source. For example,
+When calling any data source function, with the exception of `ma_data_source_base_init()` and
+`ma_data_source_base_uninit()`, you can pass in any object that implements a data source. For example,
 you could plug in a decoder like so:
 
     ```c
@@ -953,7 +953,7 @@ Your custom object must have `ma_data_source_base` as it's first member:
     };
     ```
 
-In your initialization routine, you need to call `ma_data_source_init()` in order to set up the
+In your initialization routine, you need to call `ma_data_source_base_init()` in order to set up the
 base object (`ma_data_source_base`):
 
     ```c
@@ -999,7 +999,7 @@ base object (`ma_data_source_base`):
         baseConfig = ma_data_source_config_init();
         baseConfig.pVTable = &g_my_data_source_vtable;
 
-        result = ma_data_source_init(&baseConfig, &pMyDataSource->base);
+        result = ma_data_source_base_init(&baseConfig, &pMyDataSource->base);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -1014,11 +1014,11 @@ base object (`ma_data_source_base`):
         // ... do the uninitialization of your custom data source here ...
 
         // You must uninitialize the base data source.
-        ma_data_source_uninit(&pMyDataSource->base);
+        ma_data_source_base_uninit(&pMyDataSource->base);
     }
     ```
 
-Note that `ma_data_source_init()` and `ma_data_source_uninit()` are never called directly outside
+Note that `ma_data_source_base_init()` and `ma_data_source_base_uninit()` are never called directly outside
 of the custom data source. It's up to the custom data source itself to call these within their own
 init/uninit functions.
 
@@ -6255,8 +6255,8 @@ typedef struct
     MA_ATOMIC(4, ma_bool32) isLooping;
 } ma_data_source_base;
 
-MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
-MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_base_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
+MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
@@ -68456,7 +68456,7 @@ MA_API ma_result ma_audio_ring_buffer_init(const ma_audio_ring_buffer_config* pC
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_AudioRingBuffer;
 
-    result = ma_data_source_init(&dataSourceConfig, &pRingBuffer->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pRingBuffer->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -68470,7 +68470,7 @@ MA_API ma_result ma_audio_ring_buffer_init(const ma_audio_ring_buffer_config* pC
 
         pBuffer = ma_malloc(bufferSizeInBytes, pConfig->pAllocationCallbacks);
         if (pBuffer == NULL) {
-            ma_data_source_uninit(&pRingBuffer->ds);
+            ma_data_source_base_uninit(&pRingBuffer->ds);
             return MA_OUT_OF_MEMORY;
         }
 
@@ -68502,7 +68502,7 @@ MA_API void ma_audio_ring_buffer_uninit(ma_audio_ring_buffer* pRingBuffer)
         ma_free(pRingBuffer->pBuffer, &pRingBuffer->allocationCallbacks);
     }
 
-    ma_data_source_uninit(&pRingBuffer->ds);
+    ma_data_source_base_uninit(&pRingBuffer->ds);
 }
 
 MA_API ma_uint32 ma_audio_ring_buffer_map_produce(ma_audio_ring_buffer* pRingBuffer, ma_uint32 frameCount, void** ppMappedBuffer)
@@ -68901,7 +68901,7 @@ MA_API ma_data_source_config ma_data_source_config_init(void)
 }
 
 
-MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource)
+MA_API ma_result ma_data_source_base_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
 
@@ -68931,7 +68931,7 @@ MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_da
     return MA_SUCCESS;
 }
 
-MA_API void ma_data_source_uninit(ma_data_source* pDataSource)
+MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource)
 {
     if (pDataSource == NULL) {
         return;
@@ -69820,7 +69820,7 @@ MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, 
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_AudioBufferRef;
 
-    result = ma_data_source_init(&dataSourceConfig, &pAudioBufferRef->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pAudioBufferRef->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -69841,7 +69841,7 @@ MA_API void ma_audio_buffer_ref_uninit(ma_audio_buffer_ref* pAudioBufferRef)
         return;
     }
 
-    ma_data_source_uninit(&pAudioBufferRef->ds);
+    ma_data_source_base_uninit(&pAudioBufferRef->ds);
 }
 
 MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames)
@@ -70509,7 +70509,7 @@ MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* 
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_PagedAudioBuffer;
 
-    result = ma_data_source_init(&dataSourceConfig, &pPagedAudioBuffer->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pPagedAudioBuffer->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -72744,7 +72744,7 @@ static ma_result ma_wav_init_internal(const ma_decoding_backend_config* pConfig,
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_WAV;
 
-    result = ma_data_source_init(&dataSourceConfig, &pWav->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pWav->ds);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the base data source. */
     }
@@ -72949,7 +72949,7 @@ MA_API void ma_wav_uninit(ma_wav* pWav, const ma_allocation_callbacks* pAllocati
     }
     #endif
 
-    ma_data_source_uninit(&pWav->ds);
+    ma_data_source_base_uninit(&pWav->ds);
 }
 
 MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
@@ -73448,7 +73448,7 @@ static ma_result ma_flac_init_internal(const ma_decoding_backend_config* pConfig
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_FLAC;
 
-    result = ma_data_source_init(&dataSourceConfig, &pFlac->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pFlac->ds);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the base data source. */
     }
@@ -73596,7 +73596,7 @@ MA_API void ma_flac_uninit(ma_flac* pFlac, const ma_allocation_callbacks* pAlloc
     }
     #endif
 
-    ma_data_source_uninit(&pFlac->ds);
+    ma_data_source_base_uninit(&pFlac->ds);
 }
 
 MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
@@ -74089,7 +74089,7 @@ static ma_result ma_mp3_init_internal(const ma_decoding_backend_config* pConfig,
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_MP3;
 
-    result = ma_data_source_init(&dataSourceConfig, &pMP3->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pMP3->ds);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the base data source. */
     }
@@ -74301,7 +74301,7 @@ MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocati
     /* Seek points need to be freed after the MP3 decoder has been uninitialized to ensure they're no longer being referenced. */
     ma_free(pMP3->pSeekPoints, pAllocationCallbacks);
 
-    ma_data_source_uninit(&pMP3->ds);
+    ma_data_source_base_uninit(&pMP3->ds);
 }
 
 MA_API ma_result ma_mp3_read_pcm_frames(ma_mp3* pMP3, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
@@ -74743,7 +74743,7 @@ static ma_result ma_stbvorbis_init_internal(const ma_decoding_backend_config* pC
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_stbvorbis;
 
-    result = ma_data_source_init(&dataSourceConfig, &pVorbis->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pVorbis->ds);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the base data source. */
     }
@@ -74998,7 +74998,7 @@ MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callb
     }
     #endif
 
-    ma_data_source_uninit(&pVorbis->ds);
+    ma_data_source_base_uninit(&pVorbis->ds);
 }
 
 MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
@@ -76064,7 +76064,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_Decoder;
 
-    result = ma_data_source_init(&dataSourceConfig, &pDecoder->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pDecoder->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -76076,7 +76076,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
 
     result = ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
     if (result != MA_SUCCESS) {
-        ma_data_source_uninit(&pDecoder->ds);
+        ma_data_source_base_uninit(&pDecoder->ds);
         return result;
     }
 
@@ -76646,7 +76646,7 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     }
 
     ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
-    ma_data_source_uninit(&pDecoder->ds);
+    ma_data_source_base_uninit(&pDecoder->ds);
 
     if (pDecoder->pInputCache != NULL) {
         ma_free(pDecoder->pInputCache, &pDecoder->allocationCallbacks);
@@ -77540,7 +77540,7 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_Waveform;
 
-    result = ma_data_source_init(&dataSourceConfig, &pWaveform->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pWaveform->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -77558,7 +77558,7 @@ MA_API void ma_waveform_uninit(ma_waveform* pWaveform)
         return;
     }
 
-    ma_data_source_uninit(&pWaveform->ds);
+    ma_data_source_base_uninit(&pWaveform->ds);
 }
 
 MA_API ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude)
@@ -78195,7 +78195,7 @@ MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_Noise;
 
-    result = ma_data_source_init(&dataSourceConfig, &pNoise->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pNoise->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -78262,7 +78262,7 @@ MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAl
         return;
     }
 
-    ma_data_source_uninit(&pNoise->ds);
+    ma_data_source_base_uninit(&pNoise->ds);
 
     if (pNoise->_ownsHeap) {
         ma_free(pNoise->_pHeap, pAllocationCallbacks);
@@ -80480,7 +80480,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         dataSourceConfig = ma_data_source_config_init();
         dataSourceConfig.pVTable = &ma_gDataSourceVTable_ResourceManagerDataBuffer;
 
-        result = ma_data_source_init(&dataSourceConfig, &pDataBuffer->ds);
+        result = ma_data_source_base_init(&dataSourceConfig, &pDataBuffer->ds);
         if (result != MA_SUCCESS) {
             ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode, NULL, NULL);
             ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
@@ -80642,7 +80642,7 @@ static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_man
     ma_resource_manager_data_buffer_node_unacquire(pDataBuffer->pResourceManager, pDataBuffer->pNode, NULL, NULL);
 
     /* The base data source needs to be uninitialized as well. */
-    ma_data_source_uninit(&pDataBuffer->ds);
+    ma_data_source_base_uninit(&pDataBuffer->ds);
 
     return MA_SUCCESS;
 }
@@ -81198,7 +81198,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_ResourceManagerDataStream;
 
-    result = ma_data_source_init(&dataSourceConfig, &pDataStream->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pDataStream->ds);
     if (result != MA_SUCCESS) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return result;
@@ -82621,7 +82621,7 @@ static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob
         pDataStream->pPageData = NULL;  /* Just in case... */
     }
 
-    ma_data_source_uninit(&pDataStream->ds);
+    ma_data_source_base_uninit(&pDataStream->ds);
 
     /* The event needs to be signalled last. */
     if (pJob->data.resourceManager.freeDataStream.pDoneNotification != NULL) {
@@ -82970,7 +82970,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_NodeGraph;
 
-    result = ma_data_source_init(&dataSourceConfig, &pNodeGraph->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pNodeGraph->ds);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -82984,7 +82984,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 
     result = ma_node_init(pNodeGraph, &endpointConfig, pAllocationCallbacks, &pNodeGraph->endpoint);
     if (result != MA_SUCCESS) {
-        ma_data_source_uninit(&pNodeGraph->ds);
+        ma_data_source_base_uninit(&pNodeGraph->ds);
         return result;
     }
 
@@ -83030,7 +83030,7 @@ MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_
     }
 
     ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
-    ma_data_source_uninit(&pNodeGraph->ds);
+    ma_data_source_base_uninit(&pNodeGraph->ds);
 
     if (pNodeGraph->pProcessingCache != NULL) {
         ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);

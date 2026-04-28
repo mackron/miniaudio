@@ -125,7 +125,7 @@ static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pCon
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.pVTable = &ma_gDataSourceVTable_libopus;
 
-    result = ma_data_source_init(&dataSourceConfig, &pOpus->ds);
+    result = ma_data_source_base_init(&dataSourceConfig, &pOpus->ds);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the base data source. */
     }
@@ -230,7 +230,7 @@ MA_API void ma_libopus_uninit(ma_libopus* pOpus, const ma_allocation_callbacks* 
     }
     #endif
 
-    ma_data_source_uninit(&pOpus->ds);
+    ma_data_source_base_uninit(&pOpus->ds);
 }
 
 MA_API ma_result ma_libopus_read_pcm_frames(ma_libopus* pOpus, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
