@@ -13,6 +13,11 @@
 #include <string.h> /* For memset(). */
 #include <assert.h>
 
+static size_t ma_libvorbis_ds_sizeof(void)
+{
+    return sizeof(ma_libvorbis);
+}
+
 static void ma_libvorbis_ds_uninit(ma_data_source* pDataSource)
 {
     ma_libvorbis_uninit((ma_libvorbis*)pDataSource);
@@ -45,6 +50,7 @@ static ma_result ma_libvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint
 
 static ma_data_source_vtable ma_gDataSourceVTable_libvorbis =
 {
+    ma_libvorbis_ds_sizeof,
     ma_libvorbis_ds_uninit,
     ma_libvorbis_ds_read,
     ma_libvorbis_ds_seek,

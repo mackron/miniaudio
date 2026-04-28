@@ -10,6 +10,11 @@
 #include <string.h> /* For memset(). */
 #include <assert.h>
 
+static size_t ma_libopus_ds_sizeof(void)
+{
+    return sizeof(ma_libopus);
+}
+
 static void ma_libopus_ds_uninit(ma_data_source* pDataSource)
 {
     ma_libopus_uninit((ma_libopus*)pDataSource);
@@ -42,6 +47,7 @@ static ma_result ma_libopus_ds_get_length(ma_data_source* pDataSource, ma_uint64
 
 static ma_data_source_vtable ma_gDataSourceVTable_libopus =
 {
+    ma_libopus_ds_sizeof,
     ma_libopus_ds_uninit,
     ma_libopus_ds_read,
     ma_libopus_ds_seek,

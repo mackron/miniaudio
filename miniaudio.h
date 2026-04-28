@@ -6223,13 +6223,14 @@ typedef void ma_data_source;
 
 typedef struct
 {
-    void      (* onUninit)(ma_data_source* pDataSource);
-    ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
-    ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
+    size_t    (* onSizeof       )(void);    /* Should return the size of the the data source implementation's struct. For example, ma_decoder would return sizeof(ma_decoder). */
+    void      (* onUninit       )(ma_data_source* pDataSource);
+    ma_result (* onRead         )(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+    ma_result (* onSeek         )(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
-    ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
-    ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
-    ma_result (* onSetLooping)(ma_data_source* pDataSource, ma_bool32 isLooping);
+    ma_result (* onGetCursor    )(ma_data_source* pDataSource, ma_uint64* pCursor);
+    ma_result (* onGetLength    )(ma_data_source* pDataSource, ma_uint64* pLength);
+    ma_result (* onSetLooping   )(ma_data_source* pDataSource, ma_bool32 isLooping);
     ma_uint32 flags;
 } ma_data_source_vtable;
 
@@ -68305,6 +68306,11 @@ MA_API ma_uint32 ma_ring_buffer_capacity(const ma_ring_buffer* pRingBuffer)
 /* END ma_ring_buffer.c */
 
 
+static size_t ma_audio_ring_buffer__data_source_on_sizeof(void)
+{
+    return sizeof(ma_audio_ring_buffer);
+}
+
 static void ma_audio_ring_buffer__data_source_on_uninit(ma_data_source* pDataSource)
 {
     ma_audio_ring_buffer_uninit((ma_audio_ring_buffer*)pDataSource);
@@ -68369,6 +68375,7 @@ static ma_result ma_audio_ring_buffer__data_source_on_get_length(ma_data_source*
 
 static ma_data_source_vtable ma_gDataSourceVTable_AudioRingBuffer =
 {
+    ma_audio_ring_buffer__data_source_on_sizeof,
     ma_audio_ring_buffer__data_source_on_uninit,
     ma_audio_ring_buffer__data_source_on_read,
     NULL,   /* No seeking in ring buffers. */
@@ -69754,6 +69761,11 @@ MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(const ma_da
 }
 
 
+static size_t ma_audio_buffer_ref__data_source_on_sizeof(void)
+{
+    return sizeof(ma_audio_buffer_ref);
+}
+
 static void ma_audio_buffer_ref__data_source_on_uninit(ma_data_source* pDataSource)
 {
     ma_audio_buffer_ref_uninit((ma_audio_buffer_ref*)pDataSource);
@@ -69801,6 +69813,7 @@ static ma_result ma_audio_buffer_ref__data_source_on_get_length(ma_data_source* 
 
 static ma_data_source_vtable ma_gDataSourceVTable_AudioBufferRef =
 {
+    ma_audio_buffer_ref__data_source_on_sizeof,
     ma_audio_buffer_ref__data_source_on_uninit,
     ma_audio_buffer_ref__data_source_on_read,
     ma_audio_buffer_ref__data_source_on_seek,
@@ -70448,6 +70461,11 @@ MA_API ma_paged_audio_buffer_config ma_paged_audio_buffer_config_init(ma_paged_a
 }
 
 
+static size_t ma_paged_audio_buffer__data_source_on_sizeof(void)
+{
+    return sizeof(ma_paged_audio_buffer);
+}
+
 static void ma_paged_audio_buffer__data_source_on_uninit(ma_data_source* pDataSource)
 {
     ma_paged_audio_buffer_uninit((ma_paged_audio_buffer*)pDataSource);
@@ -70487,6 +70505,7 @@ static ma_result ma_paged_audio_buffer__data_source_on_get_length(ma_data_source
 
 static ma_data_source_vtable ma_gDataSourceVTable_PagedAudioBuffer =
 {
+    ma_paged_audio_buffer__data_source_on_sizeof,
     ma_paged_audio_buffer__data_source_on_uninit,
     ma_paged_audio_buffer__data_source_on_read,
     ma_paged_audio_buffer__data_source_on_seek,
@@ -72636,6 +72655,11 @@ MA_API ma_result ma_wav_get_cursor_in_pcm_frames(ma_wav* pWav, ma_uint64* pCurso
 MA_API ma_result ma_wav_get_length_in_pcm_frames(ma_wav* pWav, ma_uint64* pLength);
 
 
+static size_t ma_wav_ds_sizeof(void)
+{
+    return sizeof(ma_wav);
+}
+
 static void ma_wav_ds_uninit(ma_data_source* pDataSource)
 {
     ma_wav_uninit((ma_wav*)pDataSource);
@@ -72668,6 +72692,7 @@ static ma_result ma_wav_ds_get_length(ma_data_source* pDataSource, ma_uint64* pL
 
 static ma_data_source_vtable ma_gDataSourceVTable_WAV =
 {
+    ma_wav_ds_sizeof,
     ma_wav_ds_uninit,
     ma_wav_ds_read,
     ma_wav_ds_seek,
@@ -73228,6 +73253,11 @@ MA_API ma_result ma_flac_get_cursor_in_pcm_frames(ma_flac* pFlac, ma_uint64* pCu
 MA_API ma_result ma_flac_get_length_in_pcm_frames(ma_flac* pFlac, ma_uint64* pLength);
 
 
+static size_t ma_flac_ds_sizeof(void)
+{
+    return sizeof(ma_flac);
+}
+
 static void ma_flac_ds_uninit(ma_data_source* pDataSource)
 {
     ma_flac_uninit((ma_flac*)pDataSource);
@@ -73260,6 +73290,7 @@ static ma_result ma_flac_ds_get_length(ma_data_source* pDataSource, ma_uint64* p
 
 static ma_data_source_vtable ma_gDataSourceVTable_FLAC =
 {
+    ma_flac_ds_sizeof,
     ma_flac_ds_uninit,
     ma_flac_ds_read,
     ma_flac_ds_seek,
@@ -73769,6 +73800,11 @@ MA_API ma_result ma_mp3_get_cursor_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pCurso
 MA_API ma_result ma_mp3_get_length_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pLength);
 
 
+static size_t ma_mp3_ds_sizeof(void)
+{
+    return sizeof(ma_mp3);
+}
+
 static void ma_mp3_ds_uninit(ma_data_source* pDataSource)
 {
     ma_mp3_uninit((ma_mp3*)pDataSource);
@@ -73801,6 +73837,7 @@ static ma_result ma_mp3_ds_get_length(ma_data_source* pDataSource, ma_uint64* pL
 
 static ma_data_source_vtable ma_gDataSourceVTable_MP3 =
 {
+    ma_mp3_ds_sizeof,
     ma_mp3_ds_uninit,
     ma_mp3_ds_read,
     ma_mp3_ds_seek,
@@ -74377,6 +74414,11 @@ MA_API ma_result ma_stbvorbis_get_cursor_in_pcm_frames(ma_stbvorbis* pVorbis, ma
 MA_API ma_result ma_stbvorbis_get_length_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pLength);
 
 
+static size_t ma_stbvorbis_ds_sizeof(void)
+{
+    return sizeof(ma_stbvorbis);
+}
+
 static void ma_stbvorbis_ds_uninit(ma_data_source* pDataSource)
 {
     ma_stbvorbis_uninit((ma_stbvorbis*)pDataSource);
@@ -74409,6 +74451,7 @@ static ma_result ma_stbvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint
 
 static ma_data_source_vtable ma_gDataSourceVTable_stbvorbis =
 {
+    ma_stbvorbis_ds_sizeof,
     ma_stbvorbis_ds_uninit,
     ma_stbvorbis_ds_read,
     ma_stbvorbis_ds_seek,
@@ -75582,6 +75625,12 @@ static void ma_decoder__init_allocation_callbacks(const ma_decoder_config* pConf
     }
 }
 
+
+static size_t ma_decoder__data_source_on_sizeof(void)
+{
+    return sizeof(ma_decoder);
+}
+
 static void ma_decoder__data_source_on_uninit(ma_data_source* pDataSource)
 {
     ma_decoder_uninit((ma_decoder*)pDataSource);
@@ -75614,6 +75663,7 @@ static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSour
 
 static ma_data_source_vtable ma_gDataSourceVTable_Decoder =
 {
+    ma_decoder__data_source_on_sizeof,
     ma_decoder__data_source_on_uninit,
     ma_decoder__data_source_on_read,
     ma_decoder__data_source_on_seek,
@@ -77011,6 +77061,12 @@ MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 ch
     return config;
 }
 
+
+static size_t ma_waveform__data_source_on_sizeof(void)
+{
+    return sizeof(ma_waveform);
+}
+
 static void ma_waveform__data_source_on_uninit(ma_data_source* pDataSource)
 {
     ma_waveform_uninit((ma_waveform*)pDataSource);
@@ -77059,6 +77115,7 @@ static void ma_waveform__update_advance(ma_waveform* pWaveform)
 
 static ma_data_source_vtable ma_gDataSourceVTable_Waveform =
 {
+    ma_waveform__data_source_on_sizeof,
     ma_waveform__data_source_on_uninit,
     ma_waveform__data_source_on_read,
     ma_waveform__data_source_on_seek,
@@ -77592,6 +77649,11 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 }
 
 
+static size_t ma_noise__data_source_on_sizeof(void)
+{
+    return sizeof(ma_noise);
+}
+
 static void ma_noise__data_source_on_uninit(ma_data_source* pDataSource)
 {
     ma_noise_uninit((ma_noise*)pDataSource);
@@ -77624,6 +77686,7 @@ static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataS
 
 static ma_data_source_vtable ma_gDataSourceVTable_Noise =
 {
+    ma_noise__data_source_on_sizeof,
     ma_noise__data_source_on_uninit,
     ma_noise__data_source_on_read,
     ma_noise__data_source_on_seek,  /* No-op for noise. */
@@ -79915,11 +79978,16 @@ stage2:
 }
 
 
-
 static ma_uint32 ma_resource_manager_data_buffer_next_execution_order(ma_resource_manager_data_buffer* pDataBuffer)
 {
     MA_ASSERT(pDataBuffer != NULL);
     return ma_atomic_fetch_add_32(&pDataBuffer->executionCounter, 1);
+}
+
+
+static size_t ma_resource_manager_data_buffer_cb__sizeof(void)
+{
+    return sizeof(ma_resource_manager_data_buffer);
 }
 
 static void ma_resource_manager_data_buffer_cb__uninit(ma_data_source* pDataSource)
@@ -79967,6 +80035,7 @@ static ma_result ma_resource_manager_data_buffer_cb__set_looping(ma_data_source*
 
 static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataBuffer =
 {
+    ma_resource_manager_data_buffer_cb__sizeof,
     ma_resource_manager_data_buffer_cb__uninit,
     ma_resource_manager_data_buffer_cb__read_pcm_frames,
     ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
@@ -80665,6 +80734,11 @@ static ma_uint32 ma_resource_manager_data_stream_seek_counter(const ma_resource_
 }
 
 
+static size_t ma_resource_manager_data_stream_cb__sizeof(void)
+{
+    return sizeof(ma_resource_manager_data_stream);
+}
+
 static void ma_resource_manager_data_stream_cb__uninit(ma_data_source* pDataSource)
 {
     ma_resource_manager_data_stream_uninit((ma_resource_manager_data_stream*)pDataSource);
@@ -80707,6 +80781,7 @@ static ma_result ma_resource_manager_data_stream_cb__set_looping(ma_data_source*
 
 static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataStream =
 {
+    ma_resource_manager_data_stream_cb__sizeof,
     ma_resource_manager_data_stream_cb__uninit,
     ma_resource_manager_data_stream_cb__read_pcm_frames,
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
@@ -82439,6 +82514,11 @@ static ma_bool32 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 #endif
 
 
+static size_t ma_node_graph_data_source__on_sizeof(void)
+{
+    return sizeof(ma_node_graph);
+}
+
 static void ma_node_graph_data_source__on_uninit(ma_data_source* pDataSource)
 {
     ma_node_graph_uninit((ma_node_graph*)pDataSource);
@@ -82480,6 +82560,7 @@ static ma_result ma_node_graph_data_source__on_get_data_format(ma_data_source* p
 
 static ma_data_source_vtable ma_gDataSourceVTable_NodeGraph = 
 {
+    ma_node_graph_data_source__on_sizeof,
     ma_node_graph_data_source__on_uninit,
     ma_node_graph_data_source__on_read,
     NULL,   /* onSeek */
