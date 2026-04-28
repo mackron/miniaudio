@@ -6505,6 +6505,9 @@ Retrieves a human readable description of the given result code.
 */
 MA_API const char* ma_result_description(ma_result result);
 
+MA_API ma_allocation_callbacks ma_allocation_callbacks_init_default(void);
+MA_API ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst, const ma_allocation_callbacks* pSrc);
+
 /*
 malloc()
 */
@@ -13965,40 +13968,6 @@ static void ma__free_default(void* p, void* pUserData)
 {
     (void)pUserData;
     MA_FREE(p);
-}
-
-static ma_allocation_callbacks ma_allocation_callbacks_init_default(void)
-{
-    ma_allocation_callbacks callbacks;
-    callbacks.pUserData = NULL;
-    callbacks.onMalloc  = ma__malloc_default;
-    callbacks.onRealloc = ma__realloc_default;
-    callbacks.onFree    = ma__free_default;
-
-    return callbacks;
-}
-
-static ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst, const ma_allocation_callbacks* pSrc)
-{
-    if (pDst == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pSrc == NULL) {
-        *pDst = ma_allocation_callbacks_init_default();
-    } else {
-        if (pSrc->pUserData == NULL && pSrc->onFree == NULL && pSrc->onMalloc == NULL && pSrc->onRealloc == NULL) {
-            *pDst = ma_allocation_callbacks_init_default();
-        } else {
-            if (pSrc->onFree == NULL || (pSrc->onMalloc == NULL && pSrc->onRealloc == NULL)) {
-                return MA_INVALID_ARGS;    /* Invalid allocation callbacks. */
-            } else {
-                *pDst = *pSrc;
-            }
-        }
-    }
-
-    return MA_SUCCESS;
 }
 
 
@@ -68767,6 +68736,40 @@ MA_API const char* ma_result_description(ma_result result)
 
         default:                               return "Unknown error";
     }
+}
+
+MA_API ma_allocation_callbacks ma_allocation_callbacks_init_default(void)
+{
+    ma_allocation_callbacks callbacks;
+    callbacks.pUserData = NULL;
+    callbacks.onMalloc  = ma__malloc_default;
+    callbacks.onRealloc = ma__realloc_default;
+    callbacks.onFree    = ma__free_default;
+
+    return callbacks;
+}
+
+MA_API ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst, const ma_allocation_callbacks* pSrc)
+{
+    if (pDst == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pSrc == NULL) {
+        *pDst = ma_allocation_callbacks_init_default();
+    } else {
+        if (pSrc->pUserData == NULL && pSrc->onFree == NULL && pSrc->onMalloc == NULL && pSrc->onRealloc == NULL) {
+            *pDst = ma_allocation_callbacks_init_default();
+        } else {
+            if (pSrc->onFree == NULL || (pSrc->onMalloc == NULL && pSrc->onRealloc == NULL)) {
+                return MA_INVALID_ARGS;    /* Invalid allocation callbacks. */
+            } else {
+                *pDst = *pSrc;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API void* ma_malloc(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
