@@ -10473,8 +10473,6 @@ typedef struct
 {
     void      (* onInfo      )(void* pUserData, ma_decoding_backend_info* pInfo);
     ma_result (* onInit      )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
-    ma_result (* onInitFile  )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
-    ma_result (* onInitFileW )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
     ma_result (* onInitMemory)(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
     void      (* onUninit    )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
 } ma_decoding_backend_vtable;
@@ -72640,8 +72638,6 @@ typedef struct
 } ma_wav;
 
 MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
-MA_API ma_result ma_wav_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
-MA_API ma_result ma_wav_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
 MA_API ma_result ma_wav_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
 MA_API void ma_wav_uninit(ma_wav* pWav);
 MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -72857,70 +72853,6 @@ MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
     #else
     {
         /* wav is disabled. */
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_wav_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
-{
-    ma_result result;
-
-    result = ma_wav_init_internal(pConfig, pWav);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_WAV)
-    {
-        ma_bool32 wavResult;
-
-        wavResult = ma_dr_wav_init_file(&pWav->dr, pFilePath, pAllocationCallbacks);
-        if (wavResult != MA_TRUE) {
-            return MA_INVALID_FILE;
-        }
-
-        ma_wav_post_init(pWav);
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* wav is disabled. */
-        (void)pFilePath;
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_wav_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
-{
-    ma_result result;
-
-    result = ma_wav_init_internal(pConfig, pWav);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_WAV)
-    {
-        ma_bool32 wavResult;
-
-        wavResult = ma_dr_wav_init_file_w(&pWav->dr, pFilePath, pAllocationCallbacks);
-        if (wavResult != MA_TRUE) {
-            return MA_INVALID_FILE;
-        }
-
-        ma_wav_post_init(pWav);
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* wav is disabled. */
-        (void)pFilePath;
         (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
@@ -73229,54 +73161,6 @@ static ma_result ma_decoding_backend_init__wav(void* pUserData, ma_read_proc onR
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoding_backend_init_file__wav(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_wav* pWav;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pWav = (ma_wav*)ma_malloc(sizeof(*pWav), pAllocationCallbacks);
-    if (pWav == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_wav_init_file(pFilePath, pConfig, pAllocationCallbacks, pWav);
-    if (result != MA_SUCCESS) {
-        ma_free(pWav, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pWav;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoding_backend_init_file_w__wav(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_wav* pWav;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pWav = (ma_wav*)ma_malloc(sizeof(*pWav), pAllocationCallbacks);
-    if (pWav == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_wav_init_file_w(pFilePath, pConfig, pAllocationCallbacks, pWav);
-    if (result != MA_SUCCESS) {
-        ma_free(pWav, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pWav;
-
-    return MA_SUCCESS;
-}
-
 static ma_result ma_decoding_backend_init_memory__wav(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -73315,8 +73199,6 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_WAV =
 {
     ma_decoding_backend_info__wav,
     ma_decoding_backend_init__wav,
-    ma_decoding_backend_init_file__wav,
-    ma_decoding_backend_init_file_w__wav,
     ma_decoding_backend_init_memory__wav,
     ma_decoding_backend_uninit__wav
 };
@@ -73348,8 +73230,6 @@ typedef struct
 } ma_flac;
 
 MA_API ma_result ma_flac_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
-MA_API ma_result ma_flac_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
-MA_API ma_result ma_flac_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
 MA_API ma_result ma_flac_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
 MA_API void ma_flac_uninit(ma_flac* pFlac);
 MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -73520,62 +73400,6 @@ MA_API ma_result ma_flac_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_
     #else
     {
         /* flac is disabled. */
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_flac_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac)
-{
-    ma_result result;
-
-    result = ma_flac_init_internal(pConfig, pFlac);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_FLAC)
-    {
-        pFlac->dr = ma_dr_flac_open_file(pFilePath, pAllocationCallbacks);
-        if (pFlac->dr == NULL) {
-            return MA_INVALID_FILE;
-        }
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* flac is disabled. */
-        (void)pFilePath;
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_flac_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac)
-{
-    ma_result result;
-
-    result = ma_flac_init_internal(pConfig, pFlac);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_FLAC)
-    {
-        pFlac->dr = ma_dr_flac_open_file_w(pFilePath, pAllocationCallbacks);
-        if (pFlac->dr == NULL) {
-            return MA_INVALID_FILE;
-        }
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* flac is disabled. */
-        (void)pFilePath;
         (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
@@ -73876,54 +73700,6 @@ static ma_result ma_decoding_backend_init__flac(void* pUserData, ma_read_proc on
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoding_backend_init_file__flac(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_flac* pFlac;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pFlac = (ma_flac*)ma_malloc(sizeof(*pFlac), pAllocationCallbacks);
-    if (pFlac == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_flac_init_file(pFilePath, pConfig, pAllocationCallbacks, pFlac);
-    if (result != MA_SUCCESS) {
-        ma_free(pFlac, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pFlac;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoding_backend_init_file_w__flac(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_flac* pFlac;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pFlac = (ma_flac*)ma_malloc(sizeof(*pFlac), pAllocationCallbacks);
-    if (pFlac == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_flac_init_file_w(pFilePath, pConfig, pAllocationCallbacks, pFlac);
-    if (result != MA_SUCCESS) {
-        ma_free(pFlac, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pFlac;
-
-    return MA_SUCCESS;
-}
-
 static ma_result ma_decoding_backend_init_memory__flac(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -73962,8 +73738,6 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_FLAC =
 {
     ma_decoding_backend_info__flac,
     ma_decoding_backend_init__flac,
-    ma_decoding_backend_init_file__flac,
-    ma_decoding_backend_init_file_w__flac,
     ma_decoding_backend_init_memory__flac,
     ma_decoding_backend_uninit__flac
 };
@@ -73997,8 +73771,6 @@ typedef struct
 } ma_mp3;
 
 MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
-MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
-MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
 MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
 MA_API void ma_mp3_uninit(ma_mp3* pMP3);
 MA_API ma_result ma_mp3_read_pcm_frames(ma_mp3* pMP3, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -74216,70 +73988,6 @@ MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
     #else
     {
         /* mp3 is disabled. */
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
-{
-    ma_result result;
-
-    result = ma_mp3_init_internal(pConfig, pMP3);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_MP3)
-    {
-        ma_bool32 mp3Result;
-
-        mp3Result = ma_dr_mp3_init_file(&pMP3->dr, pFilePath, pAllocationCallbacks);
-        if (mp3Result != MA_TRUE) {
-            return MA_INVALID_FILE;
-        }
-
-        ma_mp3_post_init(pMP3, pConfig, pAllocationCallbacks);
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* mp3 is disabled. */
-        (void)pFilePath;
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
-{
-    ma_result result;
-
-    result = ma_mp3_init_internal(pConfig, pMP3);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_MP3)
-    {
-        ma_bool32 mp3Result;
-
-        mp3Result = ma_dr_mp3_init_file_w(&pMP3->dr, pFilePath, pAllocationCallbacks);
-        if (mp3Result != MA_TRUE) {
-            return MA_INVALID_FILE;
-        }
-
-        ma_mp3_post_init(pMP3, pConfig, pAllocationCallbacks);
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* mp3 is disabled. */
-        (void)pFilePath;
         (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
@@ -74583,54 +74291,6 @@ static ma_result ma_decoding_backend_init__mp3(void* pUserData, ma_read_proc onR
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoding_backend_init_file__mp3(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_mp3* pMP3;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pMP3 = (ma_mp3*)ma_malloc(sizeof(*pMP3), pAllocationCallbacks);
-    if (pMP3 == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_mp3_init_file(pFilePath, pConfig, pAllocationCallbacks, pMP3);
-    if (result != MA_SUCCESS) {
-        ma_free(pMP3, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pMP3;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoding_backend_init_file_w__mp3(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_mp3* pMP3;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pMP3 = (ma_mp3*)ma_malloc(sizeof(*pMP3), pAllocationCallbacks);
-    if (pMP3 == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_mp3_init_file_w(pFilePath, pConfig, pAllocationCallbacks, pMP3);
-    if (result != MA_SUCCESS) {
-        ma_free(pMP3, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pMP3;
-
-    return MA_SUCCESS;
-}
-
 static ma_result ma_decoding_backend_init_memory__mp3(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -74669,8 +74329,6 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_MP3 =
 {
     ma_decoding_backend_info__mp3,
     ma_decoding_backend_init__mp3,
-    ma_decoding_backend_init_file__mp3,
-    ma_decoding_backend_init_file_w__mp3,
     ma_decoding_backend_init_memory__mp3,
     ma_decoding_backend_uninit__mp3
 };
@@ -74721,7 +74379,6 @@ typedef struct
 } ma_stbvorbis;
 
 MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
-MA_API ma_result ma_stbvorbis_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
 MA_API ma_result ma_stbvorbis_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
 MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis);
 MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -74935,45 +74592,6 @@ MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
     #else
     {
         /* vorbis is disabled. */
-        (void)pAllocationCallbacks;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
-MA_API ma_result ma_stbvorbis_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis)
-{
-    ma_result result;
-
-    result = ma_stbvorbis_init_internal(pConfig, pVorbis);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_VORBIS)
-    {
-        (void)pAllocationCallbacks; /* Don't know how to make use of this with stb_vorbis. */
-
-        /* We can use stb_vorbis' pull mode for file based streams. */
-        pVorbis->stb = stb_vorbis_open_filename(pFilePath, NULL, NULL);
-        if (pVorbis->stb == NULL) {
-            return MA_INVALID_FILE;
-        }
-
-        pVorbis->usingPushMode = MA_FALSE;
-
-        result = ma_stbvorbis_post_init(pVorbis);
-        if (result != MA_SUCCESS) {
-            stb_vorbis_close(pVorbis->stb);
-            return result;
-        }
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* vorbis is disabled. */
-        (void)pFilePath;
         (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
@@ -75445,30 +75063,6 @@ static ma_result ma_decoding_backend_init__stbvorbis(void* pUserData, ma_read_pr
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoding_backend_init_file__stbvorbis(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_stbvorbis* pVorbis;
-
-    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
-
-    /* For now we're just allocating the decoder backend on the heap. */
-    pVorbis = (ma_stbvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
-    if (pVorbis == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_stbvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
-    if (result != MA_SUCCESS) {
-        ma_free(pVorbis, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pVorbis;
-
-    return MA_SUCCESS;
-}
-
 static ma_result ma_decoding_backend_init_memory__stbvorbis(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
     ma_result result;
@@ -75507,8 +75101,6 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_stbvorbis =
 {
     ma_decoding_backend_info__stbvorbis,
     ma_decoding_backend_init__stbvorbis,
-    ma_decoding_backend_init_file__stbvorbis,
-    NULL, /* onInitFileW() */
     ma_decoding_backend_init_memory__stbvorbis,
     ma_decoding_backend_uninit__stbvorbis
 };
@@ -75947,64 +75539,6 @@ static ma_result ma_decoder_init_from_vtable__internal(const ma_decoding_backend
     backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
 
     result = pVTable->onInit(pVTableUserData, ma_decoder_on_read, ma_decoder_on_seek, ma_decoder_on_tell, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the backend from this vtable. */
-    }
-
-    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
-    pDecoder->pBackend         = pBackend;
-    pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pVTableUserData;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_init_from_file__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    ma_decoding_backend_config backendConfig;
-    ma_data_source* pBackend;
-
-    MA_ASSERT(pVTable  != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pVTable->onInitFile == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
-
-    result = pVTable->onInitFile(pVTableUserData, pFilePath, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the backend from this vtable. */
-    }
-
-    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
-    pDecoder->pBackend         = pBackend;
-    pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pVTableUserData;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_init_from_file_w__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    ma_decoding_backend_config backendConfig;
-    ma_data_source* pBackend;
-
-    MA_ASSERT(pVTable  != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pVTable->onInitFileW == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
-
-    result = pVTable->onInitFileW(pVTableUserData, pFilePath, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the backend from this vtable. */
     }
@@ -76592,25 +76126,11 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
     for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
         if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), config.encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
-            result = ma_decoder_init_from_file__internal(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), pFilePath, &config, pDecoder);
+            result = ma_decoder_init_vfs(NULL, pFilePath, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
-                return ma_decoder__postinit_or_uninit(&config, pDecoder);
+                return MA_SUCCESS;
             } else {
-                /*
-                Initialization failed, but it could just be because the backend does not implement onInitMemory. In this case we need to
-                try again using callbacks.
-                */
-                if (result == MA_NOT_IMPLEMENTED) {
-                    /* Probably no implementation onInitFile. Use miniaudio's file IO instead. */
-                    result = ma_decoder_init_vfs(NULL, pFilePath, pConfig, pDecoder);
-                    if (result == MA_SUCCESS) {
-                        return MA_SUCCESS;
-                    } else {
-                        /* Initialization failed. Probably an unsupported format. Skip. */
-                    }
-                } else {
-                    /* Initialization failed. Probably an unsupported format. Skip. */
-                }
+                /* Initialization failed. Probably an unsupported format. Skip. */
             }
         } else {
             /* The backend does not support the specified encoding format. Skip. */
@@ -76653,25 +76173,11 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
     for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
         if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), config.encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
-            result = ma_decoder_init_from_file_w__internal(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), pFilePath, &config, pDecoder);
+            result = ma_decoder_init_vfs_w(NULL, pFilePath, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
-                return ma_decoder__postinit_or_uninit(&config, pDecoder);
+                return MA_SUCCESS;
             } else {
-                /*
-                Initialization failed, but it could just be because the backend does not implement onInitMemory. In this case we need to
-                try again using callbacks.
-                */
-                if (result == MA_NOT_IMPLEMENTED) {
-                    /* Probably no implementation onInitFile. Use miniaudio's file IO instead. */
-                    result = ma_decoder_init_vfs_w(NULL, pFilePath, pConfig, pDecoder);
-                    if (result == MA_SUCCESS) {
-                        return MA_SUCCESS;
-                    } else {
-                        /* Initialization failed. Probably an unsupported format. Skip. */
-                    }
-                } else {
-                    /* Initialization failed. Probably an unsupported format. Skip. */
-                }
+                /* Initialization failed. Probably an unsupported format. Skip. */
             }
         } else {
             /* The backend does not support the specified encoding format. Skip. */

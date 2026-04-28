@@ -187,37 +187,6 @@ MA_API ma_result ma_libopus_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_te
     #endif
 }
 
-MA_API ma_result ma_libopus_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_libopus* pOpus)
-{
-    ma_result result;
-
-    (void)pAllocationCallbacks; /* Can't seem to find a way to configure memory allocations in libopus. */
-
-    result = ma_libopus_init_internal(pConfig, pAllocationCallbacks, pOpus);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    #if !defined(MA_NO_LIBOPUS)
-    {
-        int libopusResult;
-
-        pOpus->of = op_open_file(pFilePath, &libopusResult);
-        if (pOpus->of == NULL) {
-            return MA_INVALID_FILE;
-        }
-
-        return MA_SUCCESS;
-    }
-    #else
-    {
-        /* libopus is disabled. */
-        (void)pFilePath;
-        return MA_NOT_IMPLEMENTED;
-    }
-    #endif
-}
-
 MA_API void ma_libopus_uninit(ma_libopus* pOpus)
 {
     if (pOpus == NULL) {
@@ -503,36 +472,13 @@ static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoding_backend_init_file__libopus(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_libopus* pOpus;
-
-    (void)pUserData;
-
-    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
-    if (pOpus == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
-    if (result != MA_SUCCESS) {
-        ma_free(pOpus, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pOpus;
-
-    return MA_SUCCESS;
-}
-
 static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_libopus* pOpus = (ma_libopus*)pBackend;
 
     (void)pUserData;
 
-    ma_libopus_uninit(pOpus, pAllocationCallbacks);
+    ma_libopus_uninit(pOpus);
     ma_free(pOpus, pAllocationCallbacks);
 }
 
@@ -540,8 +486,6 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_libopus =
 {
     ma_decoding_backend_info__libopus,
     ma_decoding_backend_init__libopus,
-    ma_decoding_backend_init_file__libopus,
-    NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
     ma_decoding_backend_uninit__libopus
 };
