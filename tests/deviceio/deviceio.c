@@ -52,6 +52,13 @@ are specified the last one on the command line will have priority.
 #include "../common/common.c"
 #include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 
+#ifdef ENABLE_LIBVORBIS
+#include "../../extras/decoders/libvorbis/miniaudio_libvorbis.c"
+#endif
+#ifdef ENABLE_LIBOPUS
+#include "../../extras/decoders/libopus/miniaudio_libopus.c"
+#endif
+
 #ifndef AUTO_CLOSE_TIME_IN_MILLISECONDS
 #define AUTO_CLOSE_TIME_IN_MILLISECONDS 5000
 #endif
@@ -689,7 +696,24 @@ int main(int argc, char** argv)
     if (deviceType == ma_device_type_playback) {
         if (g_State.sourceType == source_type_decoder) {
             ma_decoder_config decoderConfig;
+            ma_decoding_backend_vtable* ppDecodingBackends[16];
+            ma_uint32 decodingBackendCount;
+
+            decodingBackendCount = 0;
+            ppDecodingBackends[decodingBackendCount++] = ma_decoding_backend_wav;
+            ppDecodingBackends[decodingBackendCount++] = ma_decoding_backend_flac;
+            #ifdef ENABLE_LIBVORBIS
+            ppDecodingBackends[decodingBackendCount++] = ma_decoding_backend_libvorbis;
+            #endif
+            #ifdef ENABLE_LIBOPUS
+            ppDecodingBackends[decodingBackendCount++] = ma_decoding_backend_libopus;
+            #endif
+            ppDecodingBackends[decodingBackendCount++] = ma_decoding_backend_mp3; /* Do MP3 last since that's the problem child with our trial and error system. */
+
             decoderConfig = ma_decoder_config_init(g_State.device.playback.format, g_State.device.playback.channels, g_State.device.sampleRate);
+            decoderConfig.ppBackendVTables = ppDecodingBackends;
+            decoderConfig.backendCount     = decodingBackendCount;
+
             result = ma_decoder_init_file(pFilePath, &decoderConfig, &g_State.decoder);
             if (result != MA_SUCCESS) {
                 printf("Failed to open file for decoding \"%s\".\n", pFilePath);
