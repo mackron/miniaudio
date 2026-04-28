@@ -12018,7 +12018,7 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
     (void)milliseconds;
     MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
 #else
-    #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L) || defined(MA_SWITCH)
+    #if (defined(_POSIX_VERSION) && _POSIX_VERSION >= 199309L) || defined(MA_SWITCH)
         struct timespec ts;
         ts.tv_sec  = milliseconds / 1000;
         ts.tv_nsec = milliseconds % 1000 * 1000000;
@@ -20188,7 +20188,7 @@ Timing
         return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
     }
 #else
-    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+    #if defined(_POSIX_VERSION) && _POSIX_VERSION >= 199309L
         #if defined(CLOCK_MONOTONIC)
             #define MA_CLOCK_ID CLOCK_MONOTONIC
         #else
@@ -61668,7 +61668,7 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
-#if !defined(_MSC_VER) && !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE)) && !defined(MA_BSD)
+#if !defined(_MSC_VER) && !((defined(_POSIX_VERSION) && _POSIX_VERSION >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE)) && !defined(MA_BSD)
 int fileno(FILE *stream);
 #endif
 
