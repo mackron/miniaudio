@@ -80006,6 +80006,14 @@ static void ma_resource_manager_data_buffer_cb__uninit(ma_data_source* pDataSour
     ma_resource_manager_data_buffer_uninit((ma_resource_manager_data_buffer*)pDataSource);
 }
 
+static ma_result ma_resource_manager_data_buffer_cb__copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    ma_resource_manager_data_buffer* pDataBuffer    = (ma_resource_manager_data_buffer*)pDataSource;
+    ma_resource_manager_data_buffer* pNewDataBuffer = (ma_resource_manager_data_buffer*)pNewDataSource;
+
+    return ma_resource_manager_data_buffer_init_copy(pDataBuffer->pResourceManager, pDataBuffer, pNewDataBuffer);
+}
+
 static ma_result ma_resource_manager_data_buffer_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_resource_manager_data_buffer_read_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -80048,7 +80056,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataBuffer =
 {
     ma_resource_manager_data_buffer_cb__sizeof,
     ma_resource_manager_data_buffer_cb__uninit,
-    NULL, /* onCopy */
+    ma_resource_manager_data_buffer_cb__copy,
     ma_resource_manager_data_buffer_cb__read_pcm_frames,
     ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
     ma_resource_manager_data_buffer_cb__get_data_format,
