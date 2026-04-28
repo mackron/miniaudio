@@ -112,7 +112,7 @@ int main(int argc, char** argv)
 
 /*done3:*/ ma_data_source_node_uninit(&g_dataSupplyNode, NULL);
 done2: ma_reverb_node_uninit(&g_reverbNode, NULL);
-done1: ma_node_graph_uninit(&g_nodeGraph, NULL);
+done1: ma_node_graph_uninit(&g_nodeGraph);
 done0: ma_device_uninit(&device);
     
     (void)argc;

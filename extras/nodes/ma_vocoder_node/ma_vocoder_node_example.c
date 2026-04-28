@@ -143,7 +143,7 @@ int main(int argc, char** argv)
 /*done4:*/ ma_data_source_node_uninit(&g_exciteNode, NULL);
 done3: ma_data_source_node_uninit(&g_sourceNode, NULL);
 done2: ma_vocoder_node_uninit(&g_vocoderNode, NULL);
-done1: ma_node_graph_uninit(&g_nodeGraph, NULL);
+done1: ma_node_graph_uninit(&g_nodeGraph);
 done0: ma_device_uninit(&device);
 
     (void)argc;

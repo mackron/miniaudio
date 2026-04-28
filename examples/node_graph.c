@@ -241,7 +241,7 @@ cleanup_graph:
         ma_lpf_node_uninit(&g_lpfNode, NULL);
 
         /* Node Graph */
-        ma_node_graph_uninit(&g_nodeGraph, NULL);
+        ma_node_graph_uninit(&g_nodeGraph);
     }    
 
     return 0;

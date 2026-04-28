@@ -11352,6 +11352,7 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
 struct ma_node_graph
 {
     ma_data_source_base ds;
+    ma_allocation_callbacks allocationCallbacks;
 
     /* Immutable. */
     ma_node_base endpoint; /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
@@ -11367,7 +11368,7 @@ struct ma_node_graph
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
-MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph);
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph);
 MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_uint32 ma_node_graph_get_channels(const ma_node_graph* pNodeGraph);
@@ -82959,6 +82960,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
     MA_ZERO_OBJECT(pNodeGraph);
+    ma_allocation_callbacks_init_copy(&pNodeGraph->allocationCallbacks, pAllocationCallbacks);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -83023,22 +83025,22 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     return MA_SUCCESS;
 }
 
-MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph)
 {
     if (pNodeGraph == NULL) {
         return;
     }
 
-    ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+    ma_node_uninit(&pNodeGraph->endpoint, &pNodeGraph->allocationCallbacks);
     ma_data_source_base_uninit(&pNodeGraph->ds);
 
     if (pNodeGraph->pProcessingCache != NULL) {
-        ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
+        ma_free(pNodeGraph->pProcessingCache, &pNodeGraph->allocationCallbacks);
         pNodeGraph->pProcessingCache = NULL;
     }
 
     if (pNodeGraph->pPreMixStack != NULL) {
-        ma_stack_uninit(pNodeGraph->pPreMixStack, pAllocationCallbacks);
+        ma_stack_uninit(pNodeGraph->pPreMixStack, &pNodeGraph->allocationCallbacks);
         pNodeGraph->pPreMixStack = NULL;
     }
 }
@@ -87089,7 +87091,7 @@ on_error_2:
         ma_spatializer_listener_uninit(&pEngine->listeners[iListener], &pEngine->allocationCallbacks);
     }
 
-    ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
+    ma_node_graph_uninit(&pEngine->nodeGraph);
 on_error_1:
     #if !defined(MA_NO_DEVICE_IO)
     {
@@ -87150,7 +87152,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
     }
 
     /* Make sure the node graph is uninitialized after the audio thread has been shutdown to prevent accessing of the node graph after being uninitialized. */
-    ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
+    ma_node_graph_uninit(&pEngine->nodeGraph);
 
     /* Uninitialize the resource manager last to ensure we don't have a thread still trying to access it. */
 #ifndef MA_NO_RESOURCE_MANAGER
