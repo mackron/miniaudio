@@ -10807,6 +10807,7 @@ typedef struct
 {
     ma_data_source_base ds;
     ma_noise_config config;
+    ma_allocation_callbacks allocationCallbacks;
     ma_lcg lcg;
     union
     {
@@ -10830,7 +10831,7 @@ typedef struct
 MA_API ma_result ma_noise_get_heap_size(const ma_noise_config* pConfig, size_t* pHeapSizeInBytes);
 MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void* pHeap, ma_noise* pNoise);
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_noise* pNoise);
-MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_noise_uninit(ma_noise* pNoise);
 MA_API ma_result ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
 MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);
@@ -78184,6 +78185,7 @@ MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void
     }
 
     MA_ZERO_OBJECT(pNoise);
+    pNoise->allocationCallbacks = ma_allocation_callbacks_init_default();
 
     result = ma_noise_get_heap_layout(pConfig, &heapLayout);
     if (result != MA_SUCCESS) {
@@ -78253,11 +78255,13 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocati
         return result;
     }
 
+    ma_allocation_callbacks_init_copy(&pNoise->allocationCallbacks, pAllocationCallbacks);
+
     pNoise->_ownsHeap = MA_TRUE;
     return MA_SUCCESS;
 }
 
-MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_noise_uninit(ma_noise* pNoise)
 {
     if (pNoise == NULL) {
         return;
@@ -78266,7 +78270,7 @@ MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAl
     ma_data_source_base_uninit(&pNoise->ds);
 
     if (pNoise->_ownsHeap) {
-        ma_free(pNoise->_pHeap, pAllocationCallbacks);
+        ma_free(pNoise->_pHeap, &pNoise->allocationCallbacks);
     }
 }
 

@@ -839,7 +839,7 @@ done:
         ma_waveform_uninit(&g_State.waveform);
     }
     if (g_State.sourceType == source_type_noise) {
-        ma_noise_uninit(&g_State.noise, NULL);
+        ma_noise_uninit(&g_State.noise);
     }
     if (g_State.hasEncoder) {
         ma_encoder_uninit(&g_State.encoder);
