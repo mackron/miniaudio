@@ -13,6 +13,11 @@
 #include <string.h> /* For memset(). */
 #include <assert.h>
 
+static void ma_libvorbis_ds_uninit(ma_data_source* pDataSource)
+{
+    ma_libvorbis_uninit((ma_libvorbis*)pDataSource);
+}
+
 static ma_result ma_libvorbis_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_libvorbis_read_pcm_frames((ma_libvorbis*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -40,6 +45,7 @@ static ma_result ma_libvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint
 
 static ma_data_source_vtable ma_gDataSourceVTable_libvorbis =
 {
+    ma_libvorbis_ds_uninit,
     ma_libvorbis_ds_read,
     ma_libvorbis_ds_seek,
     ma_libvorbis_ds_get_data_format,
@@ -117,6 +123,7 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
     }
 
     memset(pVorbis, 0, sizeof(*pVorbis));
+    ma_allocation_callbacks_init_copy(&pVorbis->allocationCallbacks, pAllocationCallbacks);
     pVorbis->format = ma_format_f32;    /* f32 by default. */
 
     if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16)) {
@@ -237,13 +244,11 @@ MA_API ma_result ma_libvorbis_init_file(const char* pFilePath, const ma_decoding
     #endif
 }
 
-MA_API void ma_libvorbis_uninit(ma_libvorbis* pVorbis, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_libvorbis_uninit(ma_libvorbis* pVorbis)
 {
     if (pVorbis == NULL) {
         return;
     }
-
-    (void)pAllocationCallbacks;
 
     #if !defined(MA_NO_LIBVORBIS)
     {
@@ -257,7 +262,7 @@ MA_API void ma_libvorbis_uninit(ma_libvorbis* pVorbis, const ma_allocation_callb
     #endif
 
     ma_data_source_base_uninit(&pVorbis->ds);
-    ma_free(pVorbis->vf, pAllocationCallbacks);
+    ma_free(pVorbis->vf, &pVorbis->allocationCallbacks);
 }
 
 MA_API ma_result ma_libvorbis_read_pcm_frames(ma_libvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)

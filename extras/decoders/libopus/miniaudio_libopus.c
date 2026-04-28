@@ -10,6 +10,11 @@
 #include <string.h> /* For memset(). */
 #include <assert.h>
 
+static void ma_libopus_ds_uninit(ma_data_source* pDataSource)
+{
+    ma_libopus_uninit((ma_libopus*)pDataSource);
+}
+
 static ma_result ma_libopus_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_libopus_read_pcm_frames((ma_libopus*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -37,6 +42,7 @@ static ma_result ma_libopus_ds_get_length(ma_data_source* pDataSource, ma_uint64
 
 static ma_data_source_vtable ma_gDataSourceVTable_libopus =
 {
+    ma_libopus_ds_uninit,
     ma_libopus_ds_read,
     ma_libopus_ds_seek,
     ma_libopus_ds_get_data_format,
@@ -104,7 +110,7 @@ static opus_int64 ma_libopus_of_callback__tell(void* pUserData)
 }
 #endif
 
-static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pConfig, ma_libopus* pOpus)
+static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_libopus* pOpus)
 {
     ma_result result;
     ma_data_source_config dataSourceConfig;
@@ -114,6 +120,7 @@ static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pCon
     }
 
     memset(pOpus, 0, sizeof(*pOpus));
+    ma_allocation_callbacks_init_copy(&pOpus->allocationCallbacks, pAllocationCallbacks);
     pOpus->format = ma_format_f32;    /* f32 by default. */
 
     if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16)) {
@@ -139,7 +146,7 @@ MA_API ma_result ma_libopus_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_te
 
     (void)pAllocationCallbacks; /* Can't seem to find a way to configure memory allocations in libopus. */
     
-    result = ma_libopus_init_internal(pConfig, pOpus);
+    result = ma_libopus_init_internal(pConfig, pAllocationCallbacks, pOpus);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -186,7 +193,7 @@ MA_API ma_result ma_libopus_init_file(const char* pFilePath, const ma_decoding_b
 
     (void)pAllocationCallbacks; /* Can't seem to find a way to configure memory allocations in libopus. */
 
-    result = ma_libopus_init_internal(pConfig, pOpus);
+    result = ma_libopus_init_internal(pConfig, pAllocationCallbacks, pOpus);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -211,13 +218,11 @@ MA_API ma_result ma_libopus_init_file(const char* pFilePath, const ma_decoding_b
     #endif
 }
 
-MA_API void ma_libopus_uninit(ma_libopus* pOpus, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_libopus_uninit(ma_libopus* pOpus)
 {
     if (pOpus == NULL) {
         return;
     }
-
-    (void)pAllocationCallbacks;
 
     #if !defined(MA_NO_LIBOPUS)
     {

@@ -6223,6 +6223,7 @@ typedef void ma_data_source;
 
 typedef struct
 {
+    void      (* onUninit)(ma_data_source* pDataSource);
     ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
@@ -68312,6 +68313,11 @@ MA_API ma_uint32 ma_ring_buffer_capacity(const ma_ring_buffer* pRingBuffer)
 /* END ma_ring_buffer.c */
 
 
+static void ma_audio_ring_buffer__data_source_on_uninit(ma_data_source* pDataSource)
+{
+    ma_audio_ring_buffer_uninit((ma_audio_ring_buffer*)pDataSource);
+}
+
 static ma_result ma_audio_ring_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFrames, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_audio_ring_buffer* pRingBuffer = (ma_audio_ring_buffer*)pDataSource;
@@ -68371,6 +68377,7 @@ static ma_result ma_audio_ring_buffer__data_source_on_get_length(ma_data_source*
 
 static ma_data_source_vtable ma_gDataSourceVTable_AudioRingBuffer =
 {
+    ma_audio_ring_buffer__data_source_on_uninit,
     ma_audio_ring_buffer__data_source_on_read,
     NULL,   /* No seeking in ring buffers. */
     ma_audio_ring_buffer__data_source_on_get_data_format,
@@ -69760,6 +69767,11 @@ MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(const ma_da
 }
 
 
+static void ma_audio_buffer_ref__data_source_on_uninit(ma_data_source* pDataSource)
+{
+    ma_audio_buffer_ref_uninit((ma_audio_buffer_ref*)pDataSource);
+}
+
 static ma_result ma_audio_buffer_ref__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_audio_buffer_ref_read_pcm_frames((ma_audio_buffer_ref*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -69802,6 +69814,7 @@ static ma_result ma_audio_buffer_ref__data_source_on_get_length(ma_data_source* 
 
 static ma_data_source_vtable ma_gDataSourceVTable_AudioBufferRef =
 {
+    ma_audio_buffer_ref__data_source_on_uninit,
     ma_audio_buffer_ref__data_source_on_read,
     ma_audio_buffer_ref__data_source_on_seek,
     ma_audio_buffer_ref__data_source_on_get_data_format,
@@ -70448,6 +70461,11 @@ MA_API ma_paged_audio_buffer_config ma_paged_audio_buffer_config_init(ma_paged_a
 }
 
 
+static void ma_paged_audio_buffer__data_source_on_uninit(ma_data_source* pDataSource)
+{
+    ma_paged_audio_buffer_uninit((ma_paged_audio_buffer*)pDataSource);
+}
+
 static ma_result ma_paged_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_paged_audio_buffer_read_pcm_frames((ma_paged_audio_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -70482,6 +70500,7 @@ static ma_result ma_paged_audio_buffer__data_source_on_get_length(ma_data_source
 
 static ma_data_source_vtable ma_gDataSourceVTable_PagedAudioBuffer =
 {
+    ma_paged_audio_buffer__data_source_on_uninit,
     ma_paged_audio_buffer__data_source_on_read,
     ma_paged_audio_buffer__data_source_on_seek,
     ma_paged_audio_buffer__data_source_on_get_data_format,
@@ -72624,13 +72643,18 @@ MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
 MA_API ma_result ma_wav_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
 MA_API ma_result ma_wav_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
 MA_API ma_result ma_wav_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
-MA_API void ma_wav_uninit(ma_wav* pWav, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_wav_uninit(ma_wav* pWav);
 MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_wav_seek_to_pcm_frame(ma_wav* pWav, ma_uint64 frameIndex);
 MA_API ma_result ma_wav_get_data_format(ma_wav* pWav, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_wav_get_cursor_in_pcm_frames(ma_wav* pWav, ma_uint64* pCursor);
 MA_API ma_result ma_wav_get_length_in_pcm_frames(ma_wav* pWav, ma_uint64* pLength);
 
+
+static void ma_wav_ds_uninit(ma_data_source* pDataSource)
+{
+    ma_wav_uninit((ma_wav*)pDataSource);
+}
 
 static ma_result ma_wav_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -72659,6 +72683,7 @@ static ma_result ma_wav_ds_get_length(ma_data_source* pDataSource, ma_uint64* pL
 
 static ma_data_source_vtable ma_gDataSourceVTable_WAV =
 {
+    ma_wav_ds_uninit,
     ma_wav_ds_read,
     ma_wav_ds_seek,
     ma_wav_ds_get_data_format,
@@ -72935,13 +72960,11 @@ MA_API ma_result ma_wav_init_memory(const void* pData, size_t dataSize, const ma
     #endif
 }
 
-MA_API void ma_wav_uninit(ma_wav* pWav, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_wav_uninit(ma_wav* pWav)
 {
     if (pWav == NULL) {
         return;
     }
-
-    (void)pAllocationCallbacks;
 
     #if !defined(MA_NO_WAV)
     {
@@ -73284,7 +73307,7 @@ static void ma_decoding_backend_uninit__wav(void* pUserData, ma_data_source* pBa
 
     (void)pUserData;
 
-    ma_wav_uninit(pWav, pAllocationCallbacks);
+    ma_wav_uninit(pWav);
     ma_free(pWav, pAllocationCallbacks);
 }
 
@@ -73328,13 +73351,18 @@ MA_API ma_result ma_flac_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_
 MA_API ma_result ma_flac_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
 MA_API ma_result ma_flac_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
 MA_API ma_result ma_flac_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
-MA_API void ma_flac_uninit(ma_flac* pFlac, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_flac_uninit(ma_flac* pFlac);
 MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_flac_seek_to_pcm_frame(ma_flac* pFlac, ma_uint64 frameIndex);
 MA_API ma_result ma_flac_get_data_format(ma_flac* pFlac, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_flac_get_cursor_in_pcm_frames(ma_flac* pFlac, ma_uint64* pCursor);
 MA_API ma_result ma_flac_get_length_in_pcm_frames(ma_flac* pFlac, ma_uint64* pLength);
 
+
+static void ma_flac_ds_uninit(ma_data_source* pDataSource)
+{
+    ma_flac_uninit((ma_flac*)pDataSource);
+}
 
 static ma_result ma_flac_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -73363,6 +73391,7 @@ static ma_result ma_flac_ds_get_length(ma_data_source* pDataSource, ma_uint64* p
 
 static ma_data_source_vtable ma_gDataSourceVTable_FLAC =
 {
+    ma_flac_ds_uninit,
     ma_flac_ds_read,
     ma_flac_ds_seek,
     ma_flac_ds_get_data_format,
@@ -73582,13 +73611,11 @@ MA_API ma_result ma_flac_init_memory(const void* pData, size_t dataSize, const m
     #endif
 }
 
-MA_API void ma_flac_uninit(ma_flac* pFlac, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_flac_uninit(ma_flac* pFlac)
 {
     if (pFlac == NULL) {
         return;
     }
-
-    (void)pAllocationCallbacks;
 
     #if !defined(MA_NO_FLAC)
     {
@@ -73927,7 +73954,7 @@ static void ma_decoding_backend_uninit__flac(void* pUserData, ma_data_source* pB
 
     (void)pUserData;
 
-    ma_flac_uninit(pFlac, pAllocationCallbacks);
+    ma_flac_uninit(pFlac);
     ma_free(pFlac, pAllocationCallbacks);
 }
 
@@ -73973,13 +74000,18 @@ MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
 MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
 MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
 MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
-MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_mp3_uninit(ma_mp3* pMP3);
 MA_API ma_result ma_mp3_read_pcm_frames(ma_mp3* pMP3, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_mp3_seek_to_pcm_frame(ma_mp3* pMP3, ma_uint64 frameIndex);
 MA_API ma_result ma_mp3_get_data_format(ma_mp3* pMP3, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_mp3_get_cursor_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pCursor);
 MA_API ma_result ma_mp3_get_length_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pLength);
 
+
+static void ma_mp3_ds_uninit(ma_data_source* pDataSource)
+{
+    ma_mp3_uninit((ma_mp3*)pDataSource);
+}
 
 static ma_result ma_mp3_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -74008,6 +74040,7 @@ static ma_result ma_mp3_ds_get_length(ma_data_source* pDataSource, ma_uint64* pL
 
 static ma_data_source_vtable ma_gDataSourceVTable_MP3 =
 {
+    ma_mp3_ds_uninit,
     ma_mp3_ds_read,
     ma_mp3_ds_seek,
     ma_mp3_ds_get_data_format,
@@ -74286,25 +74319,29 @@ MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma
     #endif
 }
 
-MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_mp3_uninit(ma_mp3* pMP3)
 {
+    ma_allocation_callbacks allocationCallbacks;
+
     if (pMP3 == NULL) {
         return;
     }
 
     #if !defined(MA_NO_MP3)
     {
+        allocationCallbacks = pMP3->dr.allocationCallbacks;
         ma_dr_mp3_uninit(&pMP3->dr);
     }
     #else
     {
         /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        allocationCallbacks = ma_allocation_callbacks_init_default();
         MA_ASSERT(MA_FALSE);
     }
     #endif
 
     /* Seek points need to be freed after the MP3 decoder has been uninitialized to ensure they're no longer being referenced. */
-    ma_free(pMP3->pSeekPoints, pAllocationCallbacks);
+    ma_free(pMP3->pSeekPoints, &allocationCallbacks);
 
     ma_data_source_base_uninit(&pMP3->ds);
 }
@@ -74624,7 +74661,7 @@ static void ma_decoding_backend_uninit__mp3(void* pUserData, ma_data_source* pBa
 
     (void)pUserData;
 
-    ma_mp3_uninit(pMP3, pAllocationCallbacks);
+    ma_mp3_uninit(pMP3);
     ma_free(pMP3, pAllocationCallbacks);
 }
 
@@ -74686,13 +74723,18 @@ typedef struct
 MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
 MA_API ma_result ma_stbvorbis_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
 MA_API ma_result ma_stbvorbis_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
-MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis);
 MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64 frameIndex);
 MA_API ma_result ma_stbvorbis_get_data_format(ma_stbvorbis* pVorbis, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_stbvorbis_get_cursor_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pCursor);
 MA_API ma_result ma_stbvorbis_get_length_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pLength);
 
+
+static void ma_stbvorbis_ds_uninit(ma_data_source* pDataSource)
+{
+    ma_stbvorbis_uninit((ma_stbvorbis*)pDataSource);
+}
 
 static ma_result ma_stbvorbis_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -74721,6 +74763,7 @@ static ma_result ma_stbvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint
 
 static ma_data_source_vtable ma_gDataSourceVTable_stbvorbis =
 {
+    ma_stbvorbis_ds_uninit,
     ma_stbvorbis_ds_read,
     ma_stbvorbis_ds_seek,
     ma_stbvorbis_ds_get_data_format,
@@ -74981,7 +75024,7 @@ MA_API ma_result ma_stbvorbis_init_memory(const void* pData, size_t dataSize, co
     #endif
 }
 
-MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis)
 {
     if (pVorbis == NULL) {
         return;
@@ -74993,7 +75036,7 @@ MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callb
 
         /* We'll have to clear some memory if we're using push mode. */
         if (pVorbis->usingPushMode) {
-            ma_free(pVorbis->push.pData, pAllocationCallbacks);
+            ma_free(pVorbis->push.pData, &pVorbis->allocationCallbacks);
         }
     }
     #else
@@ -75456,7 +75499,7 @@ static void ma_decoding_backend_uninit__stbvorbis(void* pUserData, ma_data_sourc
 
     (void)pUserData;
 
-    ma_stbvorbis_uninit(pVorbis, pAllocationCallbacks);
+    ma_stbvorbis_uninit(pVorbis);
     ma_free(pVorbis, pAllocationCallbacks);
 }
 
@@ -76017,6 +76060,11 @@ static ma_result ma_decoder__init_allocation_callbacks(const ma_decoder_config* 
     }
 }
 
+static void ma_decoder__data_source_on_uninit(ma_data_source* pDataSource)
+{
+    ma_decoder_uninit((ma_decoder*)pDataSource);
+}
+
 static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -76044,6 +76092,7 @@ static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSour
 
 static ma_data_source_vtable ma_gDataSourceVTable_Decoder =
 {
+    ma_decoder__data_source_on_uninit,
     ma_decoder__data_source_on_read,
     ma_decoder__data_source_on_seek,
     ma_decoder__data_source_on_get_data_format,
@@ -77479,6 +77528,11 @@ MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 ch
     return config;
 }
 
+static void ma_waveform__data_source_on_uninit(ma_data_source* pDataSource)
+{
+    ma_waveform_uninit((ma_waveform*)pDataSource);
+}
+
 static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -77522,6 +77576,7 @@ static void ma_waveform__update_advance(ma_waveform* pWaveform)
 
 static ma_data_source_vtable ma_gDataSourceVTable_Waveform =
 {
+    ma_waveform__data_source_on_uninit,
     ma_waveform__data_source_on_read,
     ma_waveform__data_source_on_seek,
     ma_waveform__data_source_on_get_data_format,
@@ -78054,6 +78109,11 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 }
 
 
+static void ma_noise__data_source_on_uninit(ma_data_source* pDataSource)
+{
+    ma_noise_uninit((ma_noise*)pDataSource);
+}
+
 static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -78081,6 +78141,7 @@ static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataS
 
 static ma_data_source_vtable ma_gDataSourceVTable_Noise =
 {
+    ma_noise__data_source_on_uninit,
     ma_noise__data_source_on_read,
     ma_noise__data_source_on_seek,  /* No-op for noise. */
     ma_noise__data_source_on_get_data_format,
@@ -80378,6 +80439,11 @@ static ma_uint32 ma_resource_manager_data_buffer_next_execution_order(ma_resourc
     return ma_atomic_fetch_add_32(&pDataBuffer->executionCounter, 1);
 }
 
+static void ma_resource_manager_data_buffer_cb__uninit(ma_data_source* pDataSource)
+{
+    ma_resource_manager_data_buffer_uninit((ma_resource_manager_data_buffer*)pDataSource);
+}
+
 static ma_result ma_resource_manager_data_buffer_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_resource_manager_data_buffer_read_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -80418,6 +80484,7 @@ static ma_result ma_resource_manager_data_buffer_cb__set_looping(ma_data_source*
 
 static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataBuffer =
 {
+    ma_resource_manager_data_buffer_cb__uninit,
     ma_resource_manager_data_buffer_cb__read_pcm_frames,
     ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
     ma_resource_manager_data_buffer_cb__get_data_format,
@@ -81115,6 +81182,11 @@ static ma_uint32 ma_resource_manager_data_stream_seek_counter(const ma_resource_
 }
 
 
+static void ma_resource_manager_data_stream_cb__uninit(ma_data_source* pDataSource)
+{
+    ma_resource_manager_data_stream_uninit((ma_resource_manager_data_stream*)pDataSource);
+}
+
 static ma_result ma_resource_manager_data_stream_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_resource_manager_data_stream_read_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -81152,6 +81224,7 @@ static ma_result ma_resource_manager_data_stream_cb__set_looping(ma_data_source*
 
 static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataStream =
 {
+    ma_resource_manager_data_stream_cb__uninit,
     ma_resource_manager_data_stream_cb__read_pcm_frames,
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
     ma_resource_manager_data_stream_cb__get_data_format,
@@ -82883,6 +82956,10 @@ static ma_bool32 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 #endif
 
 
+static void ma_node_graph_data_source__on_uninit(ma_data_source* pDataSource)
+{
+    ma_node_graph_uninit((ma_node_graph*)pDataSource);
+}
 
 static ma_result ma_node_graph_data_source__on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -82920,6 +82997,7 @@ static ma_result ma_node_graph_data_source__on_get_data_format(ma_data_source* p
 
 static ma_data_source_vtable ma_gDataSourceVTable_NodeGraph = 
 {
+    ma_node_graph_data_source__on_uninit,
     ma_node_graph_data_source__on_read,
     NULL,   /* onSeek */
     ma_node_graph_data_source__on_get_data_format,
