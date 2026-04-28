@@ -1,8 +1,10 @@
 /*
-This implements a data source that decodes Opus streams via libopus + libopusfile
+This implements a data source that decodes Opus streams via libopus + libopusfile.
 
 This object can be plugged into any `ma_data_source_*()` API and can also be used as a custom
 decoding backend. See the custom_decoder example.
+
+This does not support copying.
 */
 #ifndef miniaudio_libopus_h
 #define miniaudio_libopus_h

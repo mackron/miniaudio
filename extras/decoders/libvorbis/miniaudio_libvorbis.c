@@ -52,6 +52,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_libvorbis =
 {
     ma_libvorbis_ds_sizeof,
     ma_libvorbis_ds_uninit,
+    NULL,   /* onCopy. Copying is not supported. */
     ma_libvorbis_ds_read,
     ma_libvorbis_ds_seek,
     ma_libvorbis_ds_get_data_format,

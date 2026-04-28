@@ -6225,6 +6225,7 @@ typedef struct
 {
     size_t    (* onSizeof       )(void);    /* Should return the size of the the data source implementation's struct. For example, ma_decoder would return sizeof(ma_decoder). */
     void      (* onUninit       )(ma_data_source* pDataSource);
+    ma_result (* onCopy         )(ma_data_source* pDataSource, ma_data_source* pNewDataSource); /* Optional. Initializes a fully independent copy of a data source. This can be set to NULL, or return MA_NOT_IMPLEMENTED if copying is not supported. */
     ma_result (* onRead         )(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
     ma_result (* onSeek         )(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
@@ -68377,6 +68378,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_AudioRingBuffer =
 {
     ma_audio_ring_buffer__data_source_on_sizeof,
     ma_audio_ring_buffer__data_source_on_uninit,
+    NULL,   /* onCopy */
     ma_audio_ring_buffer__data_source_on_read,
     NULL,   /* No seeking in ring buffers. */
     ma_audio_ring_buffer__data_source_on_get_data_format,
@@ -69815,6 +69817,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_AudioBufferRef =
 {
     ma_audio_buffer_ref__data_source_on_sizeof,
     ma_audio_buffer_ref__data_source_on_uninit,
+    NULL,   /* onCopy */
     ma_audio_buffer_ref__data_source_on_read,
     ma_audio_buffer_ref__data_source_on_seek,
     ma_audio_buffer_ref__data_source_on_get_data_format,
@@ -70507,6 +70510,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_PagedAudioBuffer =
 {
     ma_paged_audio_buffer__data_source_on_sizeof,
     ma_paged_audio_buffer__data_source_on_uninit,
+    NULL,   /* onCopy */
     ma_paged_audio_buffer__data_source_on_read,
     ma_paged_audio_buffer__data_source_on_seek,
     ma_paged_audio_buffer__data_source_on_get_data_format,
@@ -72694,6 +72698,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_WAV =
 {
     ma_wav_ds_sizeof,
     ma_wav_ds_uninit,
+    NULL,   /* onCopy. Copying not supported. */
     ma_wav_ds_read,
     ma_wav_ds_seek,
     ma_wav_ds_get_data_format,
@@ -73292,6 +73297,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_FLAC =
 {
     ma_flac_ds_sizeof,
     ma_flac_ds_uninit,
+    NULL,   /* onCopy. Copying not supported. */
     ma_flac_ds_read,
     ma_flac_ds_seek,
     ma_flac_ds_get_data_format,
@@ -73839,6 +73845,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_MP3 =
 {
     ma_mp3_ds_sizeof,
     ma_mp3_ds_uninit,
+    NULL,   /* onCopy. Copying not supported. */
     ma_mp3_ds_read,
     ma_mp3_ds_seek,
     ma_mp3_ds_get_data_format,
@@ -74453,6 +74460,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_stbvorbis =
 {
     ma_stbvorbis_ds_sizeof,
     ma_stbvorbis_ds_uninit,
+    NULL,   /* onCopy. Copying not supported. */
     ma_stbvorbis_ds_read,
     ma_stbvorbis_ds_seek,
     ma_stbvorbis_ds_get_data_format,
@@ -75665,6 +75673,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_Decoder =
 {
     ma_decoder__data_source_on_sizeof,
     ma_decoder__data_source_on_uninit,
+    NULL,   /* onCopy */
     ma_decoder__data_source_on_read,
     ma_decoder__data_source_on_seek,
     ma_decoder__data_source_on_get_data_format,
@@ -77117,6 +77126,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_Waveform =
 {
     ma_waveform__data_source_on_sizeof,
     ma_waveform__data_source_on_uninit,
+    NULL,   /* onCopy */
     ma_waveform__data_source_on_read,
     ma_waveform__data_source_on_seek,
     ma_waveform__data_source_on_get_data_format,
@@ -77688,6 +77698,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_Noise =
 {
     ma_noise__data_source_on_sizeof,
     ma_noise__data_source_on_uninit,
+    NULL,   /* onCopy */
     ma_noise__data_source_on_read,
     ma_noise__data_source_on_seek,  /* No-op for noise. */
     ma_noise__data_source_on_get_data_format,
@@ -80037,6 +80048,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataBuffer =
 {
     ma_resource_manager_data_buffer_cb__sizeof,
     ma_resource_manager_data_buffer_cb__uninit,
+    NULL, /* onCopy */
     ma_resource_manager_data_buffer_cb__read_pcm_frames,
     ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
     ma_resource_manager_data_buffer_cb__get_data_format,
@@ -80783,6 +80795,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataStream =
 {
     ma_resource_manager_data_stream_cb__sizeof,
     ma_resource_manager_data_stream_cb__uninit,
+    NULL, /* onCopy */
     ma_resource_manager_data_stream_cb__read_pcm_frames,
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
     ma_resource_manager_data_stream_cb__get_data_format,
@@ -82562,6 +82575,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_NodeGraph =
 {
     ma_node_graph_data_source__on_sizeof,
     ma_node_graph_data_source__on_uninit,
+    NULL,   /* onCopy. Copying not supported. */
     ma_node_graph_data_source__on_read,
     NULL,   /* onSeek */
     ma_node_graph_data_source__on_get_data_format,

@@ -49,6 +49,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_libopus =
 {
     ma_libopus_ds_sizeof,
     ma_libopus_ds_uninit,
+    NULL,   /* onCopy. Copying is not supported. */
     ma_libopus_ds_read,
     ma_libopus_ds_seek,
     ma_libopus_ds_get_data_format,
