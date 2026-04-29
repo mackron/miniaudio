@@ -11080,7 +11080,7 @@ MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pRes
 MA_API ma_result ma_resource_manager_data_buffer_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer);
-MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pExistingDataBuffer, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager_data_buffer* pDataBuffer, ma_resource_manager_data_buffer* pNewDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex);
@@ -80015,10 +80015,7 @@ static void ma_resource_manager_data_buffer_cb__uninit(ma_data_source* pDataSour
 
 static ma_result ma_resource_manager_data_buffer_cb__copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
 {
-    ma_resource_manager_data_buffer* pDataBuffer    = (ma_resource_manager_data_buffer*)pDataSource;
-    ma_resource_manager_data_buffer* pNewDataBuffer = (ma_resource_manager_data_buffer*)pNewDataSource;
-
-    return ma_resource_manager_data_buffer_init_copy(pDataBuffer->pResourceManager, pDataBuffer, pNewDataBuffer);
+    return ma_resource_manager_data_buffer_init_copy((ma_resource_manager_data_buffer*)pDataSource, (ma_resource_manager_data_buffer*)pNewDataSource);
 }
 
 static ma_result ma_resource_manager_data_buffer_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
@@ -80268,20 +80265,20 @@ MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pRe
     return ma_resource_manager_data_buffer_init_ex(pResourceManager, &config, pDataBuffer);
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pExistingDataBuffer, ma_resource_manager_data_buffer* pDataBuffer)
+MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager_data_buffer* pDataBuffer, ma_resource_manager_data_buffer* pNewDataBuffer)
 {
     ma_resource_manager_data_source_config config;
 
-    if (pExistingDataBuffer == NULL) {
+    if (pDataBuffer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pExistingDataBuffer->pNode != NULL);  /* <-- If you've triggered this, you've passed in an invalid existing data buffer. */
+    MA_ASSERT(pDataBuffer->pNode != NULL);  /* <-- If you've triggered this, you've passed in an invalid existing data buffer. */
 
     config = ma_resource_manager_data_source_config_init();
-    config.flags = pExistingDataBuffer->flags;
+    config.flags = pDataBuffer->flags;
 
-    return ma_resource_manager_data_buffer_init_ex_internal(pResourceManager, &config, pExistingDataBuffer->pNode->hashedName32, pDataBuffer);
+    return ma_resource_manager_data_buffer_init_ex_internal(pDataBuffer->pResourceManager, &config, pDataBuffer->pNode->hashedName32, pNewDataBuffer);
 }
 
 static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_manager_data_buffer* pDataBuffer)
