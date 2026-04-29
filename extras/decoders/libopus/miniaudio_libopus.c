@@ -55,8 +55,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_libopus =
     ma_libopus_ds_get_data_format,
     ma_libopus_ds_get_cursor,
     ma_libopus_ds_get_length,
-    NULL,   /* onSetLooping */
-    0       /* flags */
+    NULL    /* onSetLooping */
 };
 
 
