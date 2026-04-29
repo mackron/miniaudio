@@ -10530,11 +10530,15 @@ struct ma_decoder
     ma_uint64 inputCacheConsumed;                       /* The number of frames that have been consumed in the cache. Used for determining the next valid frame. */
     ma_uint64 inputCacheRemaining;                      /* The number of valid frames remaining in the cache. */
     ma_allocation_callbacks allocationCallbacks;
+    ma_resampler_config resamplingConfig;               /* For copying. */
+    ma_uint32 seekPointCount;                           /* For copying. */
     union
     {
         struct
         {
             ma_vfs* pVFS;
+            char* pFilePath;
+            wchar_t* pFilePathW;
             ma_vfs_file file;
         } vfs;
         struct
@@ -10555,6 +10559,7 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
 MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_copy(ma_decoder* pDecoder, ma_decoder* pNewDecoder);
 
 /*
 Uninitializes a decoder.
@@ -75655,6 +75660,11 @@ static void ma_decoder__data_source_on_uninit(ma_data_source* pDataSource)
     ma_decoder_uninit((ma_decoder*)pDataSource);
 }
 
+static ma_result ma_decoder__data_source_on_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    return ma_decoder_init_copy((ma_decoder*)pDataSource, (ma_decoder*)pNewDataSource);
+}
+
 static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -75684,7 +75694,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_Decoder =
 {
     ma_decoder__data_source_on_sizeof,
     ma_decoder__data_source_on_uninit,
-    NULL,   /* onCopy */
+    ma_decoder__data_source_on_copy,
     ma_decoder__data_source_on_read,
     ma_decoder__data_source_on_seek,
     ma_decoder__data_source_on_get_data_format,
@@ -75719,6 +75729,8 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->onTell    = onTell;
     pDecoder->pUserData = pUserData;
     ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
+    pDecoder->resamplingConfig = pConfig->resampling;
+    pDecoder->seekPointCount   = pConfig->seekPointCount;
 
     return MA_SUCCESS;
 }
@@ -76087,6 +76099,13 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
         return result;
     }
 
+    /* We need to track the file path so we can duplicate the decoder if necessary. */
+    pDecoder->data.vfs.pFilePath = ma_copy_string(pFilePath, &pDecoder->allocationCallbacks);
+    if (pDecoder->data.vfs.pFilePath == NULL) {
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
+        return MA_OUT_OF_MEMORY;
+    }
+
     return MA_SUCCESS;
 }
 
@@ -76140,6 +76159,13 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
         }
 
         return result;
+    }
+
+    /* We need to track the file path so we can duplicate the decoder if necessary. */
+    pDecoder->data.vfs.pFilePathW = ma_copy_string_w(pFilePath, &pDecoder->allocationCallbacks);
+    if (pDecoder->data.vfs.pFilePathW == NULL) {
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
+        return MA_OUT_OF_MEMORY;
     }
 
     return MA_SUCCESS;
@@ -76240,6 +76266,42 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
     return MA_NO_BACKEND;
 }
 
+MA_API ma_result ma_decoder_init_copy(ma_decoder* pDecoder, ma_decoder* pNewDecoder)
+{
+    ma_decoder_config config;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = ma_decoder_config_init(pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    config.pChannelMap         = pDecoder->converter.channelConverter.pChannelMapOut;
+    config.channelMixMode      = pDecoder->converter.channelConverter.mixingMode;
+    config.ditherMode          = pDecoder->converter.ditherMode;
+    config.resampling          = pDecoder->resamplingConfig;
+    config.allocationCallbacks = pDecoder->allocationCallbacks;
+    config.seekPointCount      = pDecoder->seekPointCount;
+    config.ppBackendVTables    = (ma_decoding_backend_vtable**)&pDecoder->pBackendVTable;  /* Safe const-cast. */
+    config.ppBackendUserData   = &pDecoder->pBackendUserData;
+    config.backendCount        = 1;
+
+    /* Can only be duplicated if created from a file or a block of memory. Cannot reliably copy with arbitrary callbacks. */
+    if (pDecoder->onRead == ma_decoder__on_read_vfs) {
+        if (pDecoder->data.vfs.pFilePath != NULL) {
+            return ma_decoder_init_vfs(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.pFilePath, &config, pNewDecoder);
+        } else if (pDecoder->data.vfs.pFilePathW != NULL) {
+            return ma_decoder_init_vfs_w(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.pFilePathW, &config, pNewDecoder);
+        } else {
+            MA_ASSERT(MA_FALSE);
+            return MA_NOT_IMPLEMENTED;  /* Don't have a file path for some reason. Should never hit this. */
+        }
+    } else if (pDecoder->onRead == ma_decoder__on_read_memory) {
+        return ma_decoder_init_memory(pDecoder->data.memory.pData, pDecoder->data.memory.dataSize, &config, pNewDecoder);
+    } else {
+        return MA_NOT_IMPLEMENTED;
+    }
+}
+
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
 {
     if (pDecoder == NULL) {
@@ -76253,6 +76315,8 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     }
 
     if (pDecoder->onRead == ma_decoder__on_read_vfs) {
+        ma_free(pDecoder->data.vfs.pFilePath,  &pDecoder->allocationCallbacks);
+        ma_free(pDecoder->data.vfs.pFilePathW, &pDecoder->allocationCallbacks);
         ma_vfs_or_default_close(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file);
         pDecoder->data.vfs.file = NULL;
     }
