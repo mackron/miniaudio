@@ -4537,7 +4537,7 @@ typedef enum
 
     /* Aliases. */
     MA_CHANNEL_LEFT               = MA_CHANNEL_FRONT_LEFT,
-    MA_CHANNEL_RIGHT              = MA_CHANNEL_FRONT_RIGHT,
+    MA_CHANNEL_RIGHT              = MA_CHANNEL_FRONT_RIGHT
 } _ma_channel_position; /* Do not use `_ma_channel_position` directly. Use `ma_channel` instead. */
 
 typedef enum
@@ -5803,7 +5803,7 @@ typedef struct
 typedef enum
 {
     ma_resample_algorithm_linear = 0,    /* Fastest, lowest quality. Optional low-pass filtering. Default. */
-    ma_resample_algorithm_custom,
+    ma_resample_algorithm_custom
 } ma_resample_algorithm;
 
 struct ma_resampler_config
@@ -7008,7 +7008,7 @@ typedef enum
 {
     ma_wasapi_usage_default = 0,
     ma_wasapi_usage_games,
-    ma_wasapi_usage_pro_audio,
+    ma_wasapi_usage_pro_audio
 } ma_wasapi_usage;
 
 
@@ -7106,7 +7106,7 @@ typedef enum
     ma_ios_session_category_option_default_to_speaker                         = 0x08,   /* AVAudioSessionCategoryOptionDefaultToSpeaker */
     ma_ios_session_category_option_interrupt_spoken_audio_and_mix_with_others = 0x11,   /* AVAudioSessionCategoryOptionInterruptSpokenAudioAndMixWithOthers */
     ma_ios_session_category_option_allow_bluetooth_a2dp                       = 0x20,   /* AVAudioSessionCategoryOptionAllowBluetoothA2DP */
-    ma_ios_session_category_option_allow_air_play                             = 0x40,   /* AVAudioSessionCategoryOptionAllowAirPlay */
+    ma_ios_session_category_option_allow_air_play                             = 0x40    /* AVAudioSessionCategoryOptionAllowAirPlay */
 } ma_ios_session_category_option;
 
 
@@ -31026,7 +31026,7 @@ enum ma_spa_audio_format
     MA_SPA_AUDIO_FORMAT_F64_LE,
     MA_SPA_AUDIO_FORMAT_F64_BE,
     MA_SPA_AUDIO_FORMAT_ULAW,
-    MA_SPA_AUDIO_FORMAT_ALAW,
+    MA_SPA_AUDIO_FORMAT_ALAW
 };
 
 enum ma_spa_audio_channel
@@ -51759,12 +51759,12 @@ MA_API void ma_device_get_channel_map(const ma_device* pDevice, ma_device_type d
 
 MA_API void ma_device_get_playback_channel_map(const ma_device* pDevice, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_device_get_channel_map(pDevice, ma_device_type_playback, pChannelMap, channelMapCap);
+    ma_device_get_channel_map(pDevice, ma_device_type_playback, pChannelMap, channelMapCap);
 }
 
 MA_API void ma_device_get_capture_channel_map(const ma_device* pDevice, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_device_get_channel_map(pDevice, ma_device_type_capture, pChannelMap, channelMapCap);
+    ma_device_get_channel_map(pDevice, ma_device_type_capture, pChannelMap, channelMapCap);
 }
 
 

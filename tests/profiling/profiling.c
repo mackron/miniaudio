@@ -6,7 +6,7 @@
 #endif
 
 
-void profile_sizeof()
+void profile_sizeof(void)
 {
     printf("sizeof(ma_context):           %lu\n", sizeof(ma_context));
     printf("sizeof(ma_device):            %lu\n", sizeof(ma_device));
