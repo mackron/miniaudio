@@ -6311,7 +6311,7 @@ typedef struct
 } ma_audio_buffer;
 
 MA_API ma_result ma_audio_buffer_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
-MA_API ma_result ma_audio_buffer_init_copy(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
+MA_API ma_result ma_audio_buffer_init_and_copy_data(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
 MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer** ppAudioBuffer);  /* Always copies the data. Doesn't make sense to use this otherwise. Use ma_audio_buffer_uninit_and_free() to uninit. */
 MA_API void ma_audio_buffer_uninit(ma_audio_buffer* pAudioBuffer);
 MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer);
@@ -69940,7 +69940,7 @@ MA_API ma_result ma_audio_buffer_init(const ma_audio_buffer_config* pConfig, ma_
     return ma_audio_buffer_init_ex(pConfig, MA_FALSE, pAudioBuffer);
 }
 
-MA_API ma_result ma_audio_buffer_init_copy(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer)
+MA_API ma_result ma_audio_buffer_init_and_copy_data(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer)
 {
     return ma_audio_buffer_init_ex(pConfig, MA_TRUE, pAudioBuffer);
 }
