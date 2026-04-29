@@ -6313,6 +6313,7 @@ typedef struct
 MA_API ma_result ma_audio_buffer_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
 MA_API ma_result ma_audio_buffer_init_and_copy_data(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
 MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer** ppAudioBuffer);  /* Always copies the data. Doesn't make sense to use this otherwise. Use ma_audio_buffer_uninit_and_free() to uninit. */
+MA_API ma_result ma_audio_buffer_init_copy(ma_audio_buffer* pAudioBuffer, ma_audio_buffer* pNewAudioBuffer);
 MA_API void ma_audio_buffer_uninit(ma_audio_buffer* pAudioBuffer);
 MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer);
 MA_API ma_result ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -69809,6 +69810,11 @@ static void ma_audio_buffer__data_source_on_uninit(ma_data_source* pDataSource)
     ma_audio_buffer_uninit((ma_audio_buffer*)pDataSource);
 }
 
+static ma_result ma_audio_buffer__data_source_on_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    return ma_audio_buffer_init_copy((ma_audio_buffer*)pDataSource, (ma_audio_buffer*)pNewDataSource);
+}
+
 static ma_result ma_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_audio_buffer_read_pcm_frames((ma_audio_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -69845,7 +69851,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_AudioBuffer =
 {
     ma_audio_buffer__data_source_on_sizeof,
     ma_audio_buffer__data_source_on_uninit,
-    NULL,   /* onCopy */
+    ma_audio_buffer__data_source_on_copy,
     ma_audio_buffer__data_source_on_read,
     ma_audio_buffer__data_source_on_seek,
     ma_audio_buffer__data_source_on_get_data_format,
@@ -69992,6 +69998,30 @@ MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pC
     *ppAudioBuffer = pAudioBuffer;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_audio_buffer_init_copy(ma_audio_buffer* pAudioBuffer, ma_audio_buffer* pNewAudioBuffer)
+{
+    ma_audio_buffer_config config;
+
+    if (pNewAudioBuffer == NULL || pAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = ma_audio_buffer_config_init(pAudioBuffer->format, pAudioBuffer->channels, pAudioBuffer->sampleRate, pAudioBuffer->sizeInFrames, NULL, &pAudioBuffer->allocationCallbacks);
+    config.pAllocationCallbacks = &pAudioBuffer->allocationCallbacks;
+
+    /*
+    For the buffer, if it's an internally managed we want to make sure the copy is also internally managed. If it's externally
+    managed we can make the copy also external.
+    */
+    if (pAudioBuffer->ownsData && pAudioBuffer->pData != &pAudioBuffer->_pExtraData[0]) {
+        config.pData = NULL;                /* Internally managed. Set the buffer to null to trigger the new ring buffer to also allocate it's own buffer. */
+    } else {
+        config.pData = pAudioBuffer->pData; /* Externally managed. Just reuse the buffer. */
+    }
+
+    return ma_audio_buffer_init(&config, pNewAudioBuffer);
 }
 
 static void ma_audio_buffer_uninit_ex(ma_audio_buffer* pAudioBuffer, ma_bool32 doFree)
