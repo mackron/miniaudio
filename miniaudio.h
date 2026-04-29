@@ -6890,8 +6890,6 @@ struct ma_job
             struct
             {
                 /*ma_resource_manager_data_stream**/ void* pDataStream;
-                char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
-                wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
                 ma_uint64 initialSeekPoint;
                 ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
                 ma_fence* pInitFence;
@@ -11005,6 +11003,8 @@ struct ma_resource_manager_data_stream
     ma_uint32 currentPageIndex;                 /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
     MA_ATOMIC(4, ma_uint32) executionCounter;   /* For allocating execution orders for jobs. */
     MA_ATOMIC(4, ma_uint32) executionPointer;   /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    char* pFilePath;                            /* We keep track of the file path for the purpose of duplication. */
+    wchar_t* pFilePathW;
 
     /* Written by the public API, read by the job thread. */
     MA_ATOMIC(4, ma_bool32) isLooping;          /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
@@ -11096,6 +11096,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
 MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_init_copy(ma_resource_manager_data_stream* pDataStream, ma_resource_manager_data_stream* pNewDataStream);
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
@@ -80767,6 +80768,11 @@ static void ma_resource_manager_data_stream_cb__uninit(ma_data_source* pDataSour
     ma_resource_manager_data_stream_uninit((ma_resource_manager_data_stream*)pDataSource);
 }
 
+static ma_result ma_resource_manager_data_stream_cb__init_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    return ma_resource_manager_data_stream_init_copy((ma_resource_manager_data_stream*)pDataSource, (ma_resource_manager_data_stream*)pNewDataSource);
+}
+
 static ma_result ma_resource_manager_data_stream_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_resource_manager_data_stream_read_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -80806,7 +80812,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataStream =
 {
     ma_resource_manager_data_stream_cb__sizeof,
     ma_resource_manager_data_stream_cb__uninit,
-    NULL, /* onCopy */
+    ma_resource_manager_data_stream_cb__init_copy,
     ma_resource_manager_data_stream_cb__read_pcm_frames,
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
     ma_resource_manager_data_stream_cb__get_data_format,
@@ -80829,8 +80835,6 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
 {
     ma_result result;
     ma_data_source_config dataSourceConfig;
-    char* pFilePathCopy = NULL;
-    wchar_t* pFilePathWCopy = NULL;
     ma_job job;
     ma_bool32 waitBeforeReturning = MA_FALSE;
     ma_resource_manager_inline_notification waitNotification;
@@ -80885,12 +80889,12 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
 
     /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
     if (pConfig->pFilePath != NULL) {
-        pFilePathCopy  = ma_copy_string(pConfig->pFilePath, &pResourceManager->config.allocationCallbacks);
+        pDataStream->pFilePath = ma_copy_string(pConfig->pFilePath, &pResourceManager->config.allocationCallbacks);
     } else {
-        pFilePathWCopy = ma_copy_string_w(pConfig->pFilePathW, &pResourceManager->config.allocationCallbacks);
+        pDataStream->pFilePathW = ma_copy_string_w(pConfig->pFilePathW, &pResourceManager->config.allocationCallbacks);
     }
 
-    if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
+    if (pDataStream->pFilePath == NULL && pDataStream->pFilePathW == NULL) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return MA_OUT_OF_MEMORY;
     }
@@ -80913,8 +80917,6 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     job = ma_job_init(MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.data.resourceManager.loadDataStream.pDataStream       = pDataStream;
-    job.data.resourceManager.loadDataStream.pFilePath         = pFilePathCopy;
-    job.data.resourceManager.loadDataStream.pFilePathW        = pFilePathWCopy;
     job.data.resourceManager.loadDataStream.initialSeekPoint  = pConfig->initialSeekPointInPCMFrames;
     job.data.resourceManager.loadDataStream.pInitNotification = (waitBeforeReturning == MA_TRUE) ? &waitNotification : notifications.init.pNotification;
     job.data.resourceManager.loadDataStream.pInitFence        = notifications.init.pFence;
@@ -80927,8 +80929,8 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
             ma_resource_manager_inline_notification_uninit(&waitNotification);
         }
 
-        ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
-        ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
+        ma_free(pDataStream->pFilePath,  &pResourceManager->config.allocationCallbacks);
+        ma_free(pDataStream->pFilePathW, &pResourceManager->config.allocationCallbacks);
         return result;
     }
 
@@ -80978,6 +80980,22 @@ MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pRe
     return ma_resource_manager_data_stream_init_ex(pResourceManager, &config, pDataStream);
 }
 
+MA_API ma_result ma_resource_manager_data_stream_init_copy(ma_resource_manager_data_stream* pDataStream, ma_resource_manager_data_stream* pNewDataStream)
+{
+    ma_resource_manager_data_source_config config;
+
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = ma_resource_manager_data_source_config_init();
+    config.pFilePath  = pDataStream->pFilePath;
+    config.pFilePathW = pDataStream->pFilePathW;
+    config.flags      = pDataStream->flags;
+
+    return ma_resource_manager_data_stream_init_ex(pDataStream->pResourceManager, &config, pNewDataStream);
+}
+
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream)
 {
     ma_resource_manager_inline_notification freeEvent;
@@ -81005,6 +81023,9 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
 
     /* We need to wait for the job to finish processing before we return. */
     ma_resource_manager_inline_notification_wait_and_uninit(&freeEvent);
+
+    ma_free(pDataStream->pFilePath,  &pDataStream->pResourceManager->config.allocationCallbacks);
+    ma_free(pDataStream->pFilePathW, &pDataStream->pResourceManager->config.allocationCallbacks);
 
     return MA_SUCCESS;
 }
@@ -82106,10 +82127,10 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     /* We need to initialize the decoder first so we can determine the size of the pages. */
     decoderConfig = ma_resource_manager__init_decoder_config(pResourceManager);
 
-    if (pJob->data.resourceManager.loadDataStream.pFilePath != NULL) {
-        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->data.resourceManager.loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
+    if (pDataStream->pFilePath != NULL) {
+        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pDataStream->pFilePath, &decoderConfig, &pDataStream->decoder);
     } else {
-        result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pJob->data.resourceManager.loadDataStream.pFilePathW, &decoderConfig, &pDataStream->decoder);
+        result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pDataStream->pFilePathW, &decoderConfig, &pDataStream->decoder);
     }
     if (result != MA_SUCCESS) {
         goto done;
@@ -82151,9 +82172,6 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     result = MA_SUCCESS;
 
 done:
-    ma_free(pJob->data.resourceManager.loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks);
-    ma_free(pJob->data.resourceManager.loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks);
-
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
     ma_atomic_compare_and_swap_i32(&pDataStream->result, MA_BUSY, result);
 
