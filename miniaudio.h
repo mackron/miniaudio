@@ -6260,7 +6260,7 @@ typedef struct
 
 MA_API ma_result ma_data_source_base_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
 MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource);
-MA_API const ma_data_source_vtable* ma_data_source_get_vtable(ma_data_source* pDataSource);
+MA_API const ma_data_source_vtable* ma_data_source_get_vtable(const ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_init_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource);
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
@@ -10861,7 +10861,7 @@ typedef struct ma_resource_manager                  ma_resource_manager;
 typedef struct ma_resource_manager_data_buffer_node ma_resource_manager_data_buffer_node;
 typedef struct ma_resource_manager_data_buffer      ma_resource_manager_data_buffer;
 typedef struct ma_resource_manager_data_stream      ma_resource_manager_data_stream;
-typedef struct ma_resource_manager_data_source      ma_resource_manager_data_source;
+typedef union  ma_resource_manager_data_source      ma_resource_manager_data_source;
 
 typedef enum
 {
@@ -11023,17 +11023,10 @@ struct ma_resource_manager_data_stream
     MA_ATOMIC(4, ma_bool32) seekCounter;        /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
 };
 
-struct ma_resource_manager_data_source
+union ma_resource_manager_data_source
 {
-    union
-    {
-        ma_resource_manager_data_buffer buffer;
-        ma_resource_manager_data_stream stream;
-    } backend;  /* Must be the first item because we need the first item to be the data source callbacks for the buffer or stream. */
-
-    ma_uint32 flags;                          /* The flags that were passed in to ma_resource_manager_data_source_init(). */
-    MA_ATOMIC(4, ma_uint32) executionCounter;     /* For allocating execution orders for jobs. */
-    MA_ATOMIC(4, ma_uint32) executionPointer;     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    ma_resource_manager_data_buffer buffer;
+    ma_resource_manager_data_stream stream;
 };
 
 typedef struct
@@ -11121,7 +11114,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 MA_API ma_result ma_resource_manager_data_source_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource);
-MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
@@ -68948,7 +68941,7 @@ MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource)
     */
 }
 
-MA_API const ma_data_source_vtable* ma_data_source_get_vtable(ma_data_source* pDataSource)
+MA_API const ma_data_source_vtable* ma_data_source_get_vtable(const ma_data_source* pDataSource)
 {
     if (pDataSource == NULL) {
         return NULL;
@@ -81520,7 +81513,7 @@ static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pR
         return MA_INVALID_ARGS;
     }
 
-    pDataSource->flags = pConfig->flags;
+    //pDataSource->flags = pConfig->flags;
 
     return MA_SUCCESS;
 }
@@ -81536,9 +81529,9 @@ MA_API ma_result ma_resource_manager_data_source_init_ex(ma_resource_manager* pR
 
     /* The data source itself is just a data stream or a data buffer. */
     if ((pConfig->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_init_ex(pResourceManager, pConfig, &pDataSource->backend.stream);
+        return ma_resource_manager_data_stream_init_ex(pResourceManager, pConfig, &pDataSource->stream);
     } else {
-        return ma_resource_manager_data_buffer_init_ex(pResourceManager, pConfig, &pDataSource->backend.buffer);
+        return ma_resource_manager_data_buffer_init_ex(pResourceManager, pConfig, &pDataSource->buffer);
     }
 }
 
@@ -81566,29 +81559,15 @@ MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pRe
     return ma_resource_manager_data_source_init_ex(pResourceManager, &config, pDataSource);
 }
 
-MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource)
+MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource)
 {
-    ma_result result;
-    ma_resource_manager_data_source_config config;
+    (void)pResourceManager;
+    return ma_data_source_init_copy(pExistingDataSource, pDataSource);
+}
 
-    if (pExistingDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    config = ma_resource_manager_data_source_config_init();
-    config.flags = pExistingDataSource->flags;
-
-    result = ma_resource_manager_data_source_preinit(pResourceManager, &config, pDataSource);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Copying can only be done from data buffers. Streams cannot be copied. */
-    if ((pExistingDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return MA_INVALID_OPERATION;
-    }
-
-    return ma_resource_manager_data_buffer_init_copy(pResourceManager, &pExistingDataSource->backend.buffer, &pDataSource->backend.buffer);
+static ma_bool32 ma_resource_manager_data_source_is_stream(const ma_resource_manager_data_source* pDataSource)
+{
+    return ma_data_source_get_vtable(pDataSource) == &ma_gDataSourceVTable_ResourceManagerDataStream;
 }
 
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource)
@@ -81597,108 +81576,36 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data
         return MA_INVALID_ARGS;
     }
 
-    /* All we need to is uninitialize the underlying data buffer or data stream. */
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_uninit(&pDataSource->backend.stream);
+    if (ma_resource_manager_data_source_is_stream(pDataSource)) {
+        return ma_resource_manager_data_stream_uninit(&pDataSource->stream);
     } else {
-        return ma_resource_manager_data_buffer_uninit(&pDataSource->backend.buffer);
+        return ma_resource_manager_data_buffer_uninit(&pDataSource->buffer);
     }
 }
 
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    /* Safety. */
-    if (pFramesRead != NULL) {
-        *pFramesRead = 0;
-    }
-
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_read_pcm_frames(&pDataSource->backend.stream, pFramesOut, frameCount, pFramesRead);
-    } else {
-        return ma_resource_manager_data_buffer_read_pcm_frames(&pDataSource->backend.buffer, pFramesOut, frameCount, pFramesRead);
-    }
+    return ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex)
 {
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_seek_to_pcm_frame(&pDataSource->backend.stream, frameIndex);
-    } else {
-        return ma_resource_manager_data_buffer_seek_to_pcm_frame(&pDataSource->backend.buffer, frameIndex);
-    }
-}
-
-MA_API ma_result ma_resource_manager_data_source_map(ma_resource_manager_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
-{
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_map(&pDataSource->backend.stream, ppFramesOut, pFrameCount);
-    } else {
-        return MA_NOT_IMPLEMENTED;  /* Mapping not supported with data buffers. */
-    }
-}
-
-MA_API ma_result ma_resource_manager_data_source_unmap(ma_resource_manager_data_source* pDataSource, ma_uint64 frameCount)
-{
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_unmap(&pDataSource->backend.stream, frameCount);
-    } else {
-        return MA_NOT_IMPLEMENTED;  /* Mapping not supported with data buffers. */
-    }
+    return ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 }
 
 MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_get_data_format(&pDataSource->backend.stream, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
-    } else {
-        return ma_resource_manager_data_buffer_get_data_format(&pDataSource->backend.buffer, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
-    }
+    return ma_data_source_get_data_format(pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
 }
 
 MA_API ma_result ma_resource_manager_data_source_get_cursor_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pCursor)
 {
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_get_cursor_in_pcm_frames(&pDataSource->backend.stream, pCursor);
-    } else {
-        return ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(&pDataSource->backend.buffer, pCursor);
-    }
+    return ma_data_source_get_cursor_in_pcm_frames(pDataSource, pCursor);
 }
 
 MA_API ma_result ma_resource_manager_data_source_get_length_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pLength)
 {
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_get_length_in_pcm_frames(&pDataSource->backend.stream, pLength);
-    } else {
-        return ma_resource_manager_data_buffer_get_length_in_pcm_frames(&pDataSource->backend.buffer, pLength);
-    }
+    return ma_data_source_get_length_in_pcm_frames(pDataSource, pLength);
 }
 
 MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource)
@@ -81707,10 +81614,10 @@ MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_result(&pDataSource->backend.stream);
+    if (ma_resource_manager_data_source_is_stream(pDataSource)) {
+        return ma_resource_manager_data_stream_result(&pDataSource->stream);
     } else {
-        return ma_resource_manager_data_buffer_result(&pDataSource->backend.buffer);
+        return ma_resource_manager_data_buffer_result(&pDataSource->buffer);
     }
 }
 
@@ -81720,10 +81627,10 @@ MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager
         return MA_INVALID_ARGS;
     }
 
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_set_looping(&pDataSource->backend.stream, isLooping);
+    if (ma_resource_manager_data_source_is_stream(pDataSource)) {
+        return ma_resource_manager_data_stream_set_looping(&pDataSource->stream, isLooping);
     } else {
-        return ma_resource_manager_data_buffer_set_looping(&pDataSource->backend.buffer, isLooping);
+        return ma_resource_manager_data_buffer_set_looping(&pDataSource->buffer, isLooping);
     }
 }
 
@@ -81733,10 +81640,10 @@ MA_API ma_bool32 ma_resource_manager_data_source_is_looping(const ma_resource_ma
         return MA_FALSE;
     }
 
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_is_looping(&pDataSource->backend.stream);
+    if (ma_resource_manager_data_source_is_stream(pDataSource)) {
+        return ma_resource_manager_data_stream_is_looping(&pDataSource->stream);
     } else {
-        return ma_resource_manager_data_buffer_is_looping(&pDataSource->backend.buffer);
+        return ma_resource_manager_data_buffer_is_looping(&pDataSource->buffer);
     }
 }
 
@@ -81752,10 +81659,10 @@ MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resourc
         return MA_INVALID_ARGS;
     }
 
-    if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_get_available_frames(&pDataSource->backend.stream, pAvailableFrames);
+    if (ma_resource_manager_data_source_is_stream(pDataSource)) {
+        return ma_resource_manager_data_stream_get_available_frames(&pDataSource->stream, pAvailableFrames);
     } else {
-        return ma_resource_manager_data_buffer_get_available_frames(&pDataSource->backend.buffer, pAvailableFrames);
+        return ma_resource_manager_data_buffer_get_available_frames(&pDataSource->buffer, pAvailableFrames);
     }
 }
 
