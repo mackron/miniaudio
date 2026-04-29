@@ -6260,6 +6260,8 @@ typedef struct
 
 MA_API ma_result ma_data_source_base_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
 MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource);
+MA_API const ma_data_source_vtable* ma_data_source_get_vtable(ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_init_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource);
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
@@ -68949,6 +68951,36 @@ MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource)
     This is placeholder in case we need this later. Data sources need to call this in their
     uninitialization routine to ensure things work later on if something is added here.
     */
+}
+
+MA_API const ma_data_source_vtable* ma_data_source_get_vtable(ma_data_source* pDataSource)
+{
+    if (pDataSource == NULL) {
+        return NULL;
+    }
+
+    return ((ma_data_source_base*)pDataSource)->pVTable;
+}
+
+MA_API ma_result ma_data_source_init_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pNewDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(pDataSourceBase->pVTable != NULL);
+
+    if (pDataSourceBase->pVTable->onCopy == NULL) {
+        return MA_INVALID_OPERATION;    /* Not copyable. */
+    }
+
+    return pDataSourceBase->pVTable->onCopy(pDataSource, pNewDataSource);
 }
 
 static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_data_source** ppCurrentDataSource)
