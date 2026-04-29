@@ -10755,6 +10755,7 @@ typedef struct
 } ma_waveform;
 
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform);
+MA_API ma_result ma_waveform_init_copy(ma_waveform* pWaveform, ma_waveform* pNewWaveform);
 MA_API void ma_waveform_uninit(ma_waveform* pWaveform);
 MA_API ma_result ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64 frameIndex);
@@ -77185,6 +77186,11 @@ static void ma_waveform__data_source_on_uninit(ma_data_source* pDataSource)
     ma_waveform_uninit((ma_waveform*)pDataSource);
 }
 
+static ma_result ma_waveform__data_source_on_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    return ma_waveform_init_copy((ma_waveform*)pDataSource, (ma_waveform*)pNewDataSource);
+}
+
 static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -77230,7 +77236,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_Waveform =
 {
     ma_waveform__data_source_on_sizeof,
     ma_waveform__data_source_on_uninit,
-    NULL,   /* onCopy */
+    ma_waveform__data_source_on_copy,
     ma_waveform__data_source_on_read,
     ma_waveform__data_source_on_seek,
     ma_waveform__data_source_on_get_data_format,
@@ -77263,6 +77269,19 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     pWaveform->time    = 0;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_waveform_init_copy(ma_waveform* pWaveform, ma_waveform* pNewWaveform)
+{
+    ma_waveform_config config;
+
+    if (pNewWaveform == NULL || pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = pWaveform->config;
+
+    return ma_waveform_init(&config, pNewWaveform);
 }
 
 MA_API void ma_waveform_uninit(ma_waveform* pWaveform)
