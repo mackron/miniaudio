@@ -10839,6 +10839,7 @@ typedef struct
 MA_API ma_result ma_noise_get_heap_size(const ma_noise_config* pConfig, size_t* pHeapSizeInBytes);
 MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void* pHeap, ma_noise* pNoise);
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_noise* pNoise);
+MA_API ma_result ma_noise_init_copy(ma_noise* pNoise, ma_noise* pNewNoise);
 MA_API void ma_noise_uninit(ma_noise* pNoise);
 MA_API ma_result ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
@@ -77791,6 +77792,11 @@ static void ma_noise__data_source_on_uninit(ma_data_source* pDataSource)
     ma_noise_uninit((ma_noise*)pDataSource);
 }
 
+static ma_result ma_noise__data_source_on_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
+{
+    return ma_noise_init_copy((ma_noise*)pDataSource, (ma_noise*)pNewDataSource);
+}
+
 static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -77820,7 +77826,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_Noise =
 {
     ma_noise__data_source_on_sizeof,
     ma_noise__data_source_on_uninit,
-    NULL,   /* onCopy */
+    ma_noise__data_source_on_copy,
     ma_noise__data_source_on_read,
     ma_noise__data_source_on_seek,  /* No-op for noise. */
     ma_noise__data_source_on_get_data_format,
@@ -78001,6 +78007,19 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocati
 
     pNoise->_ownsHeap = MA_TRUE;
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_noise_init_copy(ma_noise* pNoise, ma_noise* pNewNoise)
+{
+    ma_noise_config config;
+
+    if (pNewNoise == NULL || pNoise == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = pNoise->config;
+
+    return ma_noise_init(&config, &pNoise->allocationCallbacks, pNewNoise);
 }
 
 MA_API void ma_noise_uninit(ma_noise* pNoise)
