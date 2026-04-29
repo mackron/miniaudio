@@ -81564,7 +81564,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 }
 
 
-static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_source* pDataSource)
+MA_API ma_result ma_resource_manager_data_source_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_source* pDataSource)
 {
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
@@ -81578,20 +81578,6 @@ static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pR
 
     if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
-    }
-
-    //pDataSource->flags = pConfig->flags;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_resource_manager_data_source_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_source* pDataSource)
-{
-    ma_result result;
-
-    result = ma_resource_manager_data_source_preinit(pResourceManager, pConfig, pDataSource);
-    if (result != MA_SUCCESS) {
-        return result;
     }
 
     /* The data source itself is just a data stream or a data buffer. */
