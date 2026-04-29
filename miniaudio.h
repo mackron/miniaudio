@@ -6219,8 +6219,6 @@ Data Source
 ************************************************************************************************************************************************************/
 typedef void ma_data_source;
 
-#define MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT    0x00000001
-
 typedef struct
 {
     size_t    (* onSizeof       )(void);    /* Should return the size of the the data source implementation's struct. For example, ma_decoder would return sizeof(ma_decoder). */
@@ -69070,8 +69068,8 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
 
     MA_ASSERT(pDataSourceBase->pVTable != NULL);
 
-    if ((pDataSourceBase->pVTable->flags & MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT) != 0 || (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE))) {
-        /* Either the data source is self-managing the range, or no range is set - just read like normal. The data source itself will tell us when the end is reached. */
+    if ((pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE))) {
+        /* No range is set - just read like normal. The data source itself will tell us when the end is reached. */
         result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
     } else {
         /* Need to clamp to within the range. */
