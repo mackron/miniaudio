@@ -78056,23 +78056,6 @@ MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed)
 }
 
 
-MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type)
-{
-    if (pNoise == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    This function should never have been implemented in the first place. Changing the type dynamically is not
-    supported. Instead you need to uninitialize and reinitialize a fresh `ma_noise` object. This function
-    will be removed in version 0.12.
-    */
-    MA_ASSERT(MA_FALSE);
-    (void)type;
-
-    return MA_INVALID_OPERATION;
-}
-
 static MA_INLINE float ma_noise_f32_white(ma_noise* pNoise)
 {
     return (float)(ma_lcg_rand_f64(&pNoise->lcg) * pNoise->config.amplitude);
