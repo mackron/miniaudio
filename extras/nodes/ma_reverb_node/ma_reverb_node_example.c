@@ -7,10 +7,10 @@
 #define DEVICE_CHANNELS     1                   /* For this example, always set to 1. */
 #define DEVICE_SAMPLE_RATE  48000               /* Cannot be less than 22050 for this example. */
 
-static ma_audio_buffer_ref g_dataSupply;        /* The underlying data source of the source node. */
-static ma_data_source_node g_dataSupplyNode;    /* The node that will sit at the root level. Will be reading data from g_dataSupply. */
-static ma_reverb_node      g_reverbNode;        /* The reverb node. */
-static ma_node_graph       g_nodeGraph;         /* The main node graph that we'll be feeding data through. */
+static ma_audio_ring_buffer g_dataSupply;       /* The underlying data source of the source node. */
+static ma_data_source_node  g_dataSupplyNode;   /* The node that will sit at the root level. Will be reading data from g_dataSupply. */
+static ma_reverb_node       g_reverbNode;       /* The reverb node. */
+static ma_node_graph        g_nodeGraph;        /* The main node graph that we'll be feeding data through. */
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
@@ -28,7 +28,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     the data source is our `pInput` buffer. We need to update the underlying data source so that it
     read data from `pInput`.
     */
-    ma_audio_buffer_ref_set_data(&g_dataSupply, pInput, frameCount);
+    ma_audio_ring_buffer_write_pcm_frames(&g_dataSupply, pInput, frameCount, NULL);
 
     /* With the source buffer configured we can now read directly from the node graph. */
     ma_node_graph_read_pcm_frames(&g_nodeGraph, pOutput, frameCount, NULL);
@@ -42,6 +42,7 @@ int main(int argc, char** argv)
     ma_node_graph_config nodeGraphConfig;
     ma_reverb_node_config reverbNodeConfig;
     ma_data_source_node_config dataSupplyNodeConfig;
+    ma_audio_ring_buffer_config ringBufferConfig;
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
@@ -82,7 +83,9 @@ int main(int argc, char** argv)
 
 
     /* Data supply. Attached to input bus 0 of the reverb node. */
-    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, device.sampleRate, NULL, 0, &g_dataSupply);
+    ringBufferConfig = ma_audio_ring_buffer_config_init(device.capture.format, device.capture.channels, device.sampleRate, device.capture.internalPeriodSizeInFrames * 3);
+
+    result = ma_audio_ring_buffer_init(&ringBufferConfig, &g_dataSupply);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize audio buffer for source.");
         goto done2;
@@ -93,7 +96,7 @@ int main(int argc, char** argv)
     result = ma_data_source_node_init(&g_nodeGraph, &dataSupplyNodeConfig, NULL, &g_dataSupplyNode);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize source node.");
-        goto done2;
+        goto done3;
     }
 
     ma_node_attach_output_bus(&g_dataSupplyNode, 0, &g_reverbNode, 0);
@@ -110,7 +113,8 @@ int main(int argc, char** argv)
     ma_device_stop(&device);
 
 
-/*done3:*/ ma_data_source_node_uninit(&g_dataSupplyNode, NULL);
+/*done4:*/ ma_data_source_node_uninit(&g_dataSupplyNode, NULL);
+done3: ma_audio_ring_buffer_uninit(&g_dataSupply);
 done2: ma_reverb_node_uninit(&g_reverbNode, NULL);
 done1: ma_node_graph_uninit(&g_nodeGraph);
 done0: ma_device_uninit(&device);
