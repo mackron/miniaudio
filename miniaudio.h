@@ -11781,12 +11781,7 @@ struct ma_sound
     ma_uint32 processingCacheCap;
     ma_bool8 ownsDataSource;
 
-    /*
-    We're declaring a resource manager data source object here to save us a malloc when loading a
-    sound via the resource manager, which I *think* will be the most common scenario.
-    */
 #ifndef MA_NO_RESOURCE_MANAGER
-    ma_resource_manager_data_source* pResourceManagerDataSource;
     ma_async_notification_callbacks resourceManagerDoneNotification;
 #endif
 };
@@ -87538,8 +87533,8 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     */
     flags = pConfig->flags | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
 
-    pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
-    if (pSound->pResourceManagerDataSource == NULL) {
+    pSound->pDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(ma_resource_manager_data_source), &pEngine->allocationCallbacks);
+    if (pSound->pDataSource == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
@@ -87572,9 +87567,9 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         resourceManagerDataSourceConfig.loopPointBegInPCMFrames     = pConfig->loopPointBegInPCMFrames;
         resourceManagerDataSourceConfig.loopPointEndInPCMFrames     = pConfig->loopPointEndInPCMFrames;
 
-        result = ma_resource_manager_data_source_init_ex(pEngine->pResourceManager, &resourceManagerDataSourceConfig, pSound->pResourceManagerDataSource);
+        result = ma_resource_manager_data_source_init_ex(pEngine->pResourceManager, &resourceManagerDataSourceConfig, (ma_resource_manager_data_source*)pSound->pDataSource);
         if (result != MA_SUCCESS) {
-            ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
+            ma_free(pSound->pDataSource, &pEngine->allocationCallbacks);
             goto done;
         }
 
@@ -87584,12 +87579,12 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         config = *pConfig;
         config.pFilePath   = NULL;
         config.pFilePathW  = NULL;
-        config.pDataSource = pSound->pResourceManagerDataSource;
+        config.pDataSource = pSound->pDataSource;
 
         result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
         if (result != MA_SUCCESS) {
-            ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
-            ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
+            ma_resource_manager_data_source_uninit((ma_resource_manager_data_source*)pSound->pDataSource);
+            ma_free(pSound->pDataSource, &pEngine->allocationCallbacks);
             MA_ZERO_OBJECT(pSound);
             goto done;
         }
@@ -87637,6 +87632,8 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 {
     ma_result result;
     ma_sound_config config;
+    const ma_data_source_vtable* pDataSourceVTable;
+    ma_data_source* pNewDataSource;
 
     result = ma_sound_preinit(pEngine, pSound);
     if (result != MA_SUCCESS) {
@@ -87647,38 +87644,38 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
         return MA_INVALID_ARGS;
     }
 
-    /* Cloning only works for data buffers (not streams) that are loaded from the resource manager. */
-    if (pExistingSound->pResourceManagerDataSource == NULL) {
-        return MA_INVALID_OPERATION;
+    pDataSourceVTable = ma_data_source_get_vtable(pExistingSound->pDataSource);
+    if (pDataSourceVTable == NULL) {
+        return MA_INVALID_OPERATION;    /* Sound is not tied to a data source. */
     }
 
-    /*
-    We need to make a clone of the data source. If the data source is not a data buffer (i.e. a stream)
-    this will fail.
-    */
-    pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
-    if (pSound->pResourceManagerDataSource == NULL) {
+    if (pDataSourceVTable->onSizeof == NULL || pDataSourceVTable->onCopy == NULL) {
+        return MA_INVALID_OPERATION;    /* Data source is not copyable. */
+    }
+
+    pNewDataSource = (ma_data_source*)ma_malloc(pDataSourceVTable->onSizeof(), &pEngine->allocationCallbacks);
+    if (pNewDataSource == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    result = ma_resource_manager_data_source_init_copy(pEngine->pResourceManager, pExistingSound->pResourceManagerDataSource, pSound->pResourceManagerDataSource);
+    result = ma_data_source_init_copy(pExistingSound->pDataSource, pNewDataSource);
     if (result != MA_SUCCESS) {
-        ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
-        return result;
+        ma_free(pNewDataSource, &pEngine->allocationCallbacks);
+        return result;  /* Copying probably not supported by the data source. */
     }
 
     config = ma_sound_config_init(pEngine);
-    config.pDataSource                 = pSound->pResourceManagerDataSource;
+    config.pDataSource                 = pNewDataSource;
     config.flags                       = flags;
     config.pInitialAttachment          = pGroup;
     config.monoExpansionMode           = pExistingSound->engineNode.monoExpansionMode;
     config.volumeSmoothTimeInPCMFrames = pExistingSound->engineNode.volumeSmoothTimeInPCMFrames;
-    config.pNotifications     = pNotifications;
+    config.pNotifications              = pNotifications;
 
     result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
-        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
-        ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
+        if (pDataSourceVTable->onUninit) { pDataSourceVTable->onUninit(pNewDataSource); }
+        ma_free(pNewDataSource, &pEngine->allocationCallbacks);
         MA_ZERO_OBJECT(pSound);
         return result;
     }
@@ -87752,16 +87749,14 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
         pSound->pProcessingCache = NULL;
     }
 
-    /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
-#ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->ownsDataSource) {
-        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
-        ma_free(pSound->pResourceManagerDataSource, &pSound->engineNode.pEngine->allocationCallbacks);
+        ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pSound->pDataSource;
+        MA_ASSERT(pDataSourceBase != NULL);
+
+        if (pDataSourceBase->pVTable->onUninit) { pDataSourceBase->pVTable->onUninit(pSound->pDataSource); }
+        ma_free(pSound->pDataSource, &pSound->engineNode.pEngine->allocationCallbacks);
         pSound->pDataSource = NULL;
     }
-#else
-    MA_ASSERT(pSound->ownsDataSource == MA_FALSE);
-#endif
 }
 
 MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound)

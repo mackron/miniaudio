@@ -76,6 +76,7 @@ int main(int argc, char** argv)
     ma_engine_start(&engine);
 
     /* Rapidly create and delete sounds. */
+    #if 1
     {
         ma_sound* pSound = NULL;
         ma_uint32 soundCount = 10;
@@ -124,6 +125,26 @@ int main(int argc, char** argv)
         }
         sounds.clear();
     }
+    #else
+    {
+        ma_sound baseSound;
+
+        result = ma_sound_init_from_file(&engine, pFilePaths[0], MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_ASYNC, NULL, NULL, &baseSound);
+        if (result == MA_SUCCESS) {
+            ma_sound copiedSound;
+
+            result = ma_sound_init_copy(&engine, &baseSound, 0, NULL, NULL, &copiedSound);
+            if (result != MA_SUCCESS) {
+                printf("Failed to copy sound.\n");
+            }
+
+            ma_sound_start(&copiedSound);
+            ma_sleep(5000);
+
+            ma_sound_uninit(&copiedSound);
+        }
+    }
+    #endif
 
     ma_engine_uninit(&engine);
 
