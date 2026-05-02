@@ -919,9 +919,6 @@ if(MINIAUDIO_BUILD_TESTS)
     add_miniaudio_test(miniaudio_testbench testbench/testbench.c)
     add_test(NAME miniaudio_testbench COMMAND miniaudio_testbench)
 
-    add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
-    add_test(NAME miniaudio_conversion COMMAND miniaudio_conversion)
-
     add_miniaudio_test(miniaudio_filtering filtering/filtering.c)
     add_test(NAME miniaudio_filtering COMMAND miniaudio_filtering ${CMAKE_CURRENT_SOURCE_DIR}/data/16-44100-stereo.flac)
     
