@@ -924,6 +924,9 @@ if(MINIAUDIO_BUILD_TESTS)
     endif()
     add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
 
+    add_miniaudio_test(miniaudio_testbench testbench/testbench.c)
+    add_test(NAME miniaudio_testbench COMMAND miniaudio_testbench)
+
     add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
     add_test(NAME miniaudio_conversion COMMAND miniaudio_conversion)
 

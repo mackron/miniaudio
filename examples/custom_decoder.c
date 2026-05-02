@@ -94,7 +94,7 @@ int main(int argc, char** argv)
 
 
     /* Initialize the device. */
-    result = ma_data_source_get_data_format(&decoder, &format, &channels, &sampleRate, NULL, 0);
+    result = ma_data_source_get_data_format(&decoder, &format, &channels, &sampleRate);
     if (result != MA_SUCCESS) {
         printf("Failed to retrieve decoder data format.");
         ma_decoder_uninit(&decoder);

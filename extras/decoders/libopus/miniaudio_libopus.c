@@ -30,19 +30,38 @@ static ma_result ma_libopus_ds_seek(ma_data_source* pDataSource, ma_uint64 frame
     return ma_libopus_seek_to_pcm_frame((ma_libopus*)pDataSource, frameIndex);
 }
 
-static ma_result ma_libopus_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+static ma_result ma_libopus_ds_prop(ma_data_source* pDataSource, int prop, void* pData)
 {
-    return ma_libopus_get_data_format((ma_libopus*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
-}
+    ma_libopus* pOpus = (ma_libopus*)pDataSource;
 
-static ma_result ma_libopus_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
-{
-    return ma_libopus_get_cursor_in_pcm_frames((ma_libopus*)pDataSource, pCursor);
-}
+    switch (prop)
+    {
+        case MA_DATA_SOURCE_GET_DATA_FORMAT:
+        {
+            ma_data_source_data_format* pDataFormat = (ma_data_source_data_format*)pData;
 
-static ma_result ma_libopus_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
-{
-    return ma_libopus_get_length_in_pcm_frames((ma_libopus*)pDataSource, pLength);
+            return ma_libopus_get_data_format(pOpus, &pDataFormat->format, &pDataFormat->channels, &pDataFormat->sampleRate, NULL, 0);
+        }
+
+        case MA_DATA_SOURCE_GET_CHANNEL_MAP:
+        {
+            return ma_libopus_get_data_format(pOpus, NULL, NULL, NULL, (ma_channel*)pData, MA_MAX_CHANNELS);
+        }
+
+        case MA_DATA_SOURCE_GET_CURSOR:
+        {
+            return ma_libopus_get_cursor_in_pcm_frames(pOpus, (ma_uint64*)pData);
+        }
+
+        case MA_DATA_SOURCE_GET_LENGTH:
+        {
+            return ma_libopus_get_length_in_pcm_frames(pOpus, (ma_uint64*)pData);
+        }
+
+        default: break;
+    }
+
+    return MA_NOT_IMPLEMENTED;
 }
 
 static ma_data_source_vtable ma_gDataSourceVTable_libopus =
@@ -52,10 +71,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_libopus =
     NULL,   /* onCopy. Copying is not supported. */
     ma_libopus_ds_read,
     ma_libopus_ds_seek,
-    ma_libopus_ds_get_data_format,
-    ma_libopus_ds_get_cursor,
-    ma_libopus_ds_get_length,
-    NULL    /* onSetLooping */
+    ma_libopus_ds_prop
 };
 
 

@@ -33,19 +33,38 @@ static ma_result ma_libvorbis_ds_seek(ma_data_source* pDataSource, ma_uint64 fra
     return ma_libvorbis_seek_to_pcm_frame((ma_libvorbis*)pDataSource, frameIndex);
 }
 
-static ma_result ma_libvorbis_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+static ma_result ma_libvorbis_ds_prop(ma_data_source* pDataSource, int prop, void* pData)
 {
-    return ma_libvorbis_get_data_format((ma_libvorbis*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
-}
+    ma_libvorbis* pVorbis = (ma_libvorbis*)pDataSource;
 
-static ma_result ma_libvorbis_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
-{
-    return ma_libvorbis_get_cursor_in_pcm_frames((ma_libvorbis*)pDataSource, pCursor);
-}
+    switch (prop)
+    {
+        case MA_DATA_SOURCE_GET_DATA_FORMAT:
+        {
+            ma_data_source_data_format* pDataFormat = (ma_data_source_data_format*)pData;
 
-static ma_result ma_libvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
-{
-    return ma_libvorbis_get_length_in_pcm_frames((ma_libvorbis*)pDataSource, pLength);
+            return ma_libvorbis_get_data_format(pVorbis, &pDataFormat->format, &pDataFormat->channels, &pDataFormat->sampleRate, NULL, 0);
+        }
+
+        case MA_DATA_SOURCE_GET_CHANNEL_MAP:
+        {
+            return ma_libvorbis_get_data_format(pVorbis, NULL, NULL, NULL, (ma_channel*)pData, MA_MAX_CHANNELS);
+        }
+
+        case MA_DATA_SOURCE_GET_CURSOR:
+        {
+            return ma_libvorbis_get_cursor_in_pcm_frames(pVorbis, (ma_uint64*)pData);
+        }
+
+        case MA_DATA_SOURCE_GET_LENGTH:
+        {
+            return ma_libvorbis_get_length_in_pcm_frames(pVorbis, (ma_uint64*)pData);
+        }
+
+        default: break;
+    }
+
+    return MA_NOT_IMPLEMENTED;
 }
 
 static ma_data_source_vtable ma_gDataSourceVTable_libvorbis =
@@ -55,10 +74,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_libvorbis =
     NULL,   /* onCopy. Copying is not supported. */
     ma_libvorbis_ds_read,
     ma_libvorbis_ds_seek,
-    ma_libvorbis_ds_get_data_format,
-    ma_libvorbis_ds_get_cursor,
-    ma_libvorbis_ds_get_length,
-    NULL    /* onSetLooping */
+    ma_libvorbis_ds_prop
 };
 
 
