@@ -933,13 +933,13 @@ see some random tags and stuff in this file. These are just used for doing a dum
 extern "C" {
 #endif
 
-/* BEG fs_platform_detection.c */
+/* BEG fs_platform_detection.h */
 #if defined(_WIN32)
     #define FS_WIN32
 #else
     #define FS_POSIX
 #endif
-/* END fs_platform_detection.c */
+/* END fs_platform_detection.h */
 
 /* BEG fs_compiler_compat.h */
 #include <stddef.h> /* For size_t. */
