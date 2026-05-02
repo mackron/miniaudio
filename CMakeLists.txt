@@ -877,14 +877,6 @@ if(MINIAUDIO_BUILD_TESTS)
         # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
         add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
 
-        add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
-        if(MINIAUDIO_NO_RUNTIME_LINKING)
-            if(NOT MINIAUDIO_NO_SDL2 AND TARGET PkgConfig::SDL2)
-                target_link_libraries(miniaudio_cpp PRIVATE PkgConfig::SDL2)
-            endif()
-        endif()
-        add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
-
         add_miniaudio_test(miniaudio_engine engine/engine.cpp)
         if (TARGET libvorbis_interface)
             target_link_libraries(miniaudio_engine PRIVATE libvorbis_interface)
