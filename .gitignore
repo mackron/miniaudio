@@ -1,14 +1,13 @@
 \#docs/
-/_private/
 /build/
-/debugging/
+/data/debugging/
+/data/private/
 /evaluations/
 /examples/build/bin/
 /examples/build/codelite/
 /examples/build/vc6/
 /examples/build/vc15/
 /examples/build/vc17/
-/examples/simple_playback_sine.cpp
 /external/ogg/
 /external/vorbis/
 /external/opus/
@@ -16,9 +15,6 @@
 /extras/osaudio/tests/build/bin/
 /extras/osaudio/tests/build/vc17/
 /extras/osaudio/tests/build/watcom-dos/
-/extras/backends/pipewire/a.out
-/extras/decoders/litewav/
-/research/_build/
 /tests/_build/bin/
 /tests/_build/res/output/
 /tests/_build/cmake-emcc/
@@ -54,9 +50,4 @@
 
 # Below are individual files that I may start version controlling later or delete outright.
 /examples/build/COSMO.txt
-/research/ma_fft.c
-/research/ma_hrtf.c
-/research/ma_atomic.c
-/research/miniaudio_engine.c
-/tests/stress/
 /tools/hrtfgen/
