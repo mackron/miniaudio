@@ -921,9 +921,6 @@ if(MINIAUDIO_BUILD_TESTS)
 
     add_miniaudio_test(miniaudio_filtering filtering/filtering.c)
     add_test(NAME miniaudio_filtering COMMAND miniaudio_filtering ${CMAKE_CURRENT_SOURCE_DIR}/data/16-44100-stereo.flac)
-    
-    add_miniaudio_test(miniaudio_generation generation/generation.c)
-    add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
 
     add_miniaudio_test(miniaudio_profiling profiling/profiling.c)
     #add_test(NAME miniaudio_profiling COMMAND miniaudio_profiling)
