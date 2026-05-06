@@ -11418,9 +11418,7 @@ typedef enum
 typedef struct
 {
     /*
-    Extended processing callback. This callback is used for effects that process input and output
-    at different rates (i.e. they perform resampling). This is similar to the simple version, only
-    they take two separate frame counts: one for input, and one for output.
+    Processing callback.
 
     On input, `pFrameCountOut` is equal to the capacity of the output buffer for each bus, whereas
     `pFrameCountIn` will be equal to the number of PCM frames in each of the buffers in `ppFramesIn`.
@@ -11451,10 +11449,7 @@ typedef struct
     */
     ma_uint8 outputBusCount;
 
-    /*
-    Flags describing characteristics of the node. This is currently just a placeholder for some
-    ideas for later on.
-    */
+    /* A combination of `MA_NODE_FLAG_*`. Can be 0. */
     ma_uint32 flags;
 } ma_node_vtable;
 
