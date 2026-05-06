@@ -3622,7 +3622,7 @@ with the `ma_waveform` API. Example:
 
     ...
 
-    ma_waveform_read_pcm_frames(&waveform, pOutput, frameCount);
+    ma_waveform_read_pcm_frames(&waveform, pOutput, frameCount, NULL);
     ```
 
 The amplitude, frequency, type, and sample rate can be changed dynamically with
