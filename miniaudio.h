@@ -11399,6 +11399,7 @@ typedef void ma_node;
 /* Node flags. */
 typedef enum
 {
+    MA_NODE_FLAG_NONE                       = 0x00000000,
     MA_NODE_FLAG_PASSTHROUGH                = 0x00000001,
     MA_NODE_FLAG_CONTINUOUS_PROCESSING      = 0x00000002,
     MA_NODE_FLAG_ALLOW_NULL_INPUT           = 0x00000004,
