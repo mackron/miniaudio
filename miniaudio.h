@@ -34714,7 +34714,6 @@ static ma_result ma_result_from_pulseaudio(int result)
     }
 }
 
-#if 0
 static ma_pa_sample_format_t ma_format_to_pulseaudio(ma_format format)
 {
     if (ma_is_little_endian()) {
@@ -34741,7 +34740,6 @@ static ma_pa_sample_format_t ma_format_to_pulseaudio(ma_format format)
         default: return MA_PA_SAMPLE_INVALID;
     }
 }
-#endif
 
 static ma_format ma_format_from_pulseaudio(ma_pa_sample_format_t format)
 {
@@ -35905,6 +35903,9 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         ss   = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
 
+        /* Use the requested format if we have one. */
+        ss.format = ma_format_to_pulseaudio(pDescriptorCapture->format);
+
         /* Use the requested channel count if we have one. */
         if (pDescriptorCapture->channels != 0) {
             ss.channels = pDescriptorCapture->channels;
@@ -35930,7 +35931,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
             } else {
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
-            streamFlags |= MA_PA_STREAM_FIX_FORMAT;
+            /*streamFlags |= MA_PA_STREAM_FIX_FORMAT;*/ /* Using PA_STREAM_FIX_FORMAT will make it so PulseAudio can possibly pick S24_32 which is not supported by miniaudio and will thus result in an error later on. By excluding it, PulseAudio should always pick F32. */
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_FLOAT32.");
         }
         if (ss.rate == 0) {
@@ -36065,6 +36066,9 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
 
+        /* Use the requested format if we have one. */
+        ss.format = ma_format_to_pulseaudio(pDescriptorPlayback->format);
+
         /* Use the requested channel count if we have one. */
         if (pDescriptorPlayback->channels != 0) {
             ss.channels = pDescriptorPlayback->channels;
@@ -36091,7 +36095,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
             } else {
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
-            streamFlags |= MA_PA_STREAM_FIX_FORMAT;
+            /*streamFlags |= MA_PA_STREAM_FIX_FORMAT;*/ /* Using PA_STREAM_FIX_FORMAT will make it so PulseAudio can possibly pick S24_32 which is not supported by miniaudio and will thus result in an error later on. By excluding it, PulseAudio should always pick F32. */
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_FLOAT32.");
         }
         if (ss.rate == 0) {
