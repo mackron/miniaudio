@@ -75001,7 +75001,7 @@ MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
     pVorbis->onSeek = onSeek;
     pVorbis->onTell = onTell;
     pVorbis->pReadSeekTellUserData = pReadSeekTellUserData;
-    ma_allocation_callbacks_init_copy(&pVorbis->allocationCallbacks, pAllocationCallbacks);
+    pVorbis->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
 
     #if !defined(MA_NO_VORBIS)
     {
