@@ -65149,7 +65149,11 @@ MA_API ma_result ma_mp3_get_cursor_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pCurso
 
     #if !defined(MA_NO_MP3)
     {
-        *pCursor = pMP3->dr.currentPCMFrame;
+        if (pMP3->dr.currentPCMFrame > pMP3->dr.delayInPCMFrames) {
+            *pCursor = pMP3->dr.currentPCMFrame - pMP3->dr.delayInPCMFrames;
+        } else {
+            *pCursor = 0;
+        }
 
         return MA_SUCCESS;
     }
@@ -95485,15 +95489,27 @@ MA_API ma_uint64 ma_dr_mp3_get_pcm_frame_count(ma_dr_mp3* pMP3)
         if (totalPCMFrameCount >= pMP3->delayInPCMFrames) {
             totalPCMFrameCount -= pMP3->delayInPCMFrames;
         } else {
+            totalPCMFrameCount = 0;
         }
         if (totalPCMFrameCount >= pMP3->paddingInPCMFrames) {
             totalPCMFrameCount -= pMP3->paddingInPCMFrames;
         } else {
+            totalPCMFrameCount = 0;
         }
         return totalPCMFrameCount;
     } else {
         if (!ma_dr_mp3_get_mp3_and_pcm_frame_count(pMP3, NULL, &totalPCMFrameCount)) {
             return 0;
+        }
+        if (totalPCMFrameCount >= pMP3->delayInPCMFrames) {
+            totalPCMFrameCount -= pMP3->delayInPCMFrames;
+        } else {
+            totalPCMFrameCount = 0;
+        }
+        if (totalPCMFrameCount >= pMP3->paddingInPCMFrames) {
+            totalPCMFrameCount -= pMP3->paddingInPCMFrames;
+        } else {
+            totalPCMFrameCount = 0;
         }
         return totalPCMFrameCount;
     }
