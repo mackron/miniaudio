@@ -83596,6 +83596,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     ma_node_output_bus* pFirst;
     ma_uint32 inputChannels;
     ma_bool32 doesOutputBufferHaveContent = MA_FALSE;
+    ma_uint32 framesRead = 0;
 
     /*
     This will be called from the audio thread which means we can't be doing any locking. Basically,
@@ -83712,6 +83713,11 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
             /* Seek. */
             ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed, globalTime);
         }
+
+        /* The number of frames read will equal the maximum number of frames that were pulled from the outputs that are attached to this input. */
+        if (framesRead < framesProcessed) {
+            framesRead = framesProcessed;
+        }
     }
 
     /* If we didn't output anything, output silence. */
@@ -83719,8 +83725,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
         ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, inputChannels);
     }
 
-    /* In this path we always "process" the entire amount. */
-    *pFramesRead = frameCount;
+    *pFramesRead = framesRead;
 
     return result;
 }
