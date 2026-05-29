@@ -500,6 +500,10 @@ if (UNIX)
     endif()
 endif()
 
+if(APPLE)
+    enable_language(OBJC)
+    set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE OBJC)
+endif()
 
 # Static Libraries
 add_library(miniaudio
