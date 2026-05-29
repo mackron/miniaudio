@@ -500,7 +500,10 @@ if (UNIX)
     endif()
 endif()
 
-if(APPLE)
+# APPLE is true for all Apple platforms. 
+# For macOS (MA_APPLE_DESKTOP, "Darwin" in CMake), the code uses CoreAudio that does not need Objective-C.
+# For the other Apple platforms, the code uses AVFoundation that requires Objective-C.
+if(APPLE AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
     enable_language(OBJC)
     set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE OBJC)
 endif()
