@@ -94910,8 +94910,10 @@ static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc on
                 const ma_uint8* pTagDataBeg;
                 pTagDataBeg = pFirstFrameData + MA_DR_MP3_HDR_SIZE + (bs.pos/8);
                 pTagData    = pTagDataBeg;
-                isXing = (pTagData[0] == 'X' && pTagData[1] == 'i' && pTagData[2] == 'n' && pTagData[3] == 'g');
-                isInfo = (pTagData[0] == 'I' && pTagData[1] == 'n' && pTagData[2] == 'f' && pTagData[3] == 'o');
+                if ((size_t)(pTagDataBeg - pFirstFrameData) + 8 <= (size_t)firstFrameInfo.frame_bytes) {
+                    isXing = (pTagData[0] == 'X' && pTagData[1] == 'i' && pTagData[2] == 'n' && pTagData[3] == 'g');
+                    isInfo = (pTagData[0] == 'I' && pTagData[1] == 'n' && pTagData[2] == 'f' && pTagData[3] == 'o');
+                }
                 if (isXing || isInfo) {
                     ma_uint32 bytes = 0;
                     ma_uint32 flags = pTagData[7];
