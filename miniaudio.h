@@ -47690,7 +47690,6 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
     ma_uint32 c;
     const ma_uint32 channels = pLPF->channels;
     const float a = pLPF->a.f32;
-    const float b = 1 - a;
 
     MA_ASSUME(channels > 0);
     for (c = 0; c < channels; c += 1) {
@@ -47698,9 +47697,9 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
         float x  = pX[c];
         float y;
 
-        y = b*x + a*r1;
+        y = x + a*(r1 - x);
 
-        pY[c]           = y;
+        pY[c]            = y;
         pLPF->pR1[c].f32 = y;
     }
 }
@@ -48562,8 +48561,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
 {
     ma_uint32 c;
     const ma_uint32 channels = pHPF->channels;
-    const float a = 1 - pHPF->a.f32;
-    const float b = 1 - a;
+    const float b = pHPF->a.f32;
 
     MA_ASSUME(channels > 0);
     for (c = 0; c < channels; c += 1) {
@@ -48571,7 +48569,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
         float x  = pX[c];
         float y;
 
-        y = b*x - a*r1;
+        y = b*(x + r1) - r1;
 
         pY[c]            = y;
         pHPF->pR1[c].f32 = y;
@@ -80529,7 +80527,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_smpl_to_metadata_obj(ma_dr_wav__metadata_pa
         ma_uint32 loopCount;
         ma_uint32 calculatedLoopCount;
         loopCount = ma_dr_wav_bytes_to_u32(smplHeaderData + 28);
-        calculatedLoopCount = (pChunkHeader->sizeInBytes - MA_DR_WAV_SMPL_BYTES) / MA_DR_WAV_SMPL_LOOP_BYTES;
+        calculatedLoopCount = (ma_uint32)((pChunkHeader->sizeInBytes - MA_DR_WAV_SMPL_BYTES) / MA_DR_WAV_SMPL_LOOP_BYTES);
         if (loopCount != calculatedLoopCount) {
             return totalBytesRead;
         }
