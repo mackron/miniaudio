@@ -155,6 +155,11 @@ to `-lpthread` and `-lm`. On iOS you need to compile as Objective-C. Link to `-l
 If you get errors about undefined references to `__sync_val_compare_and_swap_8`, `__atomic_load_8`, etc. you
 need to link with `-latomic`.
 
+On `riscv64`, miniaudio currently uses its generic scalar path by default. The
+optional x86 and NEON SIMD paths are not expected to be enabled for a RISC-V
+target, and CMake should not auto-detect the SteamAudio example against an x86
+SDK layout when targeting RISC-V.
+
 ABI compatibility is not guaranteed between versions so take care if compiling as a DLL/SO. The suggested way
 to integrate miniaudio is by adding it directly to your source tree.
 

@@ -72,6 +72,11 @@ option(MINIAUDIO_USE_STDINT                    "Use <stdint.h> for sized types" 
 option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"          OFF)
 option(MINIAUDIO_INSTALL                       "Enable installation targets"         ON) 
 
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" MINIAUDIO_PROCESSOR_LOWER)
+if(MINIAUDIO_PROCESSOR_LOWER MATCHES "^riscv")
+    set(MINIAUDIO_TARGET_IS_RISCV TRUE)
+endif()
+
 include(GNUInstallDirs)
 
 # Construct compiler options.
@@ -414,7 +419,10 @@ endif()
 
 # SteamAudio has an annoying SDK setup. In the lib folder there is a folder for each platform. We need to specify the
 # platform we're compiling for.
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+if(MINIAUDIO_TARGET_IS_RISCV)
+    message(STATUS "RISC-V target detected. SteamAudio auto-detection will be skipped.")
+    set(STEAMAUDIO_ARCH "")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # Assume 64-bit. Now we need to check if it's for Windows or Linux.
     if(WIN32)
         set(STEAMAUDIO_ARCH windows-x64)
@@ -432,12 +440,16 @@ endif()
 
 # When searching for SteamAudio, we'll support installing it in the external/steamaudio directory.
 set(STEAMAUDIO_FIND_LIBRARY_HINTS)
-list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/lib/${STEAMAUDIO_ARCH})
+if(STEAMAUDIO_ARCH)
+    list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/lib/${STEAMAUDIO_ARCH})
+endif()
 
 if(WIN32)
 else()
-    list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /opt/steamaudio/lib/${STEAMAUDIO_ARCH})
-    list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /usr/local/steamaudio/lib/${STEAMAUDIO_ARCH})
+    if(STEAMAUDIO_ARCH)
+        list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /opt/steamaudio/lib/${STEAMAUDIO_ARCH})
+        list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /usr/local/steamaudio/lib/${STEAMAUDIO_ARCH})
+    endif()
 endif()
 
 set(STEAMAUDIO_FIND_HEADER_HINTS)
@@ -449,23 +461,26 @@ else()
     list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /usr/local/steamaudio/include)
 endif()
 
+if(STEAMAUDIO_ARCH)
+    find_library(STEAMAUDIO_LIBRARY NAMES phonon HINTS ${STEAMAUDIO_FIND_LIBRARY_HINTS})
+    if(STEAMAUDIO_LIBRARY)
+        message(STATUS "Found SteamAudio: ${STEAMAUDIO_LIBRARY}")
 
-find_library(STEAMAUDIO_LIBRARY NAMES phonon HINTS ${STEAMAUDIO_FIND_LIBRARY_HINTS})
-if(STEAMAUDIO_LIBRARY)
-    message(STATUS "Found SteamAudio: ${STEAMAUDIO_LIBRARY}")
-
-    find_path(STEAMAUDIO_INCLUDE_DIR
-        NAMES phonon.h
-        HINTS ${STEAMAUDIO_FIND_HEADER_HINTS}
-    )
-    if(STEAMAUDIO_INCLUDE_DIR)
-        message(STATUS "Found phonon.h in ${STEAMAUDIO_INCLUDE_DIR}")
-        set(HAS_STEAMAUDIO TRUE)
+        find_path(STEAMAUDIO_INCLUDE_DIR
+            NAMES phonon.h
+            HINTS ${STEAMAUDIO_FIND_HEADER_HINTS}
+        )
+        if(STEAMAUDIO_INCLUDE_DIR)
+            message(STATUS "Found phonon.h in ${STEAMAUDIO_INCLUDE_DIR}")
+            set(HAS_STEAMAUDIO TRUE)
+        else()
+            message(STATUS "Could not find phonon.h. miniaudio_engine_steamaudio will be excluded.")
+        endif()
     else()
-        message(STATUS "Could not find phonon.h. miniaudio_engine_steamaudio will be excluded.")
+        message(STATUS "SteamAudio not found. miniaudio_engine_steamaudio will be excluded.")
     endif()
 else()
-    message(STATUS "SteamAudio not found. miniaudio_engine_steamaudio will be excluded.")
+    message(STATUS "SteamAudio auto-detection is disabled for RISC-V targets. miniaudio_engine_steamaudio will be excluded.")
 endif()
 
 

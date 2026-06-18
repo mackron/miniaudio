@@ -11648,12 +11648,22 @@ IMPLEMENTATION
 #define MA_ARM64
 #endif
 
+#if defined(__riscv)
+    #if defined(__riscv_xlen) && __riscv_xlen == 64
+        #define MA_RISCV64
+    #else
+        #define MA_RISCV32
+    #endif
+#endif
+
 #if defined(__x86_64__) || defined(_M_X64)
 #define MA_X64
 #elif defined(__i386) || defined(_M_IX86)
 #define MA_X86
 #elif defined(MA_ARM32) || defined(MA_ARM64)
 #define MA_ARM
+#elif defined(MA_RISCV32) || defined(MA_RISCV64)
+    #define MA_RISCV
 #endif
 
 /* Intrinsics Support */
