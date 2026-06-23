@@ -8530,6 +8530,7 @@ the requested share mode is unsupported.
 This leaves pDeviceInfo unmodified in the result of an error.
 */
 MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
+MA_API ma_result ma_context_get_device_info_ex(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
 
 /*
 Determines if the given context supports loopback mode.
@@ -29052,7 +29053,7 @@ static void ma_context_iterate_rates_and_add_native_data_format__alsa(ma_context
     }
 }
 
-static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
 {
     ma_context_get_device_info_enum_callback_data__alsa data;
     ma_result result;
@@ -29082,8 +29083,9 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
         pDeviceInfo->isDefault = MA_TRUE;
     }
 
-    /* For detailed info we need to open the device. */
-    result = ma_context_open_pcm__alsa(pContext, ma_share_mode_shared, deviceType, pDeviceID, 0, &pPCM);
+    /* For detailed info we need to open the device. Use the requested share mode so that
+       exclusive-mode probes return the real hardware capabilities rather than the dmix ceiling. */
+    result = ma_context_open_pcm__alsa(pContext, shareMode, deviceType, pDeviceID, 0, &pPCM);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -30001,6 +30003,44 @@ static ma_result ma_context_uninit__alsa(ma_context* pContext)
     return MA_SUCCESS;
 }
 
+/* Backward-compatible wrapper used for the onContextGetDeviceInfo callback (shared mode). */
+static ma_result ma_context_get_device_info__alsa_shared(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+{
+    return ma_context_get_device_info__alsa(pContext, deviceType, pDeviceID, ma_share_mode_shared, pDeviceInfo);
+}
+
+/* Public variant that lets callers specify the share mode. In exclusive mode, the device is opened
+   directly without the OS mixer, which returns the hardware's real supported formats rather than
+   the dmix ceiling. */
+MA_API ma_result ma_context_get_device_info_ex(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+{
+    ma_device_info deviceInfo;
+    ma_result result;
+
+    if (pContext == NULL || pDeviceInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    if (pDeviceID != NULL) {
+        MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
+    }
+
+#if defined(MA_HAS_ALSA)
+    if (pContext->backend == ma_backend_alsa) {
+        ma_mutex_lock(&pContext->deviceInfoLock);
+        result = ma_context_get_device_info__alsa(pContext, deviceType, pDeviceID, shareMode, &deviceInfo);
+        ma_mutex_unlock(&pContext->deviceInfoLock);
+        *pDeviceInfo = deviceInfo;
+        return result;
+    }
+#endif
+
+    /* Non-ALSA backends: fall back to the standard probe (share mode not applicable). */
+    return ma_context_get_device_info(pContext, deviceType, pDeviceID, pDeviceInfo);
+}
+
 static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     ma_result result;
@@ -30239,7 +30279,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pCallbacks->onContextInit             = ma_context_init__alsa;
     pCallbacks->onContextUninit           = ma_context_uninit__alsa;
     pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__alsa;
-    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__alsa;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__alsa_shared;
     pCallbacks->onDeviceInit              = ma_device_init__alsa;
     pCallbacks->onDeviceUninit            = ma_device_uninit__alsa;
     pCallbacks->onDeviceStart             = ma_device_start__alsa;
