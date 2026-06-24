@@ -32078,9 +32078,10 @@ typedef struct
 } ma_context_state_pipewire;
 
 
-#define MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT  0x01
-#define MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY 0x02
-#define MA_PIPEWIRE_INIT_STATUS_INITIALIZED 0x04
+#define MA_PIPEWIRE_INIT_STATUS_ERROR       0x01
+#define MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT  0x02
+#define MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY 0x04
+#define MA_PIPEWIRE_INIT_STATUS_INITIALIZED 0x08
 
 typedef struct
 {
@@ -33210,6 +33211,26 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
 }
 
 
+static void ma_stream_event_state_changed__pipewire(void* pUserData, enum ma_pw_stream_state oldState, enum ma_pw_stream_state state, const char* pError, ma_device_type deviceType)
+{
+    ma_device_state_pipewire* pDeviceStatePipeWire  = (ma_device_state_pipewire*)pUserData;
+    ma_pipewire_stream_state* pStreamState;
+
+    (void)oldState;
+    (void)pError;
+
+    if (deviceType == ma_device_type_playback) {
+        pStreamState = &pDeviceStatePipeWire->playback;
+    } else {
+        pStreamState = &pDeviceStatePipeWire->capture;
+    }
+
+    if (state == MA_PW_STREAM_STATE_ERROR) {
+        pStreamState->initStatus |= MA_PIPEWIRE_INIT_STATUS_ERROR;
+    }
+}
+
+
 static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 id, const struct ma_spa_pod* pParam, ma_device_type deviceType)
 {
     ma_device_state_pipewire*  pDeviceStatePipeWire  = (ma_device_state_pipewire*)pUserData;
@@ -33442,6 +33463,17 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
 }
 
 
+static void ma_stream_event_state_changed_playback__pipewire(void* pUserData, enum ma_pw_stream_state oldState, enum ma_pw_stream_state state, const char* pError)
+{
+    ma_stream_event_state_changed__pipewire(pUserData, oldState, state, pError, ma_device_type_playback);
+}
+
+static void ma_stream_event_state_changed_capture__pipewire(void* pUserData, enum ma_pw_stream_state oldState, enum ma_pw_stream_state state, const char* pError)
+{
+    ma_stream_event_state_changed__pipewire(pUserData, oldState, state, pError, ma_device_type_capture);
+}
+
+
 static void ma_stream_event_param_changed_playback__pipewire(void* pUserData, ma_uint32 id, const struct ma_spa_pod* pParam)
 {
     ma_stream_event_param_changed__pipewire(pUserData, id, pParam, ma_device_type_playback);
@@ -33468,7 +33500,7 @@ static const struct ma_pw_stream_events ma_gStreamEventsPipeWire_Playback =
 {
     MA_PW_VERSION_STREAM_EVENTS,
     NULL, /* destroy       */
-    NULL, /* state_changed */
+    ma_stream_event_state_changed_playback__pipewire,
     NULL, /* control_info  */
     NULL, /* io_changed    */
     ma_stream_event_param_changed_playback__pipewire,
@@ -33485,7 +33517,7 @@ static const struct ma_pw_stream_events ma_gStreamEventsPipeWire_Capture =
 {
     MA_PW_VERSION_STREAM_EVENTS,
     NULL, /* destroy       */
-    NULL, /* state_changed */
+    ma_stream_event_state_changed_capture__pipewire,
     NULL, /* control_info  */
     NULL, /* io_changed    */
     ma_stream_event_param_changed_capture__pipewire,
@@ -33589,9 +33621,25 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
         return MA_ERROR;
     }
 
-    /* We need to keep iterating until we have finalized our internal format. */
-    while ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT) == 0) {
-        pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, 1);
+    /*
+    We need to keep iterating until we have finalized our internal format. Note that when there is no
+    microphone connected the process callback will never get fired which will result in this loop getting
+    stuck, so we'll use a timeout here.
+    */
+    {
+        ma_uint32 timeoutMS = 2000;
+        ma_uint32 elapsedMS = 0;
+
+        while ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT) == 0) {
+            pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, 1);
+
+            elapsedMS += 1;
+            if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
+                pContextStatePipeWire->pw_stream_destroy(pStreamState->pStream);
+                return MA_ERROR;
+            }
+        }
     }
 
     /* We should have our format at this point, but we will not know the exact period size yet until we've done the first processing callback. */
@@ -33601,8 +33649,20 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     ma_channel_map_copy_or_default(pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pStreamState->channelMap, pStreamState->channels);
 
     /* Now we need to wait until we know our period size. */
-    while ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY) == 0) {
-        pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, 1);
+    {
+        ma_uint32 timeoutMS = 2000;
+        ma_uint32 elapsedMS = 0;
+
+        while ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY) == 0) {
+            pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, 1);
+
+            elapsedMS += 1;
+            if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
+                pContextStatePipeWire->pw_stream_destroy(pStreamState->pStream);
+                return MA_ERROR;
+            }
+        }
     }
 
     pDescriptor->periodSizeInFrames = pStreamState->rbSizeInFrames;
