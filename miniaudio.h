@@ -69734,7 +69734,7 @@ MA_API ma_result ma_data_source_get_channel_map(ma_data_source* pDataSource, ma_
         /* Most likely this just means MA_DATA_SOURCE_GET_CHANNEL_MAP is not implemented which means it's wants to use the default channel map. Just assume that. */
         ma_data_source_data_format dataFormat;
 
-        result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_GET_DATA_FORMAT, pQueriedChannelMap);
+        result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_GET_DATA_FORMAT, &dataFormat);
         if (result != MA_SUCCESS) {
             return result;  /* Do not know the channel count. Cannot derived a default channel map. */
         }
