@@ -250,7 +250,7 @@ static ma_result ma_test_data_source_read(ma_data_source* pDataSource, void* pFr
         frameCount = framesRemaining;
     }
 
-    MA_ZERO_MEMORY(pFrames, frameCount * ma_get_bytes_per_frame(pTestDataSource->format, pTestDataSource->channels));
+    MA_ZERO_MEMORY(pFrames, (size_t)(frameCount * ma_get_bytes_per_frame(pTestDataSource->format, pTestDataSource->channels)));
     pTestDataSource->cursor += frameCount;
 
     if (pTestDataSource->cursor > length) {
