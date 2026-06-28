@@ -55073,7 +55073,7 @@ MA_API void ma_deinterleave_pcm_frames(ma_format format, ma_uint32 channels, ma_
     to keep it fast.
     */
     if (channels == 1) {
-        MA_COPY_MEMORY(ppDeinterleavedPCMFrames[0], pInterleavedPCMFrames, frameCount * ma_get_bytes_per_frame(format, channels));
+        ma_copy_memory_64(ppDeinterleavedPCMFrames[0], pInterleavedPCMFrames, frameCount * ma_get_bytes_per_frame(format, channels));
         return;
     }
 
@@ -55370,7 +55370,7 @@ MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_ui
     to keep it fast.
     */
     if (channels == 1) {
-        MA_COPY_MEMORY(pInterleavedPCMFrames, ppDeinterleavedPCMFrames[0], frameCount * ma_get_bytes_per_frame(format, channels));
+        ma_copy_memory_64(pInterleavedPCMFrames, ppDeinterleavedPCMFrames[0], frameCount * ma_get_bytes_per_frame(format, channels));
         return;
     }
 
