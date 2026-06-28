@@ -98176,7 +98176,7 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
             if (onTell(pUserData, &fileSize)) {
                 hasKnownFileSize = MA_TRUE;
             }
-            onSeek(pUserData, runningFilePos, MA_DR_FLAC_SEEK_SET);
+            onSeek(pUserData, (int)runningFilePos, MA_DR_FLAC_SEEK_SET);
         }
     }
     for (;;) {
