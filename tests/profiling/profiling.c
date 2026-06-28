@@ -93,23 +93,23 @@ ma_bool32 verify_deinterleaving_by_format(ma_format format, ma_uint32 channels)
     void* pDeinterleavedOptimized[MA_MAX_CHANNELS];
     ma_uint32 iChannel;
 
-    pInterleavedReference = ma_malloc(frameCount * bpf, NULL);
-    pInterleavedOptimized = ma_malloc(frameCount * bpf, NULL);
+    pInterleavedReference = ma_malloc((size_t)(frameCount * bpf), NULL);
+    pInterleavedOptimized = ma_malloc((size_t)(frameCount * bpf), NULL);
     
     for (iChannel = 0; iChannel < channels; iChannel += 1) {
-        pDeinterleavedReference[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
-        pDeinterleavedOptimized[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
+        pDeinterleavedReference[iChannel] = ma_malloc((size_t)(frameCount * ma_get_bytes_per_sample(format)), NULL);
+        pDeinterleavedOptimized[iChannel] = ma_malloc((size_t)(frameCount * ma_get_bytes_per_sample(format)), NULL);
     }
 
-    fill_debug_frames(pInterleavedReference, format, channels, frameCount, 0);
-    MA_COPY_MEMORY(pInterleavedOptimized, pInterleavedReference, frameCount * bpf);
+    fill_debug_frames(pInterleavedReference, format, channels, (ma_uint32)frameCount, 0);
+    MA_COPY_MEMORY(pInterleavedOptimized, pInterleavedReference, (size_t)(frameCount * bpf));
 
 
     deinterleave_reference    (format, channels, frameCount, pInterleavedReference, pDeinterleavedReference);
     ma_deinterleave_pcm_frames(format, channels, frameCount, pInterleavedOptimized, pDeinterleavedOptimized);
 
     for (iChannel = 0; iChannel < channels; iChannel += 1) {
-        if (memcmp(pDeinterleavedReference[iChannel], pDeinterleavedOptimized[iChannel], frameCount * ma_get_bytes_per_sample(format)) != 0) {
+        if (memcmp(pDeinterleavedReference[iChannel], pDeinterleavedOptimized[iChannel], (size_t)(frameCount * ma_get_bytes_per_sample(format))) != 0) {
             return MA_FALSE;
         }
     }
@@ -147,13 +147,13 @@ void profile_deinterleaving_by_format(ma_format format, ma_uint32 channels)
 
     ma_timer_init(&timer);
 
-    pInterleaved = ma_malloc(frameCount * bpf, NULL);
+    pInterleaved = ma_malloc((size_t)(frameCount * bpf), NULL);
     
     for (iChannel = 0; iChannel < channels; iChannel += 1) {
-        pDeinterleaved[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
+        pDeinterleaved[iChannel] = ma_malloc((size_t)(frameCount * ma_get_bytes_per_sample(format)), NULL);
     }
 
-    fill_debug_frames(pInterleaved, format, channels, frameCount, 0);
+    fill_debug_frames(pInterleaved, format, channels, (ma_uint32)frameCount, 0);
 
 
     startTime = ma_timer_get_time_in_seconds(&timer);
@@ -169,7 +169,7 @@ void profile_deinterleaving_by_format(ma_format format, ma_uint32 channels)
     I think Clang can recognize that we're not actually doing anything with the output data of our tests and then
     optimizes out the entire thing. We'll do a simple comparision here.
     */
-    if (compare_interleaved_deinterleaved(format, channels, frameCount, pInterleaved, (const void**)pDeinterleaved) == MA_FALSE) {
+    if (compare_interleaved_deinterleaved(format, channels, (ma_uint32)frameCount, pInterleaved, (const void**)pDeinterleaved) == MA_FALSE) {
         printf("FAILED VERIFICATION\n");
     }
 
@@ -230,25 +230,25 @@ ma_bool32 verify_interleaving_by_format(ma_format format, ma_uint32 channels)
     void* pInterleavedOptimized;
     ma_uint32 iChannel;
 
-    pInterleavedReference = ma_malloc(frameCount * bpf, NULL);
-    pInterleavedOptimized = ma_malloc(frameCount * bpf, NULL);
+    pInterleavedReference = ma_malloc((size_t)(frameCount * bpf), NULL);
+    pInterleavedOptimized = ma_malloc((size_t)(frameCount * bpf), NULL);
     
     for (iChannel = 0; iChannel < channels; iChannel += 1) {
-        pDeinterleavedReference[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
-        pDeinterleavedOptimized[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
+        pDeinterleavedReference[iChannel] = ma_malloc((size_t)(frameCount * ma_get_bytes_per_sample(format)), NULL);
+        pDeinterleavedOptimized[iChannel] = ma_malloc((size_t)(frameCount * ma_get_bytes_per_sample(format)), NULL);
     }
 
     /* Fill deinterleaved buffers with test data. */
     for (iChannel = 0; iChannel < channels; iChannel += 1) {
-        fill_debug_frames(pDeinterleavedReference[iChannel], format, 1, frameCount, (ma_uint8)iChannel);    /* Last parameter is to ensure each channel position has different values. */
-        MA_COPY_MEMORY(pDeinterleavedOptimized[iChannel], pDeinterleavedReference[iChannel], frameCount * ma_get_bytes_per_sample(format));
+        fill_debug_frames(pDeinterleavedReference[iChannel], format, 1, (ma_uint32)frameCount, (ma_uint8)iChannel);    /* Last parameter is to ensure each channel position has different values. */
+        MA_COPY_MEMORY(pDeinterleavedOptimized[iChannel], pDeinterleavedReference[iChannel], (size_t)(frameCount * ma_get_bytes_per_sample(format)));
     }
 
 
     interleave_reference    (format, channels, frameCount, (const void**)pDeinterleavedReference, pInterleavedReference);
     ma_interleave_pcm_frames(format, channels, frameCount, (const void**)pDeinterleavedOptimized, pInterleavedOptimized);
 
-    if (memcmp(pInterleavedReference, pInterleavedOptimized, frameCount * bpf) != 0) {
+    if (memcmp(pInterleavedReference, pInterleavedOptimized, (size_t)(frameCount * bpf)) != 0) {
         return MA_FALSE;
     }
 
@@ -285,11 +285,11 @@ void profile_interleaving_by_format(ma_format format, ma_uint32 channels)
 
     ma_timer_init(&timer);
 
-    pInterleaved = ma_malloc(frameCount * bpf, NULL);
+    pInterleaved = ma_malloc((size_t)(frameCount * bpf), NULL);
     
     for (iChannel = 0; iChannel < channels; iChannel += 1) {
-        pDeinterleaved[iChannel] = ma_malloc(frameCount * ma_get_bytes_per_sample(format), NULL);
-        fill_debug_frames(pDeinterleaved[iChannel], format, 1, frameCount, (ma_uint8)iChannel);
+        pDeinterleaved[iChannel] = ma_malloc((size_t)(frameCount * ma_get_bytes_per_sample(format)), NULL);
+        fill_debug_frames(pDeinterleaved[iChannel], format, 1, (ma_uint32)frameCount, (ma_uint8)iChannel);
     }
 
 
@@ -306,7 +306,7 @@ void profile_interleaving_by_format(ma_format format, ma_uint32 channels)
     I think Clang can recognize that we're not actually doing anything with the output data of our tests and then
     optimizes out the entire thing. We'll do a simple comparision here.
     */
-    if (compare_interleaved_deinterleaved(format, channels, frameCount, pInterleaved, (const void**)pDeinterleaved) == MA_FALSE) {
+    if (compare_interleaved_deinterleaved(format, channels, (ma_uint32)frameCount, pInterleaved, (const void**)pDeinterleaved) == MA_FALSE) {
         printf("FAILED VERIFICATION\n");
     }
 
