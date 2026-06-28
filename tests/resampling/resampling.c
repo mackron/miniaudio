@@ -98,9 +98,9 @@ static void resampler_data_callback(ma_device* pDevice, void* pFramesOut, const 
                 frameCountOut = frameCount - framesWritten;
                 ma_resampler_process_pcm_frames(&pResamplerData->resampler, pResamplerData->cache, &frameCountIn, ma_offset_ptr(pFramesOut, framesWritten * bpf), &frameCountOut);
 
-                MA_MOVE_MEMORY(pResamplerData->cache, ma_offset_ptr(pResamplerData->cache, frameCountIn * bpf), (pResamplerData->cachedFrameCount - frameCountIn) * bpf);
-                pResamplerData->cachedFrameCount -= frameCountIn;
-                framesWritten += frameCountOut;
+                MA_MOVE_MEMORY(pResamplerData->cache, ma_offset_ptr(pResamplerData->cache, frameCountIn * bpf), (size_t)((pResamplerData->cachedFrameCount - frameCountIn) * bpf));
+                pResamplerData->cachedFrameCount -= (ma_uint32)frameCountIn;
+                framesWritten += (ma_uint32)frameCountOut;
             }
             #endif
 
