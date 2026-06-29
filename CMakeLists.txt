@@ -1053,21 +1053,6 @@ if (MINIAUDIO_BUILD_TOOLS)
         target_compile_definitions(miniaudio_cli PRIVATE MA_NO_THREADING)  # We want to be able to test device I/O without threading.
     endif()
 
-    add_executable(audioconverter ${TOOLS_DIR}/audioconverter/audioconverter.c)
-    target_link_libraries(audioconverter PRIVATE ${COMMON_LINK_LIBRARIES})
-    if (TARGET libvorbis_interface)
-        target_link_libraries(audioconverter PRIVATE libvorbis_interface)
-    else()
-        target_compile_definitions(audioconverter PRIVATE MA_NO_LIBVORBIS)
-        message(STATUS "miniaudio_libvorbis is disabled. Vorbis support is disabled in audioconverter.")
-    endif()
-    if (TARGET libopus_interface)
-        target_link_libraries(audioconverter PRIVATE libopus_interface)
-    else()
-        target_compile_definitions(audioconverter PRIVATE MA_NO_LIBOPUS)
-        message(STATUS "miniaudio_libopus is disabled. Opus support is disabled in audioconverter.")
-    endif()
-
     add_executable(madoc ${TOOLS_DIR}/madoc/madoc.c)
 endif()
 
