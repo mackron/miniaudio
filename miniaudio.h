@@ -83920,11 +83920,11 @@ static ma_result ma_node_translate_bus_counts(const ma_node_config* pConfig, ma_
 
     /* Some special rules for passthrough nodes. */
     if ((pConfig->pVTable->flags & MA_NODE_FLAG_PASSTHROUGH) != 0) {
-        if ((pConfig->pVTable->inputBusCount != 0 && pConfig->pVTable->inputBusCount != 1) || pConfig->pVTable->outputBusCount != 1) {
+        if ((inputBusCount != 0 && inputBusCount != 1) || outputBusCount != 1) {
             return MA_INVALID_ARGS; /* Passthrough nodes must have exactly 1 output bus and either 0 or 1 input bus. */
         }
 
-        if (pConfig->pInputChannels[0] != pConfig->pOutputChannels[0]) {
+        if (inputBusCount > 0 && pConfig->pInputChannels[0] != pConfig->pOutputChannels[0]) {
             return MA_INVALID_ARGS; /* Passthrough nodes must have the same number of channels between input and output nodes. */
         }
     }
