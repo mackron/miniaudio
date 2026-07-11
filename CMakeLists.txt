@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.13)
 
 # Extract version from miniaudio.h
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.h" MINIAUDIO_HEADER_CONTENTS)
@@ -660,6 +660,18 @@ if (UNIX)
     endif()
 endif()
 
+# APPLE is true for all Apple platforms. 
+# For macOS (MA_APPLE_DESKTOP, "Darwin" in CMake), the code uses CoreAudio that does not need Objective-C.
+# For the other Apple platforms, the code uses AVFoundation that requires Objective-C.
+if(APPLE AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+    if(MINIAUDIO_FORCE_CXX)
+        enable_language(OBJCXX)
+        set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE OBJCXX)
+    else()
+        enable_language(OBJC)
+        set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE OBJC)
+    endif()
+endif()
 
 # Static Libraries
 add_library(miniaudio

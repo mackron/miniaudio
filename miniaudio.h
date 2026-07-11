@@ -56092,7 +56092,6 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
     ma_uint32 c;
     const ma_uint32 channels = pLPF->channels;
     const float a = pLPF->a.f32;
-    const float b = 1 - a;
 
     MA_ASSUME(channels > 0);
     for (c = 0; c < channels; c += 1) {
@@ -56100,9 +56099,9 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
         float x  = pX[c];
         float y;
 
-        y = b*x + a*r1;
+        y = x + a*(r1 - x);
 
-        pY[c]           = y;
+        pY[c]            = y;
         pLPF->pR1[c].f32 = y;
     }
 }
@@ -56964,8 +56963,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
 {
     ma_uint32 c;
     const ma_uint32 channels = pHPF->channels;
-    const float a = 1 - pHPF->a.f32;
-    const float b = 1 - a;
+    const float b = pHPF->a.f32;
 
     MA_ASSUME(channels > 0);
     for (c = 0; c < channels; c += 1) {
@@ -56973,7 +56971,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
         float x  = pX[c];
         float y;
 
-        y = b*x - a*r1;
+        y = b*(x + r1) - r1;
 
         pY[c]            = y;
         pHPF->pR1[c].f32 = y;
