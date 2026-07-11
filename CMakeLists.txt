@@ -414,58 +414,64 @@ endif()
 
 # SteamAudio has an annoying SDK setup. In the lib folder there is a folder for each platform. We need to specify the
 # platform we're compiling for.
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    # Assume 64-bit. Now we need to check if it's for Windows or Linux.
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" MINIAUDIO_PROCESSOR_LOWER)
+
+set(STEAMAUDIO_ARCH "")
+
+if(MINIAUDIO_PROCESSOR_LOWER MATCHES "^(x86_64|amd64)$")
     if(WIN32)
         set(STEAMAUDIO_ARCH windows-x64)
-    else()
+    elseif(UNIX AND NOT APPLE)
         set(STEAMAUDIO_ARCH linux-x64)
     endif()
-else()
-    # Assume 32-bit. Now we need to check if it's for Windows or Linux.
+elseif(MINIAUDIO_PROCESSOR_LOWER MATCHES "^(x86|i[3-6]86)$")
     if(WIN32)
         set(STEAMAUDIO_ARCH windows-x86)
-    else()
+    elseif(UNIX AND NOT APPLE)
         set(STEAMAUDIO_ARCH linux-x86)
     endif()
 endif()
 
-# When searching for SteamAudio, we'll support installing it in the external/steamaudio directory.
-set(STEAMAUDIO_FIND_LIBRARY_HINTS)
-list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/lib/${STEAMAUDIO_ARCH})
+if(STEAMAUDIO_ARCH)
+    # When searching for SteamAudio, we'll support installing it in the external/steamaudio directory.
+    set(STEAMAUDIO_FIND_LIBRARY_HINTS)
+    list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/lib/${STEAMAUDIO_ARCH})
 
-if(WIN32)
-else()
-    list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /opt/steamaudio/lib/${STEAMAUDIO_ARCH})
-    list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /usr/local/steamaudio/lib/${STEAMAUDIO_ARCH})
-endif()
-
-set(STEAMAUDIO_FIND_HEADER_HINTS)
-list(APPEND STEAMAUDIO_FIND_HEADER_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/include)
-
-if(WIN32)
-else()
-    list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /opt/steamaudio/include)
-    list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /usr/local/steamaudio/include)
-endif()
-
-
-find_library(STEAMAUDIO_LIBRARY NAMES phonon HINTS ${STEAMAUDIO_FIND_LIBRARY_HINTS})
-if(STEAMAUDIO_LIBRARY)
-    message(STATUS "Found SteamAudio: ${STEAMAUDIO_LIBRARY}")
-
-    find_path(STEAMAUDIO_INCLUDE_DIR
-        NAMES phonon.h
-        HINTS ${STEAMAUDIO_FIND_HEADER_HINTS}
-    )
-    if(STEAMAUDIO_INCLUDE_DIR)
-        message(STATUS "Found phonon.h in ${STEAMAUDIO_INCLUDE_DIR}")
-        set(HAS_STEAMAUDIO TRUE)
+    if(WIN32)
     else()
-        message(STATUS "Could not find phonon.h. miniaudio_engine_steamaudio will be excluded.")
+        list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /opt/steamaudio/lib/${STEAMAUDIO_ARCH})
+        list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS /usr/local/steamaudio/lib/${STEAMAUDIO_ARCH})
+    endif()
+
+    set(STEAMAUDIO_FIND_HEADER_HINTS)
+    list(APPEND STEAMAUDIO_FIND_HEADER_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/include)
+
+    if(WIN32)
+    else()
+        list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /opt/steamaudio/include)
+        list(APPEND STEAMAUDIO_FIND_HEADER_HINTS /usr/local/steamaudio/include)
+    endif()
+
+
+    find_library(STEAMAUDIO_LIBRARY NAMES phonon HINTS ${STEAMAUDIO_FIND_LIBRARY_HINTS})
+    if(STEAMAUDIO_LIBRARY)
+        message(STATUS "Found SteamAudio: ${STEAMAUDIO_LIBRARY}")
+
+        find_path(STEAMAUDIO_INCLUDE_DIR
+            NAMES phonon.h
+            HINTS ${STEAMAUDIO_FIND_HEADER_HINTS}
+        )
+        if(STEAMAUDIO_INCLUDE_DIR)
+            message(STATUS "Found phonon.h in ${STEAMAUDIO_INCLUDE_DIR}")
+            set(HAS_STEAMAUDIO TRUE)
+        else()
+            message(STATUS "Could not find phonon.h. miniaudio_engine_steamaudio will be excluded.")
+        endif()
+    else()
+        message(STATUS "SteamAudio not found. miniaudio_engine_steamaudio will be excluded.")
     endif()
 else()
-    message(STATUS "SteamAudio not found. miniaudio_engine_steamaudio will be excluded.")
+    message(STATUS "SteamAudio is not supported on ${CMAKE_SYSTEM_PROCESSOR}. miniaudio_engine_steamaudio will be excluded.")
 endif()
 
 
