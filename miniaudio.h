@@ -1616,10 +1616,10 @@ default the attenuation model is set to `ma_attenuation_model_inverse` which is 
 OpenAL's `AL_INVERSE_DISTANCE_CLAMPED`. Configure the attenuation model like so:
 
     ```c
-    ma_sound_set_attenuation_model(&sound, ma_attenuation_model_inverse);
+    ma_sound_set_attenuation_model(&sound, ma_attenuation_model_inverse, NULL);
     ```
 
-The supported attenuation models include the following:
+The supported stock attenuation models include the following:
 
     +----------------------------------+----------------------------------------------+
     | ma_attenuation_model_none        | No distance attenuation.                     |
@@ -1630,6 +1630,26 @@ The supported attenuation models include the following:
     +----------------------------------+----------------------------------------------+
     | ma_attenuation_model_exponential | Exponential attenuation.                     |
     +----------------------------------+----------------------------------------------+
+
+The second parameter is a user data pointer which for stock attenuation models should always be set
+to null. A custom attenuation model can be plugged in like so:
+
+    ```c
+    float your_custom_attenuation_model(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff)
+    {
+        // This is just linear attenuation. You would plug in your own model here.
+        if (minDistance >= maxDistance) {
+            return 1;   // To avoid division by zero. Do not attenuate.
+        }
+
+        return 1 - rolloff * (ma_clamp(distance, minDistance, maxDistance) - minDistance) / (maxDistance - minDistance);
+    }
+
+    ma_sound_set_attenuation_model(&sound, your_custom_attenuation_model, &userDataIfRequiredByYourModel);    
+    ```
+
+The attenuation model cannot be changed while the sound is processing. You should set the
+attenuation model once at initialization time before the sound is started.
 
 To control how quickly a sound rolls off as it moves away from the listener, you need to configure
 the rolloff:
@@ -5753,13 +5773,22 @@ typedef struct
     ma_spinlock lock;
 } ma_atomic_vec3f;
 
-typedef enum
-{
-    ma_attenuation_model_none,          /* No distance attenuation and no spatialization. */
-    ma_attenuation_model_inverse,       /* Equivalent to OpenAL's AL_INVERSE_DISTANCE_CLAMPED. */
-    ma_attenuation_model_linear,        /* Linear attenuation. Equivalent to OpenAL's AL_LINEAR_DISTANCE_CLAMPED. */
-    ma_attenuation_model_exponential    /* Exponential attenuation. Equivalent to OpenAL's AL_EXPONENT_DISTANCE_CLAMPED. */
-} ma_attenuation_model;
+
+/* Callback for attenuation models. The user data is unused for all stock models. */
+typedef float (* ma_attenuation_model)(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff);
+
+/* No distance attenuation. */
+MA_API float ma_attenuation_model_none(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff);
+
+/* Equivalent to OpenAL's AL_INVERSE_DISTANCE_CLAMPED. */
+MA_API float ma_attenuation_model_inverse(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff);
+
+/* Linear attenuation. Equivalent to OpenAL's AL_LINEAR_DISTANCE_CLAMPED. */
+MA_API float ma_attenuation_model_linear(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff);
+
+/* Exponential attenuation. Equivalent to OpenAL's AL_EXPONENT_DISTANCE_CLAMPED. */
+MA_API float ma_attenuation_model_exponential(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff);
+
 
 typedef enum
 {
@@ -5829,6 +5858,7 @@ typedef struct
     ma_uint32 channelsOut;
     ma_channel* pChannelMapIn;
     ma_attenuation_model attenuationModel;
+    void* pAttenuationUserData;
     ma_positioning positioning;
     ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
     float minGain;
@@ -5854,6 +5884,7 @@ typedef struct
     ma_uint32 channelsOut;
     ma_channel* pChannelMapIn;
     ma_attenuation_model attenuationModel;
+    void* pAttenuationUserData;
     ma_positioning positioning;
     ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
     float minGain;
@@ -5889,7 +5920,7 @@ MA_API ma_result ma_spatializer_set_master_volume(ma_spatializer* pSpatializer, 
 MA_API ma_result ma_spatializer_get_master_volume(const ma_spatializer* pSpatializer, float* pVolume);
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
-MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel);
+MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel, void* pAttenuationUserData);
 MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning);
 MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpatializer);
@@ -12180,7 +12211,7 @@ MA_API void ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_direction(const ma_sound* pSound);
 MA_API void ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound);
-MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel);
+MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel, void* pAttenuationUserData);
 MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound);
 MA_API void ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning);
 MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound);
@@ -12251,7 +12282,7 @@ MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float 
 MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup);
-MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel);
+MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel, void* pAttenuationUserData);
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning);
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup);
@@ -60034,9 +60065,20 @@ static ma_vec3f ma_get_channel_direction(ma_channel channel)
 }
 
 
-
-static float ma_attenuation_inverse(float distance, float minDistance, float maxDistance, float rolloff)
+MA_API float ma_attenuation_model_none(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff)
 {
+    (void)pUserData;
+    (void)distance;
+    (void)minDistance;
+    (void)maxDistance;
+    (void)rolloff;
+    return 1;
+}
+
+MA_API float ma_attenuation_model_inverse(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff)
+{
+    (void)pUserData;
+
     if (minDistance >= maxDistance) {
         return 1;   /* To avoid division by zero. Do not attenuate. */
     }
@@ -60044,8 +60086,10 @@ static float ma_attenuation_inverse(float distance, float minDistance, float max
     return minDistance / (minDistance + rolloff * (ma_clamp(distance, minDistance, maxDistance) - minDistance));
 }
 
-static float ma_attenuation_linear(float distance, float minDistance, float maxDistance, float rolloff)
+MA_API float ma_attenuation_model_linear(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff)
 {
+    (void)pUserData;
+
     if (minDistance >= maxDistance) {
         return 1;   /* To avoid division by zero. Do not attenuate. */
     }
@@ -60053,14 +60097,18 @@ static float ma_attenuation_linear(float distance, float minDistance, float maxD
     return 1 - rolloff * (ma_clamp(distance, minDistance, maxDistance) - minDistance) / (maxDistance - minDistance);
 }
 
-static float ma_attenuation_exponential(float distance, float minDistance, float maxDistance, float rolloff)
+MA_API float ma_attenuation_model_exponential(void* pUserData, float distance, float minDistance, float maxDistance, float rolloff)
 {
+    (void)pUserData;
+
     if (minDistance >= maxDistance) {
         return 1;   /* To avoid division by zero. Do not attenuate. */
     }
 
     return (float)ma_powd(ma_clamp(distance, minDistance, maxDistance) / minDistance, -rolloff);
 }
+
+
 
 
 /*
@@ -60573,6 +60621,7 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
     pSpatializer->channelsIn                   = pConfig->channelsIn;
     pSpatializer->channelsOut                  = pConfig->channelsOut;
     pSpatializer->attenuationModel             = pConfig->attenuationModel;
+    pSpatializer->pAttenuationUserData         = pConfig->pAttenuationUserData;
     pSpatializer->positioning                  = pConfig->positioning;
     pSpatializer->handedness                   = pConfig->handedness;
     pSpatializer->minGain                      = pConfig->minGain;
@@ -60718,6 +60767,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
     pChannelMapIn = pSpatializer->pChannelMapIn;
     pChannelMapOut = pListener->config.pChannelMapOut;
 
+    #if 0
     /* If we're not spatializing we need to run an optimized path. */
     if (ma_atomic_load_i32(&pSpatializer->attenuationModel) == ma_attenuation_model_none) {
         if (ma_spatializer_listener_is_enabled(pListener)) {
@@ -60737,7 +60787,9 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         the correct thinking so might need to review this later.
         */
         pSpatializer->dopplerPitch = 1;
-    } else {
+    } else
+    #endif
+    {
         /*
         Let's first determine which listener the sound is closest to. Need to keep in mind that we
         might not have a world or any listeners, in which case we just spatializer based on the
@@ -60780,24 +60832,10 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         distance = ma_vec3f_len(relativePos);
 
         /* We've gathered the data, so now we can apply some spatialization. */
-        switch (ma_spatializer_get_attenuation_model(pSpatializer)) {
-            case ma_attenuation_model_inverse:
-            {
-                gain = ma_attenuation_inverse(distance, minDistance, maxDistance, rolloff);
-            } break;
-            case ma_attenuation_model_linear:
-            {
-                gain = ma_attenuation_linear(distance, minDistance, maxDistance, rolloff);
-            } break;
-            case ma_attenuation_model_exponential:
-            {
-                gain = ma_attenuation_exponential(distance, minDistance, maxDistance, rolloff);
-            } break;
-            case ma_attenuation_model_none:
-            default:
-            {
-                gain = 1;
-            } break;
+        if (pSpatializer->attenuationModel != NULL) {
+            gain = pSpatializer->attenuationModel(pSpatializer->pAttenuationUserData, distance, minDistance, maxDistance, rolloff);
+        } else {
+            gain = ma_attenuation_model_none(NULL, distance, minDistance, maxDistance, rolloff);
         }
 
         /* Normalize the position. */
@@ -61048,13 +61086,14 @@ MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpati
     return pSpatializer->channelsOut;
 }
 
-MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel)
+MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel, void* pAttenuationUserData)
 {
     if (pSpatializer == NULL) {
         return;
     }
 
-    ma_atomic_exchange_i32(&pSpatializer->attenuationModel, attenuationModel);
+    pSpatializer->attenuationModel     = attenuationModel;
+    pSpatializer->pAttenuationUserData = pAttenuationUserData;
 }
 
 MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer)
@@ -61063,7 +61102,7 @@ MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatia
         return ma_attenuation_model_none;
     }
 
-    return (ma_attenuation_model)ma_atomic_load_i32(&pSpatializer->attenuationModel);
+    return pSpatializer->attenuationModel;
 }
 
 MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning)
@@ -88507,13 +88546,13 @@ MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound)
     return ma_spatializer_get_velocity(&pSound->engineNode.spatializer);
 }
 
-MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel)
+MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel, void* pAttenuationUserData)
 {
     if (pSound == NULL) {
         return;
     }
 
-    ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, attenuationModel);
+    ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, attenuationModel, pAttenuationUserData);
 }
 
 MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound)
@@ -89213,9 +89252,9 @@ MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup)
     return ma_sound_get_velocity(pGroup);
 }
 
-MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel)
+MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel, void* pAttenuationUserData)
 {
-    ma_sound_set_attenuation_model(pGroup, attenuationModel);
+    ma_sound_set_attenuation_model(pGroup, attenuationModel, pAttenuationUserData);
 }
 
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup)
