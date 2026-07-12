@@ -86493,6 +86493,15 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                     }
 
                     framesJustRead = totalFramesConverted;
+
+                    /*
+                    When the last iteration of the loop above returns MA_AT_END, we can be in a situation where `result` is MA_AT_END and
+                    framesJustRead is >0. This is never valid in miniaudio so we need to normalize this (MA_AT_END should only be used
+                    when the number of frames read is exactly 0, everywhere in miniaudio).
+                    */
+                    if (result == MA_AT_END && framesJustRead > 0) {
+                        result = MA_SUCCESS;
+                    }
                 }
 
                 MA_ASSERT(framesJustRead <= pSound->processingCacheCap);
