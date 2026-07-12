@@ -4,6 +4,7 @@ v0.11.26 - TBD
 * Fixed a crash when passing in null for the read or seek callbacks for a decoder.
 * Fixed an error with node initialization.
 * Fixed build for Arm64EC on MSVC.
+* Resource Manager: Fixed a possible crash when loading fails.
 * PulseAudio: Improvements to format negotiation to better handle cases when PulseAudio reports s24_32 as its native format.
 * Emscripten: Fixed an error with ALLOW_MEMORY_GROWTH.
 * Emscripten: Fixed some issues relating to handling of 64-bit pointers.
