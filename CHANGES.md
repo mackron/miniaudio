@@ -1,6 +1,12 @@
 v0.11.26 - TBD
 =====================
+* Fixed a bug where the ends of sounds are cutoff. This affects `ma_sound`.
 * Fixed a crash when passing in null for the read or seek callbacks for a decoder.
+* Fixed an error with node initialization.
+* Fixed build for Arm64EC on MSVC.
+* PulseAudio: Improvements to format negotiation to better handle cases when PulseAudio reports s24_32 as its native format.
+* Emscripten: Fixed an error with ALLOW_MEMORY_GROWTH.
+* Emscripten: Fixed some issues relating to handling of 64-bit pointers.
 
 
 v0.11.25 - 2026-03-04
