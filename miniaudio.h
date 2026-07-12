@@ -80409,21 +80409,26 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
     }
 
 done:
-    /* If we failed to initialize the data buffer we need to free it. */
-    if (result != MA_SUCCESS) {
-        if (nodeAlreadyExists == MA_FALSE) {
-            ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
-            ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
-        }
-    }
+    {
+        ma_bool32 isDataOwnedByResourceManager = pDataBufferNode->isDataOwnedByResourceManager;
 
-    /*
-    The init notification needs to be uninitialized. This will be used if the node does not already
-    exist, and we've specified ASYNC | WAIT_INIT.
-    */
-    if (nodeAlreadyExists == MA_FALSE && pDataBufferNode->isDataOwnedByResourceManager && (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0) {
-        if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-            ma_resource_manager_inline_notification_uninit(&initNotification);
+        /* If we failed to initialize the data buffer we need to free it. */
+        if (result != MA_SUCCESS) {
+            if (nodeAlreadyExists == MA_FALSE) {
+                ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
+                ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
+                pDataBufferNode = NULL;
+            }
+        }
+
+        /*
+        The init notification needs to be uninitialized. This will be used if the node does not already
+        exist, and we've specified ASYNC | WAIT_INIT.
+        */
+        if (nodeAlreadyExists == MA_FALSE && isDataOwnedByResourceManager && (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0) {
+            if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                ma_resource_manager_inline_notification_uninit(&initNotification);
+            }
         }
     }
 
