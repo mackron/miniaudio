@@ -90980,6 +90980,9 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             ((pWav->container == ma_dr_wav_container_w64) && ma_dr_wav_guid_equal(header.id.guid, ma_dr_wavGUID_W64_FACT))) {
             if (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rifx) {
                 ma_uint8 sampleCount[4];
+                if (chunkSize < 4) {
+                    return MA_FALSE;
+                }
                 if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, &sampleCount, 4, &cursor) != 4) {
                     return MA_FALSE;
                 }
@@ -90990,6 +90993,9 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                     sampleCountFromFactChunk = 0;
                 }
             } else if (pWav->container == ma_dr_wav_container_w64) {
+                if (chunkSize < 8) {
+                    return MA_FALSE;
+                }
                 if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, &sampleCountFromFactChunk, 8, &cursor) != 8) {
                     return MA_FALSE;
                 }
