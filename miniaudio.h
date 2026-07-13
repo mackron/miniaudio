@@ -80482,6 +80482,14 @@ MA_PRIVATE unsigned int ma_dr_wav__chunk_padding_size_w64(ma_uint64 chunkSize)
 {
     return (unsigned int)(chunkSize % 8);
 }
+MA_PRIVATE unsigned int ma_dr_wav_calculate_padding_size(ma_dr_wav_container container, ma_uint64 chunkSize)
+{
+    if (container == ma_dr_wav_container_riff || container == ma_dr_wav_container_rf64) {
+        return ma_dr_wav__chunk_padding_size_riff(chunkSize);
+    } else {
+        return ma_dr_wav__chunk_padding_size_w64(chunkSize);
+    }
+}
 MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__msadpcm(ma_dr_wav* pWav, ma_uint64 samplesToRead, ma_int16* pBufferOut);
 MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__ima(ma_dr_wav* pWav, ma_uint64 samplesToRead, ma_int16* pBufferOut);
 MA_PRIVATE ma_bool32 ma_dr_wav_init_write__internal(ma_dr_wav* pWav, const ma_dr_wav_data_format* pFormat, ma_uint64 totalSampleCount);
@@ -81597,6 +81605,9 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             ((pWav->container == ma_dr_wav_container_w64) && ma_dr_wav_guid_equal(header.id.guid, ma_dr_wavGUID_W64_FACT))) {
             if (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rifx) {
                 ma_uint8 sampleCount[4];
+                if (chunkSize < 4) {
+                    return MA_FALSE;
+                }
                 if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, &sampleCount, 4, &cursor) != 4) {
                     return MA_FALSE;
                 }
@@ -81607,6 +81618,9 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                     sampleCountFromFactChunk = 0;
                 }
             } else if (pWav->container == ma_dr_wav_container_w64) {
+                if (chunkSize < 8) {
+                    return MA_FALSE;
+                }
                 if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, &sampleCountFromFactChunk, 8, &cursor) != 8) {
                     return MA_FALSE;
                 }
@@ -82858,6 +82872,49 @@ MA_API ma_bool32 ma_dr_wav_init_memory_write_sequential_pcm_frames(ma_dr_wav* pW
     }
     return ma_dr_wav_init_memory_write_sequential(pWav, ppData, pDataSize, pFormat, totalPCMFrameCount*pFormat->channels, pAllocationCallbacks);
 }
+MA_PRIVATE ma_uint32 ma_dr_wav_write_padding(ma_dr_wav* pWav)
+{
+    ma_uint32 paddingSize = ma_dr_wav_calculate_padding_size(pWav->container, pWav->dataChunkDataSize);
+    if (paddingSize > 0) {
+        ma_uint64 paddingData = 0;
+        ma_dr_wav__write(pWav, &paddingData, paddingSize);
+    }
+    return paddingSize;
+}
+MA_PRIVATE void ma_dr_wav_write_chunk_sizes(ma_dr_wav* pWav)
+{
+    if (pWav->onSeek != NULL && !pWav->isSequentialWrite) {
+        if (pWav->container == ma_dr_wav_container_riff) {
+            if (pWav->onSeek(pWav->pUserData, 4, MA_DR_WAV_SEEK_SET)) {
+                ma_uint32 riffChunkSize = ma_dr_wav__riff_chunk_size_riff(pWav->dataChunkDataSize, pWav->pMetadata, pWav->metadataCount);
+                ma_dr_wav__write_u32ne_to_le(pWav, riffChunkSize);
+            }
+            if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos - 4, MA_DR_WAV_SEEK_SET)) {
+                ma_uint32 dataChunkSize = ma_dr_wav__data_chunk_size_riff(pWav->dataChunkDataSize);
+                ma_dr_wav__write_u32ne_to_le(pWav, dataChunkSize);
+            }
+        } else if (pWav->container == ma_dr_wav_container_w64) {
+            if (pWav->onSeek(pWav->pUserData, 16, MA_DR_WAV_SEEK_SET)) {
+                ma_uint64 riffChunkSize = ma_dr_wav__riff_chunk_size_w64(pWav->dataChunkDataSize);
+                ma_dr_wav__write_u64ne_to_le(pWav, riffChunkSize);
+            }
+            if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos - 8, MA_DR_WAV_SEEK_SET)) {
+                ma_uint64 dataChunkSize = ma_dr_wav__data_chunk_size_w64(pWav->dataChunkDataSize);
+                ma_dr_wav__write_u64ne_to_le(pWav, dataChunkSize);
+            }
+        } else if (pWav->container == ma_dr_wav_container_rf64) {
+            int ds64BodyPos = 12 + 8;
+            if (pWav->onSeek(pWav->pUserData, ds64BodyPos + 0, MA_DR_WAV_SEEK_SET)) {
+                ma_uint64 riffChunkSize = ma_dr_wav__riff_chunk_size_rf64(pWav->dataChunkDataSize, pWav->pMetadata, pWav->metadataCount);
+                ma_dr_wav__write_u64ne_to_le(pWav, riffChunkSize);
+            }
+            if (pWav->onSeek(pWav->pUserData, ds64BodyPos + 8, MA_DR_WAV_SEEK_SET)) {
+                ma_uint64 dataChunkSize = ma_dr_wav__data_chunk_size_rf64(pWav->dataChunkDataSize);
+                ma_dr_wav__write_u64ne_to_le(pWav, dataChunkSize);
+            }
+        }
+    }
+}
 MA_API ma_result ma_dr_wav_uninit(ma_dr_wav* pWav)
 {
     ma_result result = MA_SUCCESS;
@@ -82865,48 +82922,8 @@ MA_API ma_result ma_dr_wav_uninit(ma_dr_wav* pWav)
         return MA_INVALID_ARGS;
     }
     if (pWav->onWrite != NULL) {
-        ma_uint32 paddingSize = 0;
-        if (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rf64) {
-            paddingSize = ma_dr_wav__chunk_padding_size_riff(pWav->dataChunkDataSize);
-        } else {
-            paddingSize = ma_dr_wav__chunk_padding_size_w64(pWav->dataChunkDataSize);
-        }
-        if (paddingSize > 0) {
-            ma_uint64 paddingData = 0;
-            ma_dr_wav__write(pWav, &paddingData, paddingSize);
-        }
-        if (pWav->onSeek && !pWav->isSequentialWrite) {
-            if (pWav->container == ma_dr_wav_container_riff) {
-                if (pWav->onSeek(pWav->pUserData, 4, MA_DR_WAV_SEEK_SET)) {
-                    ma_uint32 riffChunkSize = ma_dr_wav__riff_chunk_size_riff(pWav->dataChunkDataSize, pWav->pMetadata, pWav->metadataCount);
-                    ma_dr_wav__write_u32ne_to_le(pWav, riffChunkSize);
-                }
-                if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos - 4, MA_DR_WAV_SEEK_SET)) {
-                    ma_uint32 dataChunkSize = ma_dr_wav__data_chunk_size_riff(pWav->dataChunkDataSize);
-                    ma_dr_wav__write_u32ne_to_le(pWav, dataChunkSize);
-                }
-            } else if (pWav->container == ma_dr_wav_container_w64) {
-                if (pWav->onSeek(pWav->pUserData, 16, MA_DR_WAV_SEEK_SET)) {
-                    ma_uint64 riffChunkSize = ma_dr_wav__riff_chunk_size_w64(pWav->dataChunkDataSize);
-                    ma_dr_wav__write_u64ne_to_le(pWav, riffChunkSize);
-                }
-                if (pWav->onSeek(pWav->pUserData, (int)pWav->dataChunkDataPos - 8, MA_DR_WAV_SEEK_SET)) {
-                    ma_uint64 dataChunkSize = ma_dr_wav__data_chunk_size_w64(pWav->dataChunkDataSize);
-                    ma_dr_wav__write_u64ne_to_le(pWav, dataChunkSize);
-                }
-            } else if (pWav->container == ma_dr_wav_container_rf64) {
-                int ds64BodyPos = 12 + 8;
-                if (pWav->onSeek(pWav->pUserData, ds64BodyPos + 0, MA_DR_WAV_SEEK_SET)) {
-                    ma_uint64 riffChunkSize = ma_dr_wav__riff_chunk_size_rf64(pWav->dataChunkDataSize, pWav->pMetadata, pWav->metadataCount);
-                    ma_dr_wav__write_u64ne_to_le(pWav, riffChunkSize);
-                }
-                if (pWav->onSeek(pWav->pUserData, ds64BodyPos + 8, MA_DR_WAV_SEEK_SET)) {
-                    ma_uint64 dataChunkSize = ma_dr_wav__data_chunk_size_rf64(pWav->dataChunkDataSize);
-                    ma_dr_wav__write_u64ne_to_le(pWav, dataChunkSize);
-                }
-            }
-        }
         if (pWav->isSequentialWrite) {
+            ma_dr_wav_write_padding(pWav);
             if (pWav->dataChunkDataSize != pWav->dataChunkDataSizeTargetWrite) {
                 result = MA_INVALID_FILE;
             }
@@ -83169,6 +83186,14 @@ MA_API size_t ma_dr_wav_write_raw(ma_dr_wav* pWav, size_t bytesToWrite, const vo
     }
     bytesWritten = pWav->onWrite(pWav->pUserData, pData, bytesToWrite);
     pWav->dataChunkDataSize += bytesWritten;
+    if (!pWav->isSequentialWrite) {
+        ma_uint32 padding;
+        padding = ma_dr_wav_write_padding(pWav);
+        ma_dr_wav_write_chunk_sizes(pWav);
+        if (pWav->onSeek != NULL) {
+            pWav->onSeek(pWav->pUserData, -(int)padding, MA_DR_WAV_SEEK_END);
+        }
+    }
     return bytesWritten;
 }
 MA_API ma_uint64 ma_dr_wav_write_pcm_frames_le(ma_dr_wav* pWav, ma_uint64 framesToWrite, const void* pData)
@@ -88845,7 +88870,7 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
             if (onTell(pUserData, &fileSize)) {
                 hasKnownFileSize = MA_TRUE;
             }
-            onSeek(pUserData, runningFilePos, MA_DR_FLAC_SEEK_SET);
+            onSeek(pUserData, (int)runningFilePos, MA_DR_FLAC_SEEK_SET);
         }
     }
     for (;;) {
