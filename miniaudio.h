@@ -80871,7 +80871,19 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
     }
 
     if (ma_resource_manager_data_buffer_result(pDataBuffer) == MA_SUCCESS) {
-        /* The data buffer can be deleted synchronously. */
+        /*
+        The data buffer can be deleted synchronously. Before doing so we must wait for any
+        in-flight load job to fully retire. The load job publishes its result code (which is what
+        makes us take this branch) a few instructions before it finishes referencing pDataBuffer
+        and increments the execution pointer. Tearing the buffer down the instant we observe
+        MA_SUCCESS therefore races the tail of the load job, which then reads and writes freed
+        memory. Wait for the execution pointer to catch up to the execution counter so that no job
+        is still referencing the buffer, exactly as the asynchronous path relies on for ordering.
+        */
+        while (ma_atomic_load_32(&pDataBuffer->executionPointer) != ma_atomic_load_32(&pDataBuffer->executionCounter)) {
+            ma_yield();
+        }
+
         return ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
     } else {
         /*
