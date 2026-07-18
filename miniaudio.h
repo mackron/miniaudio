@@ -13322,7 +13322,7 @@ This can be reviewed as compatibility issues arise. The preference is to use _wf
 fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
 */
 #if defined(_WIN32) && !defined(MA_XBOX_NXDK)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
+    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS)) && !defined(__CRTDLL__)
         #define MA_HAS_WFOPEN
     #endif
 #endif
@@ -23381,6 +23381,7 @@ typedef struct
 
 static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_uint32 loopbackProcessID, ma_bool32 loopbackProcessExclude, ma_IAudioClient** ppAudioClient, ma_WASAPIDeviceInterface** ppDeviceInterface)
 {
+#if !defined(_MSC_VER) || defined(__clang__)
     ma_result result;
     ma_bool32 usingProcessLoopback = MA_FALSE;
     MA_AUDIOCLIENT_ACTIVATION_PARAMS audioclientActivationParams;
@@ -23430,6 +23431,9 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
     }
 
     return result;
+#else
+    return MA_BACKEND_NOT_ENABLED;
+#endif
 }
 
 
