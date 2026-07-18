@@ -39769,8 +39769,10 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
 
     status = pContextStateCoreAudio->AudioUnitRender(pDeviceStateCoreAudio->audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
     if (status != noErr) {
+        /* AudioUnitRender() failed. Attempt a reroute. If the reroute fails, the device will be stopped. */
+        ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingCaptureDevice, MA_TRUE);
         ma_device_state_async_release(&pDeviceStateCoreAudio->async);
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "ERROR: AudioUnitRender() failed with %d.", (int)status);
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "ERROR: AudioUnitRender() failed with %d. Attempting reroute.", (int)status);
         return status;
     }
 
@@ -40909,12 +40911,26 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
         if (ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice)) {
             result = ma_device_reinit_internal__coreaudio(pDevice, ma_device_type_playback, MA_TRUE);
             ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice, MA_FALSE);
+
+            /* If we failed to switch devices stop the device outright. */
+            if (result != MA_SUCCESS) {
+                pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitPlayback);
+                return result;  /* Rerouting failed. */
+            }
+
             wasReinitialized = MA_TRUE;
         }
 
         if (ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingCaptureDevice)) {
             result = ma_device_reinit_internal__coreaudio(pDevice, ma_device_type_capture, MA_TRUE);
             ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingCaptureDevice, MA_FALSE);
+
+            /* If we failed to switch devices stop the device outright. */
+            if (result != MA_SUCCESS) {
+                pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitCapture);
+                return result;  /* Rerouting failed. */
+            }
+
             wasReinitialized = MA_TRUE;
         }
 
