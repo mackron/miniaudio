@@ -39746,6 +39746,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     */
     result = ma_device_realloc_AudioBufferList__coreaudio(pDevice, frameCount, pDevice->capture.internalFormat, pDevice->capture.internalChannels, layout);
     if (result != MA_SUCCESS) {
+        ma_device_state_async_release(&pDeviceStateCoreAudio->async);
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "Failed to allocate AudioBufferList for capture.");
         return noErr;
     }
@@ -39768,6 +39769,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
 
     status = pContextStateCoreAudio->AudioUnitRender(pDeviceStateCoreAudio->audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
     if (status != noErr) {
+        ma_device_state_async_release(&pDeviceStateCoreAudio->async);
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "ERROR: AudioUnitRender() failed with %d.", (int)status);
         return status;
     }
@@ -52677,7 +52679,7 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
         }
     }
 
-    ma_semaphore_release(&pAsyncDeviceState->semaphore);
+    ma_device_state_async_release(pAsyncDeviceState);
 }
 /* END ma_device_state_async.c */
 
