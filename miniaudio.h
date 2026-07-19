@@ -14024,14 +14024,14 @@ _wfopen() isn't always available in all compilation environments.
 
     * Windows only.
     * MSVC seems to support it universally as far back as VC6 from what I can tell (haven't checked further back).
-    * MinGW-64 (both 32- and 64-bit) seems to support it.
+    * MinGW-64 (both 32- and 64-bit) seems to support it, except when compiling with `-mcrtdll=crtdll`.
     * MinGW wraps it in !defined(__STRICT_ANSI__).
     * OpenWatcom wraps it in !defined(_NO_EXT_KEYS).
 
 This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
 fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
 */
-#if defined(_WIN32) && !defined(MA_XBOX_NXDK)
+#if defined(_WIN32) && !defined(MA_XBOX_NXDK) && !defined(__CRTDLL__)
     #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
         #define MA_HAS_WFOPEN
     #endif
