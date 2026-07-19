@@ -71164,7 +71164,20 @@ stage2:
                 /* Threading is enabled. The job queue will deal with the rest of the cleanup from here. */
             }
         } else {
-            /* The sound isn't loading so we can just free the node here. */
+            /*
+            The node isn't loading, so it can be freed synchronously here. But first wait for any
+            in-flight job to fully retire. A decoded-paged node reports MA_SUCCESS as soon as it is
+            playable, while page_data_buffer_node jobs keep decoding the remaining pages and only
+            increment the execution pointer at their tail. Freeing the node the instant we observe a
+            non-BUSY result therefore races the tail of such a job, which then reads/writes freed
+            memory. Wait for the execution pointer to catch up to the execution counter so no job is
+            still referencing the node, exactly as the asynchronous free path relies on for ordering.
+            (Mirrors the data-buffer fix in ma_resource_manager_data_buffer_uninit.)
+            */
+            while (ma_atomic_load_32(&pDataBufferNode->executionPointer) != ma_atomic_load_32(&pDataBufferNode->executionCounter)) {
+                ma_yield();
+            }
+
             ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
         }
     }
