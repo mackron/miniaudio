@@ -49933,7 +49933,7 @@ static ma_result ma_device_op_do_init(ma_device* pDevice, ma_device_op_params pa
     }
 
     /* Store the backend state as soon as possible. */
-    ma_atomic_store_explicit_ptr((volatile void**)&pDevice->pBackendState, pBackendState, ma_atomic_memory_order_relaxed);
+    ma_atomic_store_explicit_ptr((void* volatile*)&pDevice->pBackendState, pBackendState, ma_atomic_memory_order_relaxed);
 
     /* The device is now in a stopped state. */
     ma_device_set_status(pDevice, ma_device_status_stopped);
@@ -50687,7 +50687,7 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Successfully initialized %s backend.", backendInfo.pName);
 
         pContext->pVTable = backend.pVTable;
-        ma_atomic_store_explicit_ptr((volatile void**)&pContext->pBackendState, pContextState, ma_atomic_memory_order_relaxed);
+        ma_atomic_store_explicit_ptr((void* volatile*)&pContext->pBackendState, pContextState, ma_atomic_memory_order_relaxed);
 
         result = ma_mutex_init(&pContext->deviceEnumLock);
         if (result != MA_SUCCESS) {
@@ -50769,7 +50769,7 @@ MA_API void* ma_context_get_backend_state(ma_context* pContext)
         return NULL;
     }
 
-    return ma_atomic_load_explicit_ptr((volatile void**)&pContext->pBackendState, ma_atomic_memory_order_relaxed);
+    return ma_atomic_load_explicit_ptr((void* const volatile*)&pContext->pBackendState, ma_atomic_memory_order_relaxed);
 }
 
 
@@ -51690,7 +51690,7 @@ MA_API void* ma_device_get_backend_state(ma_device* pDevice)
         return NULL;
     }
 
-    return ma_atomic_load_explicit_ptr((volatile void**)&pDevice->pBackendState, ma_atomic_memory_order_relaxed);
+    return ma_atomic_load_explicit_ptr((void* const volatile*)&pDevice->pBackendState, ma_atomic_memory_order_relaxed);
 }
 
 
