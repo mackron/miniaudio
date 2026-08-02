@@ -1,20 +1,18 @@
-miniaudio_h             := <../miniaudio.h>;
-miniaudio_c             := <../miniaudio.c>;
-dr_wav_h                :: <../../dr_libs/dr_wav.h>;
-dr_flac_h               :: <../../dr_libs/dr_flac.h>;
-dr_mp3_h                :: <../../dr_libs/dr_mp3.h>;
-c89atomic_h             :: <../../c89atomic/c89atomic.h>;
-c89atomic_c             :: <../../c89atomic/c89atomic.c>;
-c89atomic_ring_buffer_h :: <../../c89atomic/extras/c89atomic_ring_buffer.h>;
-c89atomic_ring_buffer_c :: <../../c89atomic/extras/c89atomic_ring_buffer.c>;
+std :: import<std>
+
+miniaudio_h             := <../miniaudio.h>
+miniaudio_c             := <../miniaudio.c>
+dr_wav_h                :: <../../dr_libs/dr_wav.h>
+dr_flac_h               :: <../../dr_libs/dr_flac.h>
+dr_mp3_h                :: <../../dr_libs/dr_mp3.h>
+c89atomic_h             :: <../../c89atomic/c89atomic.h>
+c89atomic_c             :: <../../c89atomic/c89atomic.c>
+c89atomic_ring_buffer_h :: <../../c89atomic/extras/c89atomic_ring_buffer.h>
+c89atomic_ring_buffer_c :: <../../c89atomic/extras/c89atomic_ring_buffer.c>
 
 minify :: function(src:string) string
 {
-    return @(src)
-        ["/\*[^*]*\*+(?:[^/*][^*]*\*+)*/"] <= "" // Remove all block comments to keep things clean.
-        ["(?m)^\s*\R"]                     <= "" // Remove all empty lines to compress it all down.
-        ["[ \t]+(?=(?:\R|$))"]             <= "" // Remove trailing whitespace.
-    ;
+    return std.trim_trailing_whitespace(std.remove_empty_lines(std.remove_c_block_comments(src)))
 }
 
 
@@ -64,34 +62,33 @@ rename_wav_namespace :: function(src:string) string
         ["MA_DR_WAV_INVALID_FILE"]           <= "MA_INVALID_FILE"
         ["MA_DR_WAV_AT_END"]                 <= "MA_AT_END"
         ["MA_DR_WAV_BAD_SEEK"]               <= "MA_BAD_SEEK"
-    ;
 }
 
 convert_wav_h :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
-    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = "";
-    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = "";
-    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = "";
+    stripped := @(src)
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = ""
+    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = ""
+    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = ""
+    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = ""
 
-    return minify(rename_wav_namespace(stripped));
+    return minify(rename_wav_namespace(stripped))
 }
 
 convert_wav_c :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = "";
-    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
-    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = "";
-    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = "";
-    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = "";
+    stripped := @(src)
+    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = ""
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = ""
+    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = ""
+    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = ""
+    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = ""
 
-    return minify(rename_wav_namespace(stripped));
+    return minify(rename_wav_namespace(stripped))
 }
 
-miniaudio_h("/\* dr_wav_h begin \*/\R":"\R/\* dr_wav_h end \*/") = convert_wav_h(@(dr_wav_h["#ifndef dr_wav_h\R":"\R#endif  /\* dr_wav_h \*/"]));
-miniaudio_h("/\* dr_wav_c begin \*/\R":"\R/\* dr_wav_c end \*/") = convert_wav_c(@(dr_wav_h["#ifndef dr_wav_c\R":"\R#endif  /\* dr_wav_c \*/"]));
+miniaudio_h("/\* dr_wav_h begin \*/\R":"\R/\* dr_wav_h end \*/") = convert_wav_h(@(dr_wav_h["#ifndef dr_wav_h\R":"\R#endif  /\* dr_wav_h \*/"]))
+miniaudio_h("/\* dr_wav_c begin \*/\R":"\R/\* dr_wav_c end \*/") = convert_wav_c(@(dr_wav_h["#ifndef dr_wav_c\R":"\R#endif  /\* dr_wav_c \*/"]))
 
 
 // dr_flac
@@ -138,34 +135,33 @@ rename_flac_namespace :: function(src:string) string
         ["MA_DR_FLAC_ERROR"]                  <= "MA_ERROR"
         ["MA_DR_FLAC_AT_END"]                 <= "MA_AT_END"
         ["MA_DR_FLAC_CRC_MISMATCH"]           <= "MA_CRC_MISMATCH"
-    ;
 }
 
 convert_flac_h :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
-    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = "";
-    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = "";
-    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = "";
+    stripped := @(src)
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = ""
+    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = ""
+    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = ""
+    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = ""
 
-    return minify(rename_flac_namespace(stripped));
+    return minify(rename_flac_namespace(stripped))
 }
 
 convert_flac_c :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = "";
-    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
-    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = "";
-    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = "";
-    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = "";
+    stripped := @(src)
+    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = ""
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = ""
+    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = ""
+    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = ""
+    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = ""
 
-    return minify(rename_flac_namespace(stripped));
+    return minify(rename_flac_namespace(stripped))
 }
 
-miniaudio_h("/\* dr_flac_h begin \*/\R":"\R/\* dr_flac_h end \*/") = convert_flac_h(@(dr_flac_h["#ifndef dr_flac_h\R":"\R#endif  /\* dr_flac_h \*/"]));
-miniaudio_h("/\* dr_flac_c begin \*/\R":"\R/\* dr_flac_c end \*/") = convert_flac_c(@(dr_flac_h["#ifndef dr_flac_c\R":"\R#endif  /\* dr_flac_c \*/"]));
+miniaudio_h("/\* dr_flac_h begin \*/\R":"\R/\* dr_flac_h end \*/") = convert_flac_h(@(dr_flac_h["#ifndef dr_flac_h\R":"\R#endif  /\* dr_flac_h \*/"]))
+miniaudio_h("/\* dr_flac_c begin \*/\R":"\R/\* dr_flac_c end \*/") = convert_flac_c(@(dr_flac_h["#ifndef dr_flac_c\R":"\R#endif  /\* dr_flac_c \*/"]))
 
 
 
@@ -210,33 +206,32 @@ rename_mp3_namespace :: function(src:string) string
 
         // Result codes.
         ["MA_DR_MP3_SUCCESS"]                <= "MA_SUCCESS"
-    ;
 }
 
 convert_mp3_h :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
-    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = "";
-    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = "";
-    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
-    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = "";
+    stripped := @(src)
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = ""
+    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = ""
+    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = ""
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = ""
+    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = ""
 
-    return minify(rename_mp3_namespace(stripped));
+    return minify(rename_mp3_namespace(stripped))
 }
 
 convert_mp3_c :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = "";
-    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = "";
-    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = "";
+    stripped := @(src)
+    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = ""
+    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = ""
+    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = ""
 
-    return minify(rename_mp3_namespace(stripped));
+    return minify(rename_mp3_namespace(stripped))
 }
 
-miniaudio_h("/\* dr_mp3_h begin \*/\R":"\R/\* dr_mp3_h end \*/") = convert_mp3_h(@(dr_mp3_h["#ifndef dr_mp3_h\R":"\R#endif  /\* dr_mp3_h \*/"]));
-miniaudio_h("/\* dr_mp3_c begin \*/\R":"\R/\* dr_mp3_c end \*/") = convert_mp3_c(@(dr_mp3_h["#ifndef dr_mp3_c\R":"\R#endif  /\* dr_mp3_c \*/"]));
+miniaudio_h("/\* dr_mp3_h begin \*/\R":"\R/\* dr_mp3_h end \*/") = convert_mp3_h(@(dr_mp3_h["#ifndef dr_mp3_h\R":"\R#endif  /\* dr_mp3_h \*/"]))
+miniaudio_h("/\* dr_mp3_c begin \*/\R":"\R/\* dr_mp3_c end \*/") = convert_mp3_c(@(dr_mp3_h["#ifndef dr_mp3_c\R":"\R#endif  /\* dr_mp3_c \*/"]))
 
 
 // c89atomic
@@ -262,20 +257,19 @@ rename_c89atomic_namespace :: function(src:string) string
         // We have an "extern c89atomic_spinlock" in c89atomic.h, but since we're putting this into the implementation section we can just
         // drop the extern and not bother importing anything from c89atomic.c.
         ["\bextern ma_atomic_spinlock"] <= "ma_atomic_spinlock"
-    ;
 }
 
 convert_c89atomic_h :: function(src:string) string
 {
-    stripped := @(src);
-    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
-    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = "";
-    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
+    stripped := @(src)
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = ""
+    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = ""
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = ""
 
-    return minify(rename_c89atomic_namespace(stripped));
+    return minify(rename_c89atomic_namespace(stripped))
 }
 
-miniaudio_h("/\* c89atomic.h begin \*/\R":"\R/\* c89atomic.h end \*/") = convert_c89atomic_h(@(c89atomic_h["#ifndef c89atomic_h\R":"\R#endif  /\* c89atomic_h \*/"]));
+miniaudio_h("/\* c89atomic.h begin \*/\R":"\R/\* c89atomic.h end \*/") = convert_c89atomic_h(@(c89atomic_h["#ifndef c89atomic_h\R":"\R#endif  /\* c89atomic_h \*/"]))
 
 
 // Ring Buffer
@@ -292,11 +286,10 @@ rename_c89atomic_ring_buffer_namespace :: function(src:string) string
 
         // Alignment hack.
         ["void\* pBuffer;       "]           <= "void* pBuffer;"
-    ;
 }
 
-miniaudio_h("/\* BEG ma_ring_buffer.h \*/\R":"\R/\* END ma_ring_buffer.h \*/") = rename_c89atomic_ring_buffer_namespace(@(c89atomic_ring_buffer_h("/\* BEG c89atomic_ring_buffer.h \*/\R":"\R/\* END c89atomic_ring_buffer.h \*/")));
-miniaudio_h("/\* BEG ma_ring_buffer.c \*/\R":"\R/\* END ma_ring_buffer.c \*/") = rename_c89atomic_ring_buffer_namespace(@(c89atomic_ring_buffer_c("/\* BEG c89atomic_ring_buffer.c \*/\R":"\R/\* END c89atomic_ring_buffer.c \*/")));
+miniaudio_h("/\* BEG ma_ring_buffer.h \*/\R":"\R/\* END ma_ring_buffer.h \*/") = rename_c89atomic_ring_buffer_namespace(@(c89atomic_ring_buffer_h("/\* BEG c89atomic_ring_buffer.h \*/\R":"\R/\* END c89atomic_ring_buffer.h \*/")))
+miniaudio_h("/\* BEG ma_ring_buffer.c \*/\R":"\R/\* END ma_ring_buffer.c \*/") = rename_c89atomic_ring_buffer_namespace(@(c89atomic_ring_buffer_c("/\* BEG c89atomic_ring_buffer.c \*/\R":"\R/\* END c89atomic_ring_buffer.c \*/")))
 
 
 // Cleanup. If we don't normalize line endings we'll fail to compile on old versions of GCC.
@@ -305,8 +298,7 @@ cleanup :: function(src:string) string
     return @(src)
         ["\r\n"] <= "\n"        // Normalize line endings to "\n". Needed for very old versions of GCC.
         ["\t"]   <= "    "      // Tabs to spaces.
-    ;
 }
 
-miniaudio_h = cleanup(@(miniaudio_h));
-miniaudio_c = cleanup(@(miniaudio_c));
+miniaudio_h = cleanup(@(miniaudio_h))
+miniaudio_c = cleanup(@(miniaudio_c))
