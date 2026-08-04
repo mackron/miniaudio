@@ -88535,6 +88535,19 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__binary_search_internal(ma_dr_fla
         targetByte = byteRangeHi;
     }
     for (;;) {
+        /*
+        If only two adjacent byte offsets remain, binary search cannot narrow the range any further. Seek to the closest frame before the target and decode
+        forward from there.
+        */
+        if (byteRangeHi - byteRangeLo == 1) {
+            if (!ma_dr_flac__seek_to_approximate_flac_frame_to_byte(pFlac, closestSeekOffsetBeforeTargetPCMFrame, closestSeekOffsetBeforeTargetPCMFrame, byteRangeHi, &lastSuccessfulSeekOffset)) {
+                break;
+            }
+            if (pFlac->currentPCMFrame <= pcmFrameIndex && ma_dr_flac__decode_flac_frame_and_seek_forward_by_pcm_frames(pFlac, pcmFrameIndex - pFlac->currentPCMFrame)) {
+                return MA_TRUE;
+            }
+            break;
+        }
         if (ma_dr_flac__seek_to_approximate_flac_frame_to_byte(pFlac, targetByte, byteRangeLo, byteRangeHi, &lastSuccessfulSeekOffset)) {
             ma_uint64 newPCMRangeLo;
             ma_uint64 newPCMRangeHi;
