@@ -89012,9 +89012,12 @@ MA_API ma_result ma_sound_get_data_format(const ma_sound* pSound, ma_format* pFo
             return result;
         }
 
-        result = ma_data_source_get_channel_map(pSound->pDataSource, pChannelMap, channelMapCap);
-        if (result != MA_SUCCESS) {
-            return result;
+        /* Only query the channel map if the caller actually wants it. ma_data_source_get_channel_map() returns MA_INVALID_ARGS for a NULL channel map, but callers such as ma_sound_get_cursor_in_seconds() pass NULL when they only need the sample rate. This mirrors the guard used in the non-data-source branch above (see #1144). */
+        if (pChannelMap != NULL) {
+            result = ma_data_source_get_channel_map(pSound->pDataSource, pChannelMap, channelMapCap);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
         }
 
         return MA_SUCCESS;
