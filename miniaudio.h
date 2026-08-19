@@ -93983,7 +93983,7 @@ MA_API void ma_dr_wav_u8_to_s32(ma_int32* pOut, const ma_uint8* pIn, size_t samp
         return;
     }
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = ((int)pIn[i] - 128) << 24;
+        *pOut++ = ((int)pIn[i] - 128) * 16777216;
     }
 }
 MA_API void ma_dr_wav_s16_to_s32(ma_int32* pOut, const ma_int16* pIn, size_t sampleCount)
@@ -93993,7 +93993,7 @@ MA_API void ma_dr_wav_s16_to_s32(ma_int32* pOut, const ma_int16* pIn, size_t sam
         return;
     }
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = pIn[i] << 16;
+        *pOut++ = (ma_int32)pIn[i] * 65536;
     }
 }
 MA_API void ma_dr_wav_s24_to_s32(ma_int32* pOut, const ma_uint8* pIn, size_t sampleCount)
@@ -94037,7 +94037,7 @@ MA_API void ma_dr_wav_alaw_to_s32(ma_int32* pOut, const ma_uint8* pIn, size_t sa
         return;
     }
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = ((ma_int32)ma_dr_wav__alaw_to_s16(pIn[i])) << 16;
+        *pOut++ = (ma_int32)ma_dr_wav__alaw_to_s16(pIn[i]) * 65536;
     }
 }
 MA_API void ma_dr_wav_mulaw_to_s32(ma_int32* pOut, const ma_uint8* pIn, size_t sampleCount)
@@ -94047,7 +94047,7 @@ MA_API void ma_dr_wav_mulaw_to_s32(ma_int32* pOut, const ma_uint8* pIn, size_t s
         return;
     }
     for (i= 0; i < sampleCount; ++i) {
-        *pOut++ = ((ma_int32)ma_dr_wav__mulaw_to_s16(pIn[i])) << 16;
+        *pOut++ = (ma_int32)ma_dr_wav__mulaw_to_s16(pIn[i]) * 65536;
     }
 }
 MA_PRIVATE ma_int16* ma_dr_wav__read_pcm_frames_and_close_s16(ma_dr_wav* pWav, unsigned int* channels, unsigned int* sampleRate, ma_uint64* totalFrameCount)
@@ -97928,6 +97928,15 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__binary_search_internal(ma_dr_fla
         targetByte = byteRangeHi;
     }
     for (;;) {
+        if ((byteRangeHi - byteRangeLo) == 1) {
+            if (!ma_dr_flac__seek_to_approximate_flac_frame_to_byte(pFlac, closestSeekOffsetBeforeTargetPCMFrame, closestSeekOffsetBeforeTargetPCMFrame, byteRangeHi, &lastSuccessfulSeekOffset)) {
+                break;
+            }
+            if (pFlac->currentPCMFrame <= pcmFrameIndex && ma_dr_flac__decode_flac_frame_and_seek_forward_by_pcm_frames(pFlac, pcmFrameIndex - pFlac->currentPCMFrame)) {
+                return MA_TRUE;
+            }
+            break;
+        }
         if (ma_dr_flac__seek_to_approximate_flac_frame_to_byte(pFlac, targetByte, byteRangeLo, byteRangeHi, &lastSuccessfulSeekOffset)) {
             ma_uint64 newPCMRangeLo;
             ma_uint64 newPCMRangeHi;
