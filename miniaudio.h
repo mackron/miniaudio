@@ -50031,7 +50031,7 @@ MA_API ma_result ma_device_op_queue_init(ma_device_op_queue* pQueue)
 
 MA_API void ma_device_op_queue_uninit(ma_device_op_queue* pQueue)
 {
-    if (pQueue != NULL) {
+    if (pQueue == NULL) {
         return;
     }
 
