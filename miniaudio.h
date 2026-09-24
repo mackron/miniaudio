@@ -31625,6 +31625,11 @@ static void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPuls
         return;
     }
 
+    /* An error reply (e.g. the device no longer exists) passes a NULL pInfo. */
+    if (pInfo == NULL) {
+        return;
+    }
+
     MA_ASSERT(pData != NULL);
     pData->foundDevice = MA_TRUE;
 
@@ -31659,6 +31664,11 @@ static void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPu
     ma_context_get_device_info_callback_data__pulse* pData = (ma_context_get_device_info_callback_data__pulse*)pUserData;
 
     if (endOfList > 0) {
+        return;
+    }
+
+    /* An error reply (e.g. the device no longer exists) passes a NULL pInfo. */
+    if (pInfo == NULL) {
         return;
     }
 
