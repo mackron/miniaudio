@@ -47749,6 +47749,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         ma_audio_worklet_thread_initialized_data* pInitParameters;
         void* pStackBuffer;
 
+        MA_ZERO_OBJECT(&audioContextAttributes);
         /*  */ if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_interactive) {
             audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_INTERACTIVE;
         } else if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_playback) {
