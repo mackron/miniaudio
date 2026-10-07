@@ -31625,6 +31625,11 @@ static void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPuls
         return;
     }
 
+    /* An error reply (e.g. the device no longer exists) passes a NULL pInfo. */
+    if (pInfo == NULL) {
+        return;
+    }
+
     MA_ASSERT(pData != NULL);
     pData->foundDevice = MA_TRUE;
 
@@ -31659,6 +31664,11 @@ static void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPu
     ma_context_get_device_info_callback_data__pulse* pData = (ma_context_get_device_info_callback_data__pulse*)pUserData;
 
     if (endOfList > 0) {
+        return;
+    }
+
+    /* An error reply (e.g. the device no longer exists) passes a NULL pInfo. */
+    if (pInfo == NULL) {
         return;
     }
 
@@ -32451,6 +32461,16 @@ on_error1:
         ((ma_pa_stream_unref_proc)pDevice->pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
     }
 on_error0:
+    /* Release the device's context and main loop, in the same order as ma_device_uninit__pulse(). */
+    if (pDevice->pulse.pPulseContext != NULL) {
+        ((ma_pa_context_disconnect_proc)pDevice->pContext->pulse.pa_context_disconnect)((ma_pa_context*)pDevice->pulse.pPulseContext);
+        ((ma_pa_context_unref_proc)pDevice->pContext->pulse.pa_context_unref)((ma_pa_context*)pDevice->pulse.pPulseContext);
+        pDevice->pulse.pPulseContext = NULL;
+    }
+    if (pDevice->pulse.pMainLoop != NULL) {
+        ((ma_pa_mainloop_free_proc)pDevice->pContext->pulse.pa_mainloop_free)((ma_pa_mainloop*)pDevice->pulse.pMainLoop);
+        pDevice->pulse.pMainLoop = NULL;
+    }
     return result;
 }
 
