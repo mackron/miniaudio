@@ -41307,29 +41307,75 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
 static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type deviceType)
 {
     SLAndroidSimpleBufferQueueItf pBufferQueue;
+    ma_uint32 periodSizeInFrames;
+    ma_uint32 periodCount;
+    ma_uint32 sampleRate;
+    ma_uint32 maxWaitInMilliseconds;
+    ma_uint32 waitedInMilliseconds;
 
     MA_ASSERT(deviceType == ma_device_type_capture || deviceType == ma_device_type_playback);
 
-    if (pDevice->type == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture) {
         pBufferQueue = (SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture;
         pDevice->opensl.isDrainingCapture  = MA_TRUE;
+
+        periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
+        periodCount        = pDevice->capture.internalPeriods;
+        sampleRate         = pDevice->capture.internalSampleRate;
     } else {
         pBufferQueue = (SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback;
         pDevice->opensl.isDrainingPlayback = MA_TRUE;
+
+        periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
+        periodCount        = pDevice->playback.internalPeriods;
+        sampleRate         = pDevice->playback.internalSampleRate;
     }
 
+    /*
+    At the nominal device rate, draining a full buffer queue should take approximately the
+    configured queue duration. Allow twice that duration to accommodate scheduling delays while
+    ensuring a stalled queue cannot block the stop operation indefinitely.
+    */
+    if (sampleRate > 0) {
+        ma_uint64 calculatedWaitInMilliseconds = ((ma_uint64)periodSizeInFrames * periodCount * 2000) / sampleRate;
+        if (calculatedWaitInMilliseconds < 200) {
+            calculatedWaitInMilliseconds = 200;
+        }
+        if (calculatedWaitInMilliseconds > 1000) {
+            calculatedWaitInMilliseconds = 1000;
+        }
+
+        maxWaitInMilliseconds = (ma_uint32)calculatedWaitInMilliseconds;
+    } else {
+        maxWaitInMilliseconds = 1000;   /* The internal sample rate should always be valid at this point, but just in case, fall back to the upper bound. */
+    }
+
+    waitedInMilliseconds = 0;
+
     for (;;) {
+        SLresult resultSL;
         SLAndroidSimpleBufferQueueState state;
 
-        MA_OPENSL_BUFFERQUEUE(pBufferQueue)->GetState(pBufferQueue, &state);
+        resultSL = MA_OPENSL_BUFFERQUEUE(pBufferQueue)->GetState(pBufferQueue, &state);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Failed to retrieve the state of the buffer queue while draining. Skipping drain.");
+            break;
+        }
+
         if (state.count == 0) {
             break;
         }
 
+        if (waitedInMilliseconds >= maxWaitInMilliseconds) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Timed out waiting for the buffer queue to drain. Continuing with stopping.");
+            break;
+        }
+
         ma_sleep(10);
+        waitedInMilliseconds += 10;
     }
 
-    if (pDevice->type == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture) {
         pDevice->opensl.isDrainingCapture  = MA_FALSE;
     } else {
         pDevice->opensl.isDrainingPlayback = MA_FALSE;
