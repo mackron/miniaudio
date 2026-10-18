@@ -58980,7 +58980,7 @@ MA_API ma_result ma_duplex_rb_init(ma_format captureFormat, ma_uint32 captureCha
     }
 
     /* Seek forward a bit so we have a bit of a buffer in case of desyncs. */
-    ma_pcm_rb_seek_write((ma_pcm_rb*)pRB, captureInternalPeriodSizeInFrames * 2);
+    ma_pcm_rb_seek_write((ma_pcm_rb*)pRB, (ma_uint32)ma_calculate_frame_count_after_resampling(sampleRate, captureInternalSampleRate, captureInternalPeriodSizeInFrames * 2));
 
     return MA_SUCCESS;
 }
