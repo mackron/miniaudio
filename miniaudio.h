@@ -71337,6 +71337,18 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
                     if (result == MA_BUSY) {
                         result  = MA_SUCCESS;
                     }
+
+                    /*
+                    On failure the caller is free to release the data buffer's memory as soon as we return, but the
+                    load job signals the notification we just waited on before it finishes referencing the data
+                    buffer: it increments the execution pointer afterward. Wait for that to happen first, as
+                    ma_resource_manager_data_buffer_uninit() does before a synchronous teardown.
+                    */
+                    if (result != MA_SUCCESS) {
+                        while (ma_atomic_load_32(&pDataBuffer->executionPointer) != ma_atomic_load_32(&pDataBuffer->executionCounter)) {
+                            ma_yield();
+                        }
+                    }
                 }
             }
 
@@ -71479,6 +71491,16 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
         }
 
         ma_resource_manager_inline_notification_wait_and_uninit(&notification);
+
+        /*
+        The free job signals the notification before it increments the execution pointer, and the caller
+        is free to release the data buffer's memory as soon as we return. Wait for the execution pointer to
+        catch up to the execution counter so that the job has finished with the data buffer, as the
+        synchronous path above does.
+        */
+        while (ma_atomic_load_32(&pDataBuffer->executionPointer) != ma_atomic_load_32(&pDataBuffer->executionCounter)) {
+            ma_yield();
+        }
     }
 
     return result;
@@ -72074,6 +72096,19 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
         if we're not waiting because it will most likely be in a busy state.
         */
         if (pDataStream->result != MA_SUCCESS) {
+            /*
+            The caller owns the data stream and is free to release its memory as soon as we return an error, which
+            ma_sound does. But the load job signals the notification we just waited on a few instructions before it
+            finishes referencing the data stream: it increments the execution pointer afterward. Wait for the
+            execution pointer to catch up to the execution counter so that no job is still referencing the data
+            stream, exactly as the synchronous teardown paths of data buffers do. Otherwise the job increments the
+            execution pointer of freed memory, and a data stream later allocated at the same address sees its own
+            load job as out of order and reposts it forever.
+            */
+            while (ma_atomic_load_32(&pDataStream->executionPointer) != ma_atomic_load_32(&pDataStream->executionCounter)) {
+                ma_yield();
+            }
+
             return pDataStream->result;
         }
 
