@@ -71337,6 +71337,13 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
                     if (result == MA_BUSY) {
                         result  = MA_SUCCESS;
                     }
+
+                    /* The load job signals initialization before its final access to the data buffer. */
+                    if (result != MA_SUCCESS) {
+                        while (ma_atomic_load_32(&pDataBuffer->executionPointer) != ma_atomic_load_32(&pDataBuffer->executionCounter)) {
+                            ma_yield();
+                        }
+                    }
                 }
             }
 
@@ -71479,6 +71486,11 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
         }
 
         ma_resource_manager_inline_notification_wait_and_uninit(&notification);
+
+        /* The free job signals completion before its final access to the data buffer. */
+        while (ma_atomic_load_32(&pDataBuffer->executionPointer) != ma_atomic_load_32(&pDataBuffer->executionCounter)) {
+            ma_yield();
+        }
     }
 
     return result;
@@ -72074,6 +72086,11 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
         if we're not waiting because it will most likely be in a busy state.
         */
         if (pDataStream->result != MA_SUCCESS) {
+            /* Wait for the load job's final access before the caller can free the data stream. */
+            while (ma_atomic_load_32(&pDataStream->executionPointer) != ma_atomic_load_32(&pDataStream->executionCounter)) {
+                ma_yield();
+            }
+
             return pDataStream->result;
         }
 
