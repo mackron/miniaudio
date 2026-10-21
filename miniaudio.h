@@ -24849,7 +24849,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         pDeviceID      = pDevice->playback.pID;
         data.shareMode = pDevice->playback.shareMode;
     } else {
-        pDeviceID      = pDevice->playback.pID;
+        pDeviceID      = pDevice->capture.pID;
         data.shareMode = pDevice->capture.shareMode;
     }
 
