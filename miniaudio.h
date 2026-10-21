@@ -47705,7 +47705,11 @@ static void ma_audio_worklet_thread_initialized__webaudio(EMSCRIPTEN_WEBAUDIO_T 
     MA_ASSERT(pParameters != NULL);
 
     if (success == EM_FALSE) {
-        pParameters->pDeviceStateWebAudio->initResult = MA_ERROR;
+        ma_device_state_webaudio* pDeviceStateWebAudio;
+
+        pDeviceStateWebAudio = pParameters->pDeviceStateWebAudio;
+        ma_free(pParameters, ma_device_get_allocation_callbacks(pParameters->pDevice));
+        pDeviceStateWebAudio->initResult = MA_ERROR;
         return;
     }
 
@@ -47904,6 +47908,9 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         We now have enough to initialize the audio worklet. This is asynchronous. Waiting for it to complete will
         require a call to emscripten_sleep() which in turn requires building with `-sASYNCIFY`. We're just going
         to not wait for it and just assume it was successful. Audio should resume once it's all up and running.
+
+        Web Audio teardown does not wait for all stack users to stop. Retain this allocation after
+        handing it to Emscripten, including when initialization fails.
         */
         emscripten_start_wasm_audio_worklet_thread_async(pDeviceStateWebAudio->audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pInitParameters);
     }
@@ -48117,7 +48124,6 @@ static void ma_device_uninit__webaudio(ma_device* pDevice)
 
         emscripten_destroy_web_audio_node(pDeviceStateWebAudio->audioWorklet);
         emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
-        ma_aligned_free(pDeviceStateWebAudio->pStackBuffer, ma_device_get_allocation_callbacks(pDevice));
     }
     #else
     {
