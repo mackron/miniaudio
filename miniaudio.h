@@ -40341,6 +40341,19 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
 
         /*
+        A hardware device may have more channels than MA_MAX_CHANNELS. Clamp the number of channels in the stream
+        format, to ensure that the audio unit delivers buffers with the same number of channels as internalChannels.
+        */
+        if (bestFormat.mChannelsPerFrame > MA_MAX_CHANNELS) {
+            if ((bestFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0) {
+                UInt32 bytesPerSample = bestFormat.mBytesPerFrame / bestFormat.mChannelsPerFrame;
+                bestFormat.mBytesPerFrame  = bytesPerSample * MA_MAX_CHANNELS;
+                bestFormat.mBytesPerPacket = bestFormat.mBytesPerFrame * bestFormat.mFramesPerPacket;
+            }
+            bestFormat.mChannelsPerFrame = MA_MAX_CHANNELS;
+        }
+
+        /*
         Technical Note TN2091: Device input using the HAL Output Audio Unit
             https://developer.apple.com/library/archive/technotes/tn2091/_index.html
 
