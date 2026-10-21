@@ -23466,10 +23466,10 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                     ma_channel_map_init_standard(ma_standard_channel_map_microsoft, defaultChannelMap, ma_countof(defaultChannelMap), channels);
 
                     MA_ZERO_OBJECT(&wf);
-                    wf.cbSize     = sizeof(wf);
-                    wf.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-                    wf.nChannels  = (WORD)channels;
-                    wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
+                    wf.cbSize        = 22;    /* Extension size, excluding the 18-byte WAVEFORMATEX header. Unlike in many other Win32 APIs, in this context this is *not* the size of the entire struct. It's only the size of the extra data. */
+                    wf.wFormatTag    = WAVE_FORMAT_EXTENSIBLE;
+                    wf.nChannels     = (WORD)channels;
+                    wf.dwChannelMask = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
 
                     found = MA_FALSE;
                     for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); ++iFormat) {
@@ -23478,7 +23478,6 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
 
                         wf.wBitsPerSample              = (WORD)(ma_get_bytes_per_sample(format)*8);
                         wf.nBlockAlign                 = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
-                        wf.nAvgBytesPerSec             = wf.nBlockAlign * wf.nSamplesPerSec;
                         wf.Samples.wValidBitsPerSample = wf.wBitsPerSample;
                         if (format == ma_format_f32) {
                             wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
@@ -23487,7 +23486,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         }
 
                         for (iSampleRate = 0; iSampleRate < ma_countof(ma_standard_sample_rates); ++iSampleRate) {
-                            wf.nSamplesPerSec = ma_standard_sample_rates[iSampleRate];
+                            wf.nSamplesPerSec  = ma_standard_sample_rates[iSampleRate];
+                            wf.nAvgBytesPerSec = wf.nBlockAlign * wf.nSamplesPerSec;
 
                             hr = ma_IAudioClient_IsFormatSupported(pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
