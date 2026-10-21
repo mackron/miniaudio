@@ -23170,15 +23170,15 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
     that the device is disabled or has been unplugged.
     */
     if (pDeviceStateWASAPI->allowCaptureAutoStreamRouting && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback)) {
-        isCapture = MA_TRUE;
         if (ma_strcmp_WCHAR(pThis->pDevice->capture.id.wasapi, pDeviceID) == 0) {
+            isCapture = MA_TRUE;
             isThisDevice = MA_TRUE;
         }
     }
 
     if (pDeviceStateWASAPI->allowPlaybackAutoStreamRouting && (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex)) {
-        isPlayback = MA_TRUE;
         if (ma_strcmp_WCHAR(pThis->pDevice->playback.id.wasapi, pDeviceID) == 0) {
+            isPlayback = MA_TRUE;
             isThisDevice = MA_TRUE;
         }
     }
