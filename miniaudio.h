@@ -50105,6 +50105,7 @@ MA_API ma_result ma_device_op_queue_init(ma_device_op_queue* pQueue)
 
         result = ma_semaphore_init(0, &pQueue->sem);
         if (result != MA_SUCCESS) {
+            ma_mutex_uninit(&pQueue->lock);
             return result;
         }
     }
@@ -50119,7 +50120,7 @@ MA_API ma_result ma_device_op_queue_init(ma_device_op_queue* pQueue)
 
 MA_API void ma_device_op_queue_uninit(ma_device_op_queue* pQueue)
 {
-    if (pQueue != NULL) {
+    if (pQueue == NULL) {
         return;
     }
 
@@ -51390,6 +51391,11 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         /* Getting here means we're running in single-threaded mode or we weren't allowed to create an audio thread. We want to run the init operation immediately. */
         result = ma_device_op_do_init(pDevice, initParams, NULL);
         if (result != MA_SUCCESS) {
+            #ifndef MA_NO_THREADING
+            {
+                ma_mutex_uninit(&pDevice->startStopLock);
+            }
+            #endif
             return result;  /* Failed to initialize backend. */
         }
     }
@@ -51710,8 +51716,11 @@ MA_API void ma_device_uninit(ma_device* pDevice)
 
     #ifndef MA_NO_THREADING
     {
-        ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
-        ma_device_op_queue_uninit(&pDevice->opQueue);
+        if (pDevice->hasAudioThread) {
+            ma_device_op_completion_event_uninit(&pDevice->opCompletionEvent);
+            ma_device_op_queue_uninit(&pDevice->opQueue);
+        }
+
         ma_mutex_uninit(&pDevice->startStopLock);
     }
     #endif
