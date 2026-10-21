@@ -51028,8 +51028,8 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                 }
             }
 
-            pFramesOut = ma_offset_ptr(pFramesOut, interpolatedFrameCount * sizeof(float));
-            pFramesIn  = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * sizeof(float));
+            pFramesOut = ma_offset_ptr(pFramesOut, interpolatedFrameCount * pGainer->config.channels * sizeof(float));
+            pFramesIn  = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * pGainer->config.channels * sizeof(float));
         }
 
         frameCount -= interpolatedFrameCount;
