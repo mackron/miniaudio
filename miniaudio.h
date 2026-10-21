@@ -46950,9 +46950,15 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
     }
 
     for (;;) {
+        SLresult resultSL;
         SLAndroidSimpleBufferQueueState state;
 
-        MA_OPENSL_BUFFERQUEUE(pBufferQueue)->GetState(pBufferQueue, &state);
+        resultSL = MA_OPENSL_BUFFERQUEUE(pBufferQueue)->GetState(pBufferQueue, &state);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Failed to retrieve the state of the buffer queue while draining. Skipping drain.");
+            break;
+        }
+
         if (state.count == 0) {
             break;
         }
