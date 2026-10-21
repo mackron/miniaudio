@@ -41042,6 +41042,17 @@ static ma_result ma_device_step__coreaudio(ma_device* pDevice, ma_blocking_mode 
     return ma_device_state_async_step(&pDeviceStateCoreAudio->async, pDevice, blockingMode, ma_device_step_extra__coreaudio);
 }
 
+static void ma_device_wakeup__coreaudio(ma_device* pDevice)
+{
+    ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
+
+    /*
+    The step function blocks until Core Audio fires a data callback. If Core Audio is no longer firing
+    callbacks, ma_device_uninit() and ma_device_stop() would otherwise wait forever on the audio thread.
+    */
+    ma_device_state_async_release(&pDeviceStateCoreAudio->async);
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
 {
     ma_backend_info__coreaudio,
@@ -41053,7 +41064,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_CoreAudio =
     ma_device_start__coreaudio,
     ma_device_stop__coreaudio,
     ma_device_step__coreaudio,
-    NULL    /* onDeviceWakeup */
+    ma_device_wakeup__coreaudio
 };
 
 ma_device_backend_vtable* ma_device_backend_coreaudio = &ma_gDeviceBackendVTable_CoreAudio;
