@@ -25580,8 +25580,16 @@ static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevic
 
             case ma_client_notification_type_wasapi_stop:
             {
-                ma_device_stop(pDevice);
-            } break;
+                /* The audio thread will stop the backend after its step loop returns. Calling ma_device_stop() here would make it wait for itself to process a stop op. */
+                if (!pDevice->hasAudioThread) {
+                    result = ma_device_stop(pDevice);
+                    if (result != MA_SUCCESS) {
+                        goto on_error;
+                    }
+                }
+
+                return MA_DEVICE_NOT_STARTED;
+            }
         }
     }
 
@@ -25633,7 +25641,10 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
         /* Client notifications are where rerouting takes place. */
         result = ma_device_handle_client_notifications__wasapi(pDevice);
         if (result != MA_SUCCESS) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Reroute failed: %s", ma_result_description(result));
+            if (result != MA_DEVICE_NOT_STARTED) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Reroute failed: %s", ma_result_description(result));
+            }
+            
             return result;
         }
 
@@ -50051,6 +50062,11 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
         result = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
     }
 
+    /* Clear leftover playback data for both application-requested and backend-requested stops. */
+    pDevice->playback.intermediaryBufferLen = 0;
+    pDevice->playback.inputCacheConsumed    = 0;
+    pDevice->playback.inputCacheRemaining   = 0;
+
     /* Stopping the backend must not make an errored device restartable. */
     if (ma_device_get_status(pDevice) != ma_device_status_errored) {
         ma_device_set_status(pDevice, ma_device_status_stopped);
@@ -51977,15 +51993,6 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             /* Threading is disabled. */
             result = ma_device_op_do_stop(pDevice, NULL);
         }
-
-        /*
-        This is a safety measure to ensure the internal buffer has been cleared so any leftover
-        does not get played the next time the device starts. Ideally this should be drained by
-        the backend first.
-        */
-        pDevice->playback.intermediaryBufferLen = 0;
-        pDevice->playback.inputCacheConsumed    = 0;
-        pDevice->playback.inputCacheRemaining   = 0;
     }
     ma_device_start_stop_unlock(pDevice);
 
