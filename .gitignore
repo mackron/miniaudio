@@ -2,6 +2,9 @@
 /build/
 /data/debugging/
 /data/private/
+/tickets/
+/scratch/
+/debugging/
 /evaluations/
 /examples/build/bin/
 /examples/build/codelite/
