@@ -23031,6 +23031,7 @@ struct ma_completion_handler_uwp
     ma_completion_handler_uwp_vtbl* lpVtbl;
     MA_ATOMIC(4, ma_uint32) counter;
     HANDLE hEvent;
+    ma_allocation_callbacks allocationCallbacks;
 };
 
 static HRESULT STDMETHODCALLTYPE ma_completion_handler_uwp_QueryInterface(ma_completion_handler_uwp* pThis, const IID* const riid, void** ppObject)
@@ -23059,7 +23060,12 @@ static ULONG STDMETHODCALLTYPE ma_completion_handler_uwp_Release(ma_completion_h
 {
     ma_uint32 newRefCount = ma_atomic_fetch_sub_32(&pThis->counter, 1) - 1;
     if (newRefCount == 0) {
-        return 0;   /* We don't free anything here because we never allocate the object on the heap. */
+        ma_allocation_callbacks allocationCallbacks = pThis->allocationCallbacks;
+        if (pThis->hEvent != NULL) {
+            CloseHandle(pThis->hEvent);
+        }
+
+        ma_free(pThis, &allocationCallbacks);
     }
 
     return (ULONG)newRefCount;
@@ -23080,26 +23086,32 @@ static ma_completion_handler_uwp_vtbl g_maCompletionHandlerVtblInstance = {
     ma_completion_handler_uwp_ActivateCompleted
 };
 
-static ma_result ma_completion_handler_uwp_init(ma_completion_handler_uwp* pHandler)
+static ma_result ma_completion_handler_uwp_init(const ma_allocation_callbacks* pAllocationCallbacks, ma_completion_handler_uwp** ppHandler)
 {
-    MA_ASSERT(pHandler != NULL);
+    ma_completion_handler_uwp* pHandler;
+
+    MA_ASSERT(ppHandler != NULL);
+    *ppHandler = NULL;
+
+    pHandler = (ma_completion_handler_uwp*)ma_malloc(sizeof(*pHandler), pAllocationCallbacks);
+    if (pHandler == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
     MA_ZERO_OBJECT(pHandler);
 
     pHandler->lpVtbl = &g_maCompletionHandlerVtblInstance;
     pHandler->counter = 1;
+    pHandler->allocationCallbacks = ma_allocation_callbacks_init_copy(pAllocationCallbacks);
     pHandler->hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (pHandler->hEvent == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
+        ma_result result = ma_result_from_GetLastError(GetLastError());
+        ma_completion_handler_uwp_Release(pHandler);
+        return result;
     }
 
+    *ppHandler = pHandler;
     return MA_SUCCESS;
-}
-
-static void ma_completion_handler_uwp_uninit(ma_completion_handler_uwp* pHandler)
-{
-    if (pHandler->hEvent != NULL) {
-        CloseHandle(pHandler->hEvent);
-    }
 }
 
 static void ma_completion_handler_uwp_wait(ma_completion_handler_uwp* pHandler)
@@ -23826,7 +23838,7 @@ static ma_result ma_context_get_IAudioClient_Async__wasapi(ma_context* pContext,
 {
     ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(pContext);
     ma_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
-    ma_completion_handler_uwp completionHandler;
+    ma_completion_handler_uwp* pCompletionHandler;
     const WCHAR* iidStr;
     HRESULT hr;
     ma_result result;
@@ -23850,22 +23862,22 @@ static ma_result ma_context_get_IAudioClient_Async__wasapi(ma_context* pContext,
         }
     }
 
-    result = ma_completion_handler_uwp_init(&completionHandler);
+    result = ma_completion_handler_uwp_init(ma_context_get_allocation_callbacks(pContext), &pCompletionHandler);
     if (result != MA_SUCCESS) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to initialize completion handler for ActivateAudioInterfaceAsync().");
         return result;
     }
 
-    hr = pContextStateWASAPI->ActivateAudioInterfaceAsync(iidStr, &MA_IID_IAudioClient, pActivationParams, (ma_IActivateAudioInterfaceCompletionHandler*)&completionHandler, &pAsyncOp);
+    hr = pContextStateWASAPI->ActivateAudioInterfaceAsync(iidStr, &MA_IID_IAudioClient, pActivationParams, (ma_IActivateAudioInterfaceCompletionHandler*)pCompletionHandler, &pAsyncOp);
     if (FAILED(hr)) {
-        ma_completion_handler_uwp_uninit(&completionHandler);
+        ma_completion_handler_uwp_Release(pCompletionHandler);
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] ActivateAudioInterfaceAsync() failed.");
         return ma_result_from_HRESULT(hr);
     }
 
-    /* Wait for the async operation for finish. */
-    ma_completion_handler_uwp_wait(&completionHandler);
-    ma_completion_handler_uwp_uninit(&completionHandler);
+    /* Windows may still be using the handler after signaling the event. Release only our reference. */
+    ma_completion_handler_uwp_wait(pCompletionHandler);
+    ma_completion_handler_uwp_Release(pCompletionHandler);
 
     hr = ma_IActivateAudioInterfaceAsyncOperation_GetActivateResult(pAsyncOp, &activateResult, &pActivatedInterface);
     ma_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
