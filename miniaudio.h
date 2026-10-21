@@ -22921,7 +22921,7 @@ typedef struct ma_device_state_wasapi
     ma_IAudioClient* pAudioClientCapture;
     ma_IAudioRenderClient* pRenderClient;
     ma_IAudioCaptureClient* pCaptureClient;
-    #if defined(MA_WIN32_DESKTOP)
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     ma_IMMDeviceEnumerator* pDeviceEnumerator;              /* Used for IMMNotificationClient notifications. Required for detecting default device changes. Not used with the UWP build. */
     #endif
     ma_IMMNotificationClient notificationClient;
