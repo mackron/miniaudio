@@ -50822,7 +50822,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
     if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
         interpolatedFrameCount = 0;
     } else {
-        interpolatedFrameCount = pGainer->t - pGainer->config.smoothTimeInFrames;
+        interpolatedFrameCount = pGainer->config.smoothTimeInFrames - pGainer->t;
         if (interpolatedFrameCount > frameCount) {
             interpolatedFrameCount = frameCount;
         }
