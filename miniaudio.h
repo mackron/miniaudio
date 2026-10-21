@@ -59097,7 +59097,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
     if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
         interpolatedFrameCount = 0;
     } else {
-        interpolatedFrameCount = pGainer->t - pGainer->config.smoothTimeInFrames;
+        interpolatedFrameCount = pGainer->config.smoothTimeInFrames - pGainer->t;
         if (interpolatedFrameCount > frameCount) {
             interpolatedFrameCount = frameCount;
         }
@@ -59144,10 +59144,16 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                         __m128 runningGainDelta0 = _mm_set_ps(pRunningGainDelta[1], pRunningGainDelta[0], pRunningGainDelta[1], pRunningGainDelta[0]);
                         __m128 runningGain0      = _mm_set_ps(pRunningGain[1] + pRunningGainDelta[1], pRunningGain[0] + pRunningGainDelta[0], pRunningGain[1], pRunningGain[0]);
 
+                        /* Each iteration processes two frames. */
+                        runningGainDelta0 = _mm_add_ps(runningGainDelta0, runningGainDelta0);
+
                         for (; iFrame < unrolledLoopCount; iFrame += 1) {
                             _mm_storeu_ps(&pFramesOutF32[iFrame*4 + 0], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*4 + 0]), runningGain0));
                             runningGain0 = _mm_add_ps(runningGain0, runningGainDelta0);
                         }
+
+                        /* Keep the next frame's gains for the scalar remainder. */
+                        _mm_storeu_ps(pRunningGain, runningGain0);
 
                         iFrame = unrolledLoopCount << 1;
                     } else
@@ -59175,10 +59181,10 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                             pFramesOutF32[iFrame*4 + 3] = pFramesInF32[iFrame*4 + 3] * pRunningGain[3];
 
                             /* Move the running gain forward towards the new gain. */
-                            pRunningGain[0] += pRunningGainDelta[0];
-                            pRunningGain[1] += pRunningGainDelta[1];
-                            pRunningGain[2] += pRunningGainDelta[2];
-                            pRunningGain[3] += pRunningGainDelta[3];
+                            pRunningGain[0] += pRunningGainDelta[0] * 2;
+                            pRunningGain[1] += pRunningGainDelta[1] * 2;
+                            pRunningGain[2] += pRunningGainDelta[2] * 2;
+                            pRunningGain[3] += pRunningGainDelta[3] * 2;
                         }
 
                         iFrame = unrolledLoopCount << 1;
@@ -59213,6 +59219,11 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                         __m128 runningGain1      = _mm_set_ps(pRunningGain[1] + pRunningGainDelta[1], pRunningGain[0] + pRunningGainDelta[0], pRunningGain[5],                        pRunningGain[4]);
                         __m128 runningGain2      = _mm_set_ps(pRunningGain[5] + pRunningGainDelta[5], pRunningGain[4] + pRunningGainDelta[4], pRunningGain[3] + pRunningGainDelta[3], pRunningGain[2] + pRunningGainDelta[2]);
 
+                        /* Each iteration processes two frames. */
+                        runningGainDelta0 = _mm_add_ps(runningGainDelta0, runningGainDelta0);
+                        runningGainDelta1 = _mm_add_ps(runningGainDelta1, runningGainDelta1);
+                        runningGainDelta2 = _mm_add_ps(runningGainDelta2, runningGainDelta2);
+
                         for (; iFrame < unrolledLoopCount; iFrame += 1) {
                             _mm_storeu_ps(&pFramesOutF32[iFrame*12 + 0], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*12 + 0]), runningGain0));
                             _mm_storeu_ps(&pFramesOutF32[iFrame*12 + 4], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*12 + 4]), runningGain1));
@@ -59222,6 +59233,10 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                             runningGain1 = _mm_add_ps(runningGain1, runningGainDelta1);
                             runningGain2 = _mm_add_ps(runningGain2, runningGainDelta2);
                         }
+
+                        /* Keep the next frame's gains for the scalar remainder. */
+                        _mm_storeu_ps(&pRunningGain[0], runningGain0);
+                        _mm_storeu_ps(&pRunningGain[4], runningGain1);
 
                         iFrame = unrolledLoopCount << 1;
                     } else
@@ -59288,8 +59303,8 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                 }
             }
 
-            pFramesOut = ma_offset_ptr(pFramesOut, interpolatedFrameCount * sizeof(float));
-            pFramesIn  = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * sizeof(float));
+            pFramesOut = ma_offset_ptr(pFramesOut, interpolatedFrameCount * pGainer->config.channels * sizeof(float));
+            pFramesIn  = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * pGainer->config.channels * sizeof(float));
         }
 
         frameCount -= interpolatedFrameCount;
