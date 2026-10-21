@@ -7620,9 +7620,9 @@ typedef enum
 typedef enum
 {
     ma_aaudio_performance_mode_default = 0,         /* Leaves the performance mode unset. */
-    ma_aaudio_performance_mode_low_latency,         /* MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY */
-    ma_aaudio_performance_mode_none,                /* MA_AAUDIO_PERFORMANCE_MODE_NONE */
-    ma_aaudio_performance_mode_power_saving         /* MA_AAUDIO_PERFORMANCE_MODE_POWER_SAVING */
+    ma_aaudio_performance_mode_low_latency,         /* AAUDIO_PERFORMANCE_MODE_LOW_LATENCY */
+    ma_aaudio_performance_mode_none,                /* AAUDIO_PERFORMANCE_MODE_NONE */
+    ma_aaudio_performance_mode_power_saving         /* AAUDIO_PERFORMANCE_MODE_POWER_SAVING */
 } ma_aaudio_performance_mode;
 
 
