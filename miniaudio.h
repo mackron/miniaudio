@@ -25700,7 +25700,22 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
                 }
                 #endif
 
-                ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, bufferSizeInFrames);
+                if ((flags & MA_AUDCLNT_BUFFERFLAGS_SILENT) != 0) {
+                    ma_uint8 silentBuffer[4096];
+                    ma_uint32 silentBufferCapInFrames = sizeof(silentBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                    ma_uint32 framesRemaining = bufferSizeInFrames;
+
+                    /* Ignore the packet's data pointer when WASAPI marks it as silent. */
+                    ma_silence_pcm_frames(silentBuffer, silentBufferCapInFrames, pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                    while (framesRemaining > 0) {
+                        ma_uint32 framesToSend = ma_min(framesRemaining, silentBufferCapInFrames);
+                        ma_device_handle_backend_data_callback(pDevice, NULL, silentBuffer, framesToSend);
+                        framesRemaining -= framesToSend;
+                    }
+                } else {
+                    ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, bufferSizeInFrames);
+                }
+                
                 ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
 
                 /* Overrun detection. */
