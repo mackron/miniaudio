@@ -8022,6 +8022,8 @@ struct ma_device
             ma_aaudio_input_preset inputPreset;
             ma_aaudio_allowed_capture_policy allowedCapturePolicy;
             ma_bool32 noAutoStartAfterReroute;
+            ma_bool32 enableCompatibilityWorkarounds;
+            ma_bool32 allowSetBufferCapacity;
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -39839,11 +39841,13 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, const ma_dev
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    pDevice->aaudio.usage                   = pConfig->aaudio.usage;
-    pDevice->aaudio.contentType             = pConfig->aaudio.contentType;
-    pDevice->aaudio.inputPreset             = pConfig->aaudio.inputPreset;
-    pDevice->aaudio.allowedCapturePolicy    = pConfig->aaudio.allowedCapturePolicy;
-    pDevice->aaudio.noAutoStartAfterReroute = pConfig->aaudio.noAutoStartAfterReroute;
+    pDevice->aaudio.usage                          = pConfig->aaudio.usage;
+    pDevice->aaudio.contentType                    = pConfig->aaudio.contentType;
+    pDevice->aaudio.inputPreset                    = pConfig->aaudio.inputPreset;
+    pDevice->aaudio.allowedCapturePolicy           = pConfig->aaudio.allowedCapturePolicy;
+    pDevice->aaudio.noAutoStartAfterReroute        = pConfig->aaudio.noAutoStartAfterReroute;
+    pDevice->aaudio.enableCompatibilityWorkarounds = pConfig->aaudio.enableCompatibilityWorkarounds;
+    pDevice->aaudio.allowSetBufferCapacity         = pConfig->aaudio.allowSetBufferCapacity;
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_capture, pDescriptorCapture, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
@@ -40046,18 +40050,21 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfig.capture.format                 = pDevice->capture.format;
         deviceConfig.capture.channels               = pDevice->capture.channels;
         deviceConfig.sampleRate                     = pDevice->sampleRate;
-        deviceConfig.aaudio.usage                   = pDevice->aaudio.usage;
-        deviceConfig.aaudio.contentType             = pDevice->aaudio.contentType;
-        deviceConfig.aaudio.inputPreset             = pDevice->aaudio.inputPreset;
-        deviceConfig.aaudio.allowedCapturePolicy    = pDevice->aaudio.allowedCapturePolicy;
-        deviceConfig.aaudio.noAutoStartAfterReroute = pDevice->aaudio.noAutoStartAfterReroute;
-        deviceConfig.periods                        = 1;
+        deviceConfig.aaudio.usage                          = pDevice->aaudio.usage;
+        deviceConfig.aaudio.contentType                    = pDevice->aaudio.contentType;
+        deviceConfig.aaudio.inputPreset                    = pDevice->aaudio.inputPreset;
+        deviceConfig.aaudio.allowedCapturePolicy           = pDevice->aaudio.allowedCapturePolicy;
+        deviceConfig.aaudio.noAutoStartAfterReroute        = pDevice->aaudio.noAutoStartAfterReroute;
+        deviceConfig.aaudio.enableCompatibilityWorkarounds = pDevice->aaudio.enableCompatibilityWorkarounds;
+        deviceConfig.aaudio.allowSetBufferCapacity         = pDevice->aaudio.allowSetBufferCapacity;
 
         /* Try to get an accurate period size. */
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
             deviceConfig.periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
+            deviceConfig.periods            = pDevice->playback.internalPeriods;
         } else {
             deviceConfig.periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
+            deviceConfig.periods            = pDevice->capture.internalPeriods;
         }
 
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
