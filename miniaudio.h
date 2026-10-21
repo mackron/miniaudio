@@ -41746,7 +41746,6 @@ static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
 
         emscripten_destroy_web_audio_node(pDevice->webaudio.audioWorklet);
         emscripten_destroy_audio_context(pDevice->webaudio.audioContext);
-        ma_free(pDevice->webaudio.pStackBuffer, &pDevice->pContext->allocationCallbacks);
     }
     #else
     {
@@ -42058,7 +42057,11 @@ static void ma_audio_worklet_thread_initialized__webaudio(EMSCRIPTEN_WEBAUDIO_T 
     MA_ASSERT(pParameters != NULL);
 
     if (success == EM_FALSE) {
-        pParameters->pDevice->webaudio.initResult = MA_ERROR;
+        ma_device* pDevice;
+
+        pDevice = pParameters->pDevice;
+        ma_free(pParameters, &pDevice->pContext->allocationCallbacks);
+        pDevice->webaudio.initResult = MA_ERROR;
         return;
     }
 
@@ -42132,7 +42135,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
         /* Our thread initialization parameters need to be allocated on the heap so they don't go out of scope. */
         pInitParameters = (ma_audio_worklet_thread_initialized_data*)ma_malloc(sizeof(*pInitParameters), &pDevice->pContext->allocationCallbacks);
         if (pInitParameters == NULL) {
-            ma_free(pStackBuffer, &pDevice->pContext->allocationCallbacks);
+            ma_aligned_free(pStackBuffer, &pDevice->pContext->allocationCallbacks);
             emscripten_destroy_audio_context(pDevice->webaudio.audioContext);
             return MA_OUT_OF_MEMORY;
         }
@@ -42148,13 +42151,16 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
         */
         pDevice->webaudio.initResult = MA_BUSY;
         {
+            /*
+            Web Audio teardown does not wait for all stack users to stop. Retain this allocation after
+            handing it to Emscripten, including when initialization fails.
+            */
             emscripten_start_wasm_audio_worklet_thread_async(pDevice->webaudio.audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pInitParameters);
         }
         while (pDevice->webaudio.initResult == MA_BUSY) { emscripten_sleep(1); }    /* We must wait for initialization to complete. We're just spinning here. The emscripten_sleep() call is why we need to build with `-sASYNCIFY`. */
 
         /* Initialization is now complete. Descriptors were updated when the worklet was initialized. */
         if (pDevice->webaudio.initResult != MA_SUCCESS) {
-            ma_free(pStackBuffer, &pDevice->pContext->allocationCallbacks);
             emscripten_destroy_audio_context(pDevice->webaudio.audioContext);
             return pDevice->webaudio.initResult;
         }
