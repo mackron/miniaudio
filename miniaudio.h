@@ -7642,7 +7642,7 @@ typedef struct ma_device_config_aaudio
     ma_aaudio_allowed_capture_policy allowedCapturePolicy;
     ma_aaudio_performance_mode performanceMode;
     ma_bool32 noAutoStartAfterReroute;
-    ma_bool32 allowSetBufferCapacity;
+    ma_bool32 noSetBufferCapacity;
 } ma_device_config_aaudio;
 
 MA_API ma_device_config_aaudio ma_device_config_aaudio_init(void);
@@ -40467,9 +40467,10 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         pData->sampleRateOut = (ma_uint32)bestFormat.mSampleRate;
     }
 
-    /* Clamp the channel count for safety. */
+    /* Reject unsupported channel counts, including those restored by the format fallback above. Clamping only channelsOut would leave it inconsistent with the audio unit's stream format. */
     if (pData->channelsOut > MA_MAX_CHANNELS) {
-        pData->channelsOut = MA_MAX_CHANNELS;
+        pContextStateCoreAudio->AudioComponentInstanceDispose(pData->audioUnit);
+        return MA_FORMAT_NOT_SUPPORTED;
     }
 
     /*
@@ -44946,7 +44947,7 @@ typedef struct ma_device_state_aaudio
     ma_aaudio_input_preset inputPreset;
     ma_aaudio_allowed_capture_policy allowedCapturePolicy;
     ma_bool32 noAutoStartAfterReroute;
-    ma_bool32 allowSetBufferCapacity;
+    ma_bool32 noSetBufferCapacity;
 } ma_device_state_aaudio;
 
 
@@ -45200,11 +45201,10 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         /*
         There have been reports where setting the frames per data callback results in an error.
         In particular, re-routing may inadvertently switch from low-latency mode, resulting in a less stable
-        stream from the legacy path (AudioStreamLegacy). To address this, we simply don't set the value. It
-        can still be set if it's explicitly requested via the aaudio.allowSetBufferCapacity variable in the
-        device config.
+        stream from the legacy path (AudioStreamLegacy). Set noSetBufferCapacity to true in the AAudio
+        device config to let AAudio choose the buffer capacity and frames per data callback.
         */
-        if (pDeviceConfigAAudio->allowSetBufferCapacity) {
+        if (!pDeviceConfigAAudio->noSetBufferCapacity) {
             /*
             AAudio is annoying when it comes to its buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
@@ -45505,7 +45505,7 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_st
     pDeviceStateAAudio->inputPreset             = pDeviceConfigAAudio->inputPreset;
     pDeviceStateAAudio->allowedCapturePolicy    = pDeviceConfigAAudio->allowedCapturePolicy;
     pDeviceStateAAudio->noAutoStartAfterReroute = pDeviceConfigAAudio->noAutoStartAfterReroute;
-    pDeviceStateAAudio->allowSetBufferCapacity  = pDeviceConfigAAudio->allowSetBufferCapacity;
+    pDeviceStateAAudio->noSetBufferCapacity     = pDeviceConfigAAudio->noSetBufferCapacity;
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pDeviceConfigAAudio, ma_device_type_capture, pDescriptorCapture, &pDeviceStateAAudio->pStreamCapture);
@@ -45600,7 +45600,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfigAAudio.inputPreset             = pDeviceStateAAudio->inputPreset;
         deviceConfigAAudio.allowedCapturePolicy    = pDeviceStateAAudio->allowedCapturePolicy;
         deviceConfigAAudio.noAutoStartAfterReroute = pDeviceStateAAudio->noAutoStartAfterReroute;
-        deviceConfigAAudio.allowSetBufferCapacity  = pDeviceStateAAudio->allowSetBufferCapacity;
+        deviceConfigAAudio.noSetBufferCapacity     = pDeviceStateAAudio->noSetBufferCapacity;
 
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
             descriptorCapture.pDeviceID           = NULL;   /* Only doing rerouting with default devices. */
