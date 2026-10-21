@@ -44810,6 +44810,7 @@ typedef struct ma_device_state_aaudio
     ma_aaudio_input_preset inputPreset;
     ma_aaudio_allowed_capture_policy allowedCapturePolicy;
     ma_bool32 noAutoStartAfterReroute;
+    ma_bool32 allowSetBufferCapacity;
 } ma_device_state_aaudio;
 
 
@@ -45368,6 +45369,7 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_st
     pDeviceStateAAudio->inputPreset             = pDeviceConfigAAudio->inputPreset;
     pDeviceStateAAudio->allowedCapturePolicy    = pDeviceConfigAAudio->allowedCapturePolicy;
     pDeviceStateAAudio->noAutoStartAfterReroute = pDeviceConfigAAudio->noAutoStartAfterReroute;
+    pDeviceStateAAudio->allowSetBufferCapacity  = pDeviceConfigAAudio->allowSetBufferCapacity;
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pDeviceConfigAAudio, ma_device_type_capture, pDescriptorCapture, &pDeviceStateAAudio->pStreamCapture);
@@ -45462,6 +45464,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfigAAudio.inputPreset             = pDeviceStateAAudio->inputPreset;
         deviceConfigAAudio.allowedCapturePolicy    = pDeviceStateAAudio->allowedCapturePolicy;
         deviceConfigAAudio.noAutoStartAfterReroute = pDeviceStateAAudio->noAutoStartAfterReroute;
+        deviceConfigAAudio.allowSetBufferCapacity  = pDeviceStateAAudio->allowSetBufferCapacity;
 
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
             descriptorCapture.pDeviceID           = NULL;   /* Only doing rerouting with default devices. */
@@ -45470,7 +45473,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             descriptorCapture.channels            = ma_device_get_channels(pDevice, ma_device_type_capture);
             descriptorCapture.sampleRate          = ma_device_get_sample_rate(pDevice);
             descriptorCapture.periodSizeInFrames  = pDevice->capture.internalPeriodSizeInFrames;
-            descriptorCapture.periodCount         = 1;
+            descriptorCapture.periodCount         = pDevice->capture.internalPeriods;
         }
 
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -45480,7 +45483,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             descriptorPlayback.channels           = ma_device_get_channels(pDevice, ma_device_type_playback);
             descriptorPlayback.sampleRate         = ma_device_get_sample_rate(pDevice);
             descriptorPlayback.periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
-            descriptorPlayback.periodCount        = 1;
+            descriptorPlayback.periodCount        = pDevice->playback.internalPeriods;
         }
 
         result = ma_device_init_streams__aaudio(pDevice, pDeviceStateAAudio, &deviceConfigAAudio, &descriptorPlayback, &descriptorCapture);
