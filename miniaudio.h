@@ -24377,7 +24377,8 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
                     MA_WAVEFORMATEX* pActualFormat = (MA_WAVEFORMATEX*)prop.blob.pBlobData;
                     hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pData->pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
                     if (SUCCEEDED(hr)) {
-                        MA_COPY_MEMORY(&wf, pActualFormat, sizeof(MA_WAVEFORMATEXTENSIBLE));
+                        /* The property may contain a plain WAVEFORMATEX rather than a full WAVEFORMATEXTENSIBLE. */
+                        MA_COPY_MEMORY(&wf, pActualFormat, ma_min(prop.blob.cbSize, sizeof(wf)));
                     }
 
                     ma_PropVariantClear(pContext, &prop);
