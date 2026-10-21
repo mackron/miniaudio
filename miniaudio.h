@@ -25684,9 +25684,10 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
                     Glitched. We need to drain the buffer, but only if we're in duplex mode. In normal capture mode,
                     the application is responsible for processing fast enough so we leave it to them. In duplex mode
                     however, the playback and capture devices should be in lockstep so we'll need to drain to get
-                    the capture device back on track.
+                    the capture device back on track. GetNextPacketSize() only supports shared-mode capture;
+                    exclusive-mode capture must wait for the next buffer event.
                     */
-                    if (deviceType == ma_device_type_duplex) {
+                    if (deviceType == ma_device_type_duplex && pDevice->capture.shareMode == ma_share_mode_shared) {
                         for (;;) {
                             ma_uint32 packetFrames;
 
