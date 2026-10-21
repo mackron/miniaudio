@@ -50475,8 +50475,15 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
         }
     }
 
-    /* When we leave the loop we always need to uninitialize the backend. */
-    ma_device_op_do_uninit(pDevice, pOp->pCompletionEvent);
+    /*
+    Wait for any wakeup callback to return before freeing the backend state. The uninit operation
+    can be processed before ma_device_uninit() has finished waking up the backend.
+    */
+    ma_mutex_lock(&pDevice->startStopLock);
+    {
+        ma_device_op_do_uninit(pDevice, pOp->pCompletionEvent);
+    }
+    ma_mutex_unlock(&pDevice->startStopLock);
 
 end_audio_thread:
     #if defined(MA_WIN32) && !defined(MA_XBOX)
@@ -51715,6 +51722,13 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     }
     #endif
 
+    /* Keep the backend state alive until the wakeup callback has returned. */
+    #ifndef MA_NO_THREADING
+    if (pDevice->hasAudioThread) {
+        ma_mutex_lock(&pDevice->startStopLock);
+    }
+    #endif
+
     /* Putting the device into an uninitialized state will make the worker thread return. */
     ma_device_set_status(pDevice, ma_device_status_uninitialized);
 
@@ -51734,6 +51748,8 @@ MA_API void ma_device_uninit(ma_device* pDevice)
             pDevice->pContext->pVTable->onDeviceWakeup(pDevice);
         }
 
+        /* The worker needs this lock to uninitialize the backend. Release it before joining. */
+        ma_mutex_unlock(&pDevice->startStopLock);
         ma_thread_wait(&pDevice->audioThread);
     } else
     #endif
