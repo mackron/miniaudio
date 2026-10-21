@@ -1,6 +1,8 @@
 \#docs/
 /_private/
 /build/
+/tickets/
+/scratch/
 /debugging/
 /evaluations/
 /examples/build/bin/
