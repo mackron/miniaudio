@@ -25678,98 +25678,99 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
             DWORD flags = 0;
             ma_uint32 bufferSizeInFrames;
             BYTE* pMappedBuffer;
+            ma_bool32 discardRemainingPackets = MA_FALSE;
 
             /* First just ask WASAPI for a data buffer. If it's not available, we'll wait for more. */
             hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, &pMappedBuffer, &bufferSizeInFrames, &flags, NULL, NULL);
-            if (hr == S_OK) {
-                /*
-                There have been reports that indicate that at times the AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY is reported for every
-                call to IAudioCaptureClient_GetBuffer() above which results in spamming of the debug messages below. To partially
-                work around this, I'm only outputting these messages when MA_DEBUG_OUTPUT is explicitly defined. The better solution
-                would be to figure out why the flag is always getting reported.
-                */
-                #if defined(MA_DEBUG_OUTPUT)
-                {
-                    if (flags != 0) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld", flags);
-
-                        if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
-                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. bufferSizeInFrames=%d", bufferSizeInFrames);
-                        }
-                    }
-                }
-                #endif
-
-                if ((flags & MA_AUDCLNT_BUFFERFLAGS_SILENT) != 0) {
-                    ma_uint8 silentBuffer[4096];
-                    ma_uint32 silentBufferCapInFrames = sizeof(silentBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-                    ma_uint32 framesRemaining = bufferSizeInFrames;
-
-                    /* Ignore the packet's data pointer when WASAPI marks it as silent. */
-                    ma_silence_pcm_frames(silentBuffer, silentBufferCapInFrames, pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-                    while (framesRemaining > 0) {
-                        ma_uint32 framesToSend = ma_min(framesRemaining, silentBufferCapInFrames);
-                        ma_device_handle_backend_data_callback(pDevice, NULL, silentBuffer, framesToSend);
-                        framesRemaining -= framesToSend;
-                    }
-                } else {
-                    ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, bufferSizeInFrames);
-                }
-                
-                ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
-
-                /* Overrun detection. */
-                if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+            for (;;) {
+                if (hr == S_OK) {
                     /*
-                    Glitched. We need to drain the buffer, but only if we're in duplex mode. In normal capture mode,
-                    the application is responsible for processing fast enough so we leave it to them. In duplex mode
-                    however, the playback and capture devices should be in lockstep so we'll need to drain to get
-                    the capture device back on track. GetNextPacketSize() only supports shared-mode capture;
-                    exclusive-mode capture must wait for the next buffer event.
+                    There have been reports that indicate that at times the AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY is reported for every
+                    call to IAudioCaptureClient_GetBuffer() above which results in spamming of the debug messages below. To partially
+                    work around this, I'm only outputting these messages when MA_DEBUG_OUTPUT is explicitly defined. The better solution
+                    would be to figure out why the flag is always getting reported.
                     */
-                    if (deviceType == ma_device_type_duplex && pDevice->capture.shareMode == ma_share_mode_shared) {
-                        for (;;) {
-                            ma_uint32 packetFrames;
+                    #if defined(MA_DEBUG_OUTPUT)
+                    {
+                        if (flags != 0) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld", flags);
 
-                            hr = ma_IAudioCaptureClient_GetNextPacketSize(pDeviceStateWASAPI->pCaptureClient, &packetFrames);
-                            if (FAILED(hr) || packetFrames == 0) {
-                                break;
+                            if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. bufferSizeInFrames=%d", bufferSizeInFrames);
                             }
-
-                            hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, &pMappedBuffer, &bufferSizeInFrames, &flags, NULL, NULL);
-                            if (FAILED(hr)) {
-                                break;
-                            }
-
-                            ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
                         }
                     }
-                }
-            } else {
-                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
-                    /* No data available. */
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] IAudioCaptureClient_GetBuffer() returned %s.", (hr == MA_AUDCLNT_E_BUFFER_ERROR) ? "AUDCLNT_E_BUFFER_ERROR" : "AUDCLNT_E_BUFFER_EMPTY");
-                } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Capture device invalidated. Attempting reinitialization.");
+                    #endif
 
-                    /* Preserve loopback mode so reinitialization uses the render endpoint or process loopback activation parameters. */
-                    result = ma_device_reroute__wasapi(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
-                    if (result != MA_SUCCESS) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Capture device invalidated and reinitialization failed. Stopping device.");
-                        ma_device_set_errored(pDevice);
-                        return result;
+                    if (discardRemainingPackets == MA_FALSE) {
+                        if ((flags & MA_AUDCLNT_BUFFERFLAGS_SILENT) != 0) {
+                            ma_uint8 silentBuffer[4096];
+                            ma_uint32 silentBufferCapInFrames = sizeof(silentBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                            ma_uint32 framesRemaining = bufferSizeInFrames;
+
+                            /* Ignore the packet's data pointer when WASAPI marks it as silent. */
+                            ma_silence_pcm_frames(silentBuffer, silentBufferCapInFrames, pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+                            while (framesRemaining > 0) {
+                                ma_uint32 framesToSend = ma_min(framesRemaining, silentBufferCapInFrames);
+                                ma_device_handle_backend_data_callback(pDevice, NULL, silentBuffer, framesToSend);
+                                framesRemaining -= framesToSend;
+                            }
+                        } else {
+                            ma_device_handle_backend_data_callback(pDevice, NULL, pMappedBuffer, bufferSizeInFrames);
+                        }
                     }
 
-                    /* Only the invalidated side was replaced. The other side of a duplex device is still running. */
-                    result = ma_device_start_internal__wasapi(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
-                    if (result != MA_SUCCESS) {
-                        ma_device_set_errored(pDevice);
-                        return result;
+                    hr = ma_IAudioCaptureClient_ReleaseBuffer(pDeviceStateWASAPI->pCaptureClient, bufferSizeInFrames);
+                    if (FAILED(hr)) {
+                        continue;   /* Handle the error before requesting another packet. */
+                    }
+
+                    /* After a duplex discontinuity, discard the backlog to bring capture back in step with playback. */
+                    if (deviceType == ma_device_type_duplex && (flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                        discardRemainingPackets = MA_TRUE;
                     }
                 } else {
-                    /* An error occurred and we need to abort. */
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.", (int)hr);
-                    return ma_result_from_HRESULT(hr);
+                    if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
+                        /* No data available. */
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] IAudioCaptureClient_GetBuffer() returned %s.", (hr == MA_AUDCLNT_E_BUFFER_ERROR) ? "AUDCLNT_E_BUFFER_ERROR" : "AUDCLNT_E_BUFFER_EMPTY");
+                    } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Capture device invalidated. Attempting reinitialization.");
+
+                        /* Preserve loopback mode so reinitialization uses the render endpoint or process loopback activation parameters. */
+                        result = ma_device_reroute__wasapi(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                        if (result != MA_SUCCESS) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Capture device invalidated and reinitialization failed. Stopping device.");
+                            ma_device_set_errored(pDevice);
+                            return result;
+                        }
+
+                        /* Only the invalidated side was replaced. The other side of a duplex device is still running. */
+                        result = ma_device_start_internal__wasapi(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                        if (result != MA_SUCCESS) {
+                            ma_device_set_errored(pDevice);
+                            return result;
+                        }
+                    } else {
+                        /* An error occurred and we need to abort. */
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.", (int)hr);
+                        return ma_result_from_HRESULT(hr);
+                    }
+
+                    break;
+                }
+
+                /* Shared-mode events can coalesce. Read every queued packet, but never re-read an exclusive-mode buffer. */
+                if (pDevice->capture.shareMode == ma_share_mode_exclusive || !ma_device_is_started(pDevice)) {
+                    break;
+                }
+
+                hr = ma_IAudioCaptureClient_GetNextPacketSize(pDeviceStateWASAPI->pCaptureClient, &bufferSizeInFrames);
+                if (hr == S_OK) {
+                    if (bufferSizeInFrames == 0) {
+                        break;
+                    }
+
+                    hr = ma_IAudioCaptureClient_GetBuffer(pDeviceStateWASAPI->pCaptureClient, &pMappedBuffer, &bufferSizeInFrames, &flags, NULL, NULL);
                 }
             }
         }
