@@ -75364,7 +75364,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
             ppFramesOut[0] = pFramesOut;
             ppFramesIn[0] = ppFramesOut[0];
 
-            result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[0], ppFramesIn[0], frameCount, &totalFramesRead, globalTime);
+            result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[0], ppFramesIn[0], frameCount, &totalFramesRead, globalTime + timeOffsetBeg);
             if (result == MA_SUCCESS) {
                 /* Even though it's a passthrough, we still need to fire the callback. */
                 frameCountIn  = totalFramesRead;
@@ -75452,7 +75452,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                             ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
 
                             /* Once we've determined our destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
-                            result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[iInputBus], ppFramesIn[iInputBus], framesToProcessIn, &framesRead, globalTime);
+                            result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[iInputBus], ppFramesIn[iInputBus], framesToProcessIn, &framesRead, globalTime + timeOffsetBeg);
                             if (result != MA_SUCCESS) {
                                 /* It doesn't really matter if we fail because we'll just fill with silence. */
                                 framesRead = 0; /* Just for safety, but I don't think it's really needed. */
