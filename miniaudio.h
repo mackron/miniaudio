@@ -81802,6 +81802,12 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
                 ma_yield();
             }
 
+            /* The caller will not uninitialize a data stream that failed to initialize so the file path needs to be freed here. */
+            ma_free(pDataStream->pFilePath,  &pResourceManager->config.allocationCallbacks);
+            ma_free(pDataStream->pFilePathW, &pResourceManager->config.allocationCallbacks);
+            pDataStream->pFilePath  = NULL;
+            pDataStream->pFilePathW = NULL;
+
             return pDataStream->result;
         }
 
