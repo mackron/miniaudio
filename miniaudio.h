@@ -36296,6 +36296,9 @@ on_error1:
         pContextStatePulseAudio->pa_stream_unref(pDeviceStatePulseAudio->capture.pStream);
     }
 on_error0:
+    pContextStatePulseAudio->pa_context_disconnect(pDeviceStatePulseAudio->pPulseContext);
+    pContextStatePulseAudio->pa_context_unref(pDeviceStatePulseAudio->pPulseContext);
+    pContextStatePulseAudio->pa_mainloop_free(pDeviceStatePulseAudio->pMainLoop);
     ma_free(pDeviceStatePulseAudio, ma_device_get_allocation_callbacks(pDevice));
     return result;
 }
