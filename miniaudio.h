@@ -25712,7 +25712,8 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
                 } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WASAPI] Capture device invalidated. Attempting reinitialization.");
 
-                    result = ma_device_reroute__wasapi(pDevice, ma_device_type_capture);
+                    /* Preserve loopback mode so reinitialization uses the render endpoint or process loopback activation parameters. */
+                    result = ma_device_reroute__wasapi(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
                     if (result != MA_SUCCESS) {
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Capture device invalidated and reinitialization failed. Stopping device.");
                         ma_device_set_errored(pDevice);
