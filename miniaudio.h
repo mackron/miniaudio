@@ -11964,6 +11964,7 @@ typedef struct
     ma_panner panner;
     ma_gainer volumeGainer;                             /* This will only be used if volumeSmoothTimeInPCMFrames is > 0. */
     ma_atomic_float volume;                             /* Defaults to 1. */
+    float oldVolume;                                    /* The volume last applied by the mixing thread. */
     MA_ATOMIC(4, float) pitch;
     float oldPitch;                                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
     float oldDopplerPitch;                              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
@@ -86165,15 +86166,6 @@ static ma_result ma_engine_node_set_volume(ma_engine_node* pEngineNode, float vo
 
     ma_atomic_float_set(&pEngineNode->volume, volume);
 
-    /* If we're not smoothing we should bypass the volume gainer entirely. */
-    if (pEngineNode->volumeSmoothTimeInPCMFrames == 0) {
-        /* We should always have an active spatializer because it can be enabled and disabled dynamically. We can just use that for holding our volume. */
-        ma_spatializer_set_master_volume(&pEngineNode->spatializer, volume);
-    } else {
-        /* We're using volume smoothing, so apply the master volume to the gainer. */
-        ma_gainer_set_gain(&pEngineNode->volumeGainer, volume);
-    }
-
     return MA_SUCCESS;
 }
 
@@ -86208,6 +86200,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     ma_bool32 isSpatializationEnabled;
     ma_bool32 isPanningEnabled;
     ma_bool32 isVolumeSmoothingEnabled;
+    float volume;
 
     frameCountIn  = *pFrameCountIn;
     frameCountOut = *pFrameCountOut;
@@ -86243,6 +86236,18 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     isSpatializationEnabled  = ma_engine_node_is_spatialization_enabled(pEngineNode);
     isPanningEnabled         = pEngineNode->panner.pan != 0 && channelsOut != 1;
     isVolumeSmoothingEnabled = pEngineNode->volumeSmoothTimeInPCMFrames > 0;
+
+    /* Apply volume changes on the mixing thread so gainer state is not shared with the setter. */
+    volume = ma_atomic_float_get(&pEngineNode->volume);
+    if (volume != pEngineNode->oldVolume) {
+        if (isVolumeSmoothingEnabled) {
+            ma_gainer_set_gain(&pEngineNode->volumeGainer, volume);
+        } else {
+            ma_spatializer_set_master_volume(&pEngineNode->spatializer, volume);
+        }
+
+        pEngineNode->oldVolume = volume;
+    }
 
     /* Keep going while we've still got data available for processing. */
     while (totalFramesProcessedOut < frameCountOut) {
@@ -86357,9 +86362,6 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, &pEngineNode->pEngine->listeners[iListener], pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
         } else {
             /* No spatialization, but we still need to do channel conversion and master volume. */
-            float volume;
-            ma_engine_node_get_volume(pEngineNode, &volume);    /* Should never fail. */
-
             if (channelsIn == channelsOut) {
                 /* No channel conversion required. Just copy straight to the output buffer. */
                 if (isVolumeSmoothingEnabled) {
@@ -86791,6 +86793,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     pEngineNode->volumeSmoothTimeInPCMFrames = pConfig->volumeSmoothTimeInPCMFrames;
     pEngineNode->monoExpansionMode           = pConfig->monoExpansionMode;
     ma_atomic_float_set(&pEngineNode->volume, 1);
+    pEngineNode->oldVolume                   = 1;
     pEngineNode->pitch                       = 1;
     pEngineNode->oldPitch                    = 1;
     pEngineNode->oldDopplerPitch             = 1;
