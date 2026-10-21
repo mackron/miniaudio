@@ -24902,7 +24902,8 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     return MA_SUCCESS;
 }
 
-static void ma_device_uninit__wasapi(ma_device* pDevice);
+/* Initialization failure must clean up the local state before it has been attached to the device. */
+static void ma_device_uninit_internal__wasapi(ma_device* pDevice, ma_device_state_wasapi* pDeviceStateWASAPI);
 
 static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -24919,6 +24920,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
 #endif
 
     MA_ASSERT(pDevice != NULL);
+
+    *ppDeviceState = NULL;
 
     /* Exclusive mode is not allowed with loopback. */
     if (deviceType == ma_device_type_loopback && pDescriptorCapture->shareMode == ma_share_mode_exclusive) {
@@ -25124,7 +25127,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
 
     hr = ma_CoCreateInstance(pDevice->pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        ma_device_uninit__wasapi(pDevice);
+        ma_device_uninit_internal__wasapi(pDevice, pDeviceStateWASAPI);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
         return ma_result_from_HRESULT(hr);
     }
@@ -25155,9 +25158,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
     return MA_SUCCESS;
 }
 
-static void ma_device_uninit__wasapi(ma_device* pDevice)
+static void ma_device_uninit_internal__wasapi(ma_device* pDevice, ma_device_state_wasapi* pDeviceStateWASAPI)
 {
-    ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_context_state_wasapi* pContextStateWASAPI = (ma_context_state_wasapi*)ma_context_get_backend_state(ma_device_get_context(pDevice));
 
     MA_ASSERT(pDevice != NULL);
@@ -25198,6 +25200,11 @@ static void ma_device_uninit__wasapi(ma_device* pDevice)
     }
 
     ma_free(pDeviceStateWASAPI, ma_device_get_allocation_callbacks(pDevice));
+}
+
+static void ma_device_uninit__wasapi(ma_device* pDevice)
+{
+    ma_device_uninit_internal__wasapi(pDevice, ma_device_get_backend_state__wasapi(pDevice));
 }
 
 static ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_IAudioClient* pAudioClient, ma_uint32* pFrameCount)
