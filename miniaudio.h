@@ -23412,6 +23412,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
     hr = ma_IAudioClient_GetMixFormat(pAudioClient, (MA_WAVEFORMATEX**)&pWF);
     if (SUCCEEDED(hr)) {
         ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_shared, pInfo);
+        ma_CoTaskMemFree(pContext, pWF);
+        pWF = NULL;
     } else {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve mix format for device info retrieval.");
         return ma_result_from_HRESULT(hr);
@@ -23502,8 +23504,6 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         }
                     }
 
-                    ma_PropVariantClear(pContext, &var);
-
                     if (!found) {
                         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to find suitable device format for device info retrieval.");
                     }
@@ -23512,6 +23512,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to retrieve device format for device info retrieval.");
             }
 
+            ma_PropVariantClear(pContext, &var);
             ma_IPropertyStore_Release(pProperties);
         } else {
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to open property store for device info retrieval.");
