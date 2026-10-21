@@ -25368,7 +25368,7 @@ static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_de
         } else {
             hr = ma_IAudioClient_Reset(pDeviceStateWASAPI->pAudioClientCapture);
         }
-        
+
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.");
             return ma_result_from_HRESULT(hr);
@@ -25473,6 +25473,7 @@ static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevic
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_client_notification_wasapi notification;
+    ma_result result;
 
     while (ma_device_next_client_notification__wasapi(pDevice, &notification) == MA_SUCCESS) {
         switch (notification.type)
@@ -25496,21 +25497,32 @@ static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevic
 
                 if (notification.deviceType == ma_device_type_playback) {
                     if (pDeviceStateWASAPI->isDetachedPlayback) {
+                        result = ma_device_reroute__wasapi(pDevice, notification.deviceType);
+                        if (result != MA_SUCCESS) {
+                            goto on_error;
+                        }
+
                         pDeviceStateWASAPI->isDetachedPlayback = MA_FALSE;
-                        ma_device_reroute__wasapi(pDevice, notification.deviceType);
                         tryRestartingDevice = MA_TRUE;
                     }
                 } else {
                     if (pDeviceStateWASAPI->isDetachedCapture) {
+                        result = ma_device_reroute__wasapi(pDevice, notification.deviceType);
+                        if (result != MA_SUCCESS) {
+                            goto on_error;
+                        }
+
                         pDeviceStateWASAPI->isDetachedCapture = MA_FALSE;
-                        ma_device_reroute__wasapi(pDevice, notification.deviceType);
                         tryRestartingDevice = MA_TRUE;
                     }
                 }
 
                 if (tryRestartingDevice) {
                     if (pDeviceStateWASAPI->isDetachedPlayback == MA_FALSE && pDeviceStateWASAPI->isDetachedCapture == MA_FALSE) {
-                        ma_device_start__wasapi(pDevice);
+                        result = ma_device_start__wasapi(pDevice);
+                        if (result != MA_SUCCESS) {
+                            goto on_error;
+                        }
                     }
                 }
             } break;
@@ -25521,11 +25533,18 @@ static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevic
                 ma_bool32 restartDevice = MA_FALSE;
 
                 if (previousStatus == ma_device_status_started) {
-                    ma_device_stop__wasapi(pDevice);
+                    result = ma_device_stop__wasapi(pDevice);
+                    if (result != MA_SUCCESS) {
+                        goto on_error;
+                    }
+                    
                     restartDevice = MA_TRUE;
                 }
 
-                ma_device_reroute__wasapi(pDevice, notification.deviceType);
+                result = ma_device_reroute__wasapi(pDevice, notification.deviceType);
+                if (result != MA_SUCCESS) {
+                    goto on_error;
+                }
 
                 if (notification.deviceType == ma_device_type_playback) {
                     if (pDeviceStateWASAPI->isDetachedPlayback) {
@@ -25552,7 +25571,10 @@ static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevic
                 }
 
                 if (restartDevice) {
-                    ma_device_start__wasapi(pDevice);
+                    result = ma_device_start__wasapi(pDevice);
+                    if (result != MA_SUCCESS) {
+                        goto on_error;
+                    }
                 }
             } break;
 
@@ -25564,6 +25586,11 @@ static ma_result ma_device_handle_client_notifications__wasapi(ma_device* pDevic
     }
 
     return MA_SUCCESS;
+
+on_error:
+    /* A failed reroute may have released the old clients. They cannot be used or restarted. */
+    ma_device_set_errored(pDevice);
+    return result;
 }
 
 static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blockingMode)
@@ -50024,7 +50051,10 @@ static ma_result ma_device_op_do_stop(ma_device* pDevice, ma_device_op_completio
         result = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
     }
 
-    ma_device_set_status(pDevice, ma_device_status_stopped);
+    /* Stopping the backend must not make an errored device restartable. */
+    if (ma_device_get_status(pDevice) != ma_device_status_errored) {
+        ma_device_set_status(pDevice, ma_device_status_stopped);
+    }
 
     /* A stop event should always be posted when the device has stopped. */
     ma_device_post_notification_stopped(pDevice);
