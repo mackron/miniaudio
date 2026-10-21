@@ -25299,7 +25299,7 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_start__wasapi(ma_device* pDevice)
+static ma_result ma_device_start_internal__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
     ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
@@ -25309,7 +25309,7 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
     We need to prime the data so we don't get an immediate underrun, and also to ensure we have a
     buffer of silence for duplex mode.
     */
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint32 bufferSizeInFrames = pDeviceStateWASAPI->actualBufferSizeInFramesPlayback;
         ma_uint32 padding;
         BYTE* pBufferData;
@@ -25327,7 +25327,7 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
         }
     }
 
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start(pDeviceStateWASAPI->pAudioClientCapture);
         if (FAILED(hr)) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device. HRESULT = %d.", (int)hr);
@@ -25335,7 +25335,7 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
         }
     }
 
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         hr = ma_IAudioClient_Start(pDeviceStateWASAPI->pAudioClientPlayback);
         if (FAILED(hr)) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device. HRESULT = %d.", (int)hr);
@@ -25344,6 +25344,11 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
     }
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_device_start__wasapi(ma_device* pDevice)
+{
+    return ma_device_start_internal__wasapi(pDevice, ma_device_get_type(pDevice));
 }
 
 static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_device_type deviceType)
@@ -25740,7 +25745,12 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
                         return result;
                     }
 
-                    ma_device_start__wasapi(pDevice);
+                    /* Only the invalidated side was replaced. The other side of a duplex device is still running. */
+                    result = ma_device_start_internal__wasapi(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                    if (result != MA_SUCCESS) {
+                        ma_device_set_errored(pDevice);
+                        return result;
+                    }
                 } else {
                     /* An error occurred and we need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.", (int)hr);
@@ -25780,7 +25790,11 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
                         return result;
                     }
 
-                    ma_device_start__wasapi(pDevice);
+                    result = ma_device_start_internal__wasapi(pDevice, ma_device_type_playback);
+                    if (result != MA_SUCCESS) {
+                        ma_device_set_errored(pDevice);
+                        return result;
+                    }
                 } else {
                     /* Some error occurred. We'll need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.", (int)hr);
