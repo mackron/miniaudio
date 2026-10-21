@@ -41330,7 +41330,7 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
 
     MA_ASSERT(deviceType == ma_device_type_capture || deviceType == ma_device_type_playback);
 
-    if (pDevice->type == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture) {
         pBufferQueue = (SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture;
         pDevice->opensl.isDrainingCapture  = MA_TRUE;
     } else {
@@ -41349,7 +41349,7 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
         ma_sleep(10);
     }
 
-    if (pDevice->type == ma_device_type_capture) {
+    if (deviceType == ma_device_type_capture) {
         pDevice->opensl.isDrainingCapture  = MA_FALSE;
     } else {
         pDevice->opensl.isDrainingPlayback = MA_FALSE;
