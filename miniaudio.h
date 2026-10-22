@@ -38917,6 +38917,12 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
             pDeviceStateCoreAudio = g_pTrackedDevices_CoreAudio[iDevice].pState;
 
             if (ma_device_get_type(pDevice) == deviceType || ma_device_get_type(pDevice) == ma_device_type_duplex) {
+                /* Default-device changes only apply to directions which follow the system default. */
+                if ((deviceType == ma_device_type_playback && !pDeviceStateCoreAudio->isDefaultPlaybackDevice) ||
+                    (deviceType == ma_device_type_capture  && !pDeviceStateCoreAudio->isDefaultCaptureDevice)) {
+                    continue;
+                }
+
                 if (deviceType == ma_device_type_playback) {
                     ma_atomic_bool32_set(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice, MA_TRUE);
                 } else {
