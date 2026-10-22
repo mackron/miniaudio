@@ -37724,17 +37724,16 @@ typedef struct ma_device_state_coreaudio
     ma_device_state_async async;
     ma_spinlock playbackCallbackLock;
     ma_spinlock captureCallbackLock;
-    ma_atomic_bool32 isReconfiguring;
+    ma_atomic_bool32 isCallbackProcessingBlocked; /* Set while stopped or while stream resources are being reconfigured. */
     ma_atomic_uint32 requestedPlaybackFrameCap;
     ma_atomic_uint32 requestedCaptureFrameCap;
-    ma_bool32 isStoppedForReconfiguration; /* Only accessed by the device worker. */
+    ma_bool32 areAudioUnitsStopped; /* Only accessed by the device worker. */
     ma_uint32 deviceObjectIDPlayback;
     ma_uint32 deviceObjectIDCapture;
     AudioUnit audioUnitPlayback;
     AudioUnit audioUnitCapture;
     AudioBufferList* pAudioBufferList;          /* Only used for input devices. */
     ma_uint32 audioBufferCapInFrames;           /* Only used for input devices. The capacity in frames of each buffer in pAudioBufferList. */
-    ma_event stopEvent;
     ma_uint32 originalPeriodSizeInFrames;
     ma_uint32 originalPeriodSizeInMilliseconds;
     ma_uint32 originalPeriods;
@@ -39661,11 +39660,11 @@ static ma_bool32 ma_device_begin_callback__coreaudio(ma_device_state_coreaudio* 
     ma_uint32 expected = 0;
 
     /* Render callbacks must not wait for the worker to allocate or reconfigure buffers. */
-    if (ma_atomic_bool32_get(&pState->isReconfiguring) || !ma_atomic_compare_exchange_strong_32(pLock, &expected, 1)) {
+    if (ma_atomic_bool32_get(&pState->isCallbackProcessingBlocked) || !ma_atomic_compare_exchange_strong_32(pLock, &expected, 1)) {
         return MA_FALSE;
     }
 
-    if (ma_atomic_bool32_get(&pState->isReconfiguring)) {
+    if (ma_atomic_bool32_get(&pState->isCallbackProcessingBlocked)) {
         ma_spinlock_unlock(pLock);
         return MA_FALSE;
     }
@@ -39945,82 +39944,6 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     return status;
 }
 
-static void ma_on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, AudioUnitPropertyID propertyID, AudioUnitScope scope, AudioUnitElement element)
-{
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
-    ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
-
-    MA_ASSERT(pDevice != NULL);
-
-    /* Internal reconfiguration must not generate a public stop completion. */
-    if (ma_atomic_bool32_get(&pDeviceStateCoreAudio->isReconfiguring)) {
-        return;
-    }
-
-    /* Don't do anything if it looks like we're just reinitializing due to a device switch. */
-    if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice)) ||
-        ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingCaptureDevice))) {
-        return;
-    }
-
-    /*
-    There's been a report of a deadlock here when triggered by ma_device_uninit(). It looks like
-    AudioUnitGetProprty (called below) and AudioComponentInstanceDispose (called in ma_device_uninit)
-    can try waiting on the same lock. I'm going to try working around this by not calling any Core
-    Audio APIs in the callback when the device has been stopped or uninitialized.
-    */
-    if (ma_device_get_status(pDevice) == ma_device_status_uninitialized || ma_device_get_status(pDevice) == ma_device_status_stopping || ma_device_get_status(pDevice) == ma_device_status_stopped) {
-        /* Device not started. Do nothing. See note just above ^. */
-    } else {
-        UInt32 isRunning;
-        UInt32 isRunningSize = sizeof(isRunning);
-        OSStatus status = pContextStateCoreAudio->AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
-        if (status != noErr) {
-            goto done; /* Don't really know what to do in this case... just ignore it, I suppose... */
-        }
-
-        if (!isRunning) {
-            /*
-            The stop event is a bit annoying in Core Audio because it will be called when we automatically switch the default device. Some scenarios to consider:
-
-            1) When the device is unplugged, this will be called _before_ the default device change notification.
-            2) When the device is changed via the default device change notification, this will be called _after_ the switch.
-
-            For case #1, we just check if there's a new default device available. If so, we just ignore the stop event. For case #2 we check a flag.
-            */
-            if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && pDeviceStateCoreAudio->isDefaultPlaybackDevice) ||
-                ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && pDeviceStateCoreAudio->isDefaultCaptureDevice)) {
-                /*
-                It looks like the device is switching through an external event, such as the user unplugging the device or changing the default device
-                via the operating system's sound settings. If we're re-initializing the device, we just terminate because we want the stopping of the
-                device to be seamless to the client (we don't want them receiving the stopped event and thinking that the device has stopped when it
-                hasn't!).
-                */
-                if (((audioUnit == pDeviceStateCoreAudio->audioUnitPlayback) && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingPlaybackDevice)) ||
-                    ((audioUnit == pDeviceStateCoreAudio->audioUnitCapture)  && ma_atomic_bool32_get(&pDeviceStateCoreAudio->isSwitchingCaptureDevice))) {
-                    goto done;
-                }
-
-                /*
-                Getting here means the device is not reinitializing which means it may have been unplugged. From what I can see, it looks like Core Audio
-                will try switching to the new default device seamlessly. We need to somehow find a way to determine whether or not Core Audio will most
-                likely be successful in switching to the new device.
-
-                TODO: Try to predict if Core Audio will switch devices. If not, the stopped callback needs to be posted.
-                */
-                goto done;
-            }
-        }
-    }
-
-    (void)propertyID; /* Unused. */
-
-done:
-    /* Always signal the stop event. It's possible for the "else" case to get hit which can happen during an interruption. */
-    ma_event_signal(&pDeviceStateCoreAudio->stopEvent);
-}
-
 #if defined(MA_APPLE_MOBILE)
 @interface ma_ios_notification_handler:NSObject {
     ma_device* m_pDevice;
@@ -40175,7 +40098,6 @@ static void ma_device_uninit__coreaudio(ma_device* pDevice)
         ma_free(pDeviceStateCoreAudio->pAudioBufferList, ma_device_get_allocation_callbacks(pDevice));
     }
 
-    ma_event_uninit(&pDeviceStateCoreAudio->stopEvent);
     ma_device_state_async_uninit(&pDeviceStateCoreAudio->async, ma_device_get_allocation_callbacks(pDevice));
 
     ma_free(pDeviceStateCoreAudio, ma_device_get_allocation_callbacks(pDevice));
@@ -40194,7 +40116,6 @@ typedef struct
     ma_uint32 periodSizeInMillisecondsIn;
     ma_uint32 periodsIn;
     ma_share_mode shareMode;
-    ma_bool32 registerStopEvent;
 
     /* Output. */
 #if defined(MA_APPLE_DESKTOP)
@@ -40602,15 +40523,6 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
     }
 
-    /* We need to listen for stop events. */
-    if (pData->registerStopEvent) {
-        status = pContextStateCoreAudio->AudioUnitAddPropertyListener(pData->audioUnit, kAudioOutputUnitProperty_IsRunning, ma_on_start_stop__coreaudio, pDevice_DoNotReference);
-        if (status != noErr) {
-            result = ma_result_from_OSStatus(status);
-            goto on_error;
-        }
-    }
-
     /* Initialize the audio unit. */
     status = pContextStateCoreAudio->AudioUnitInitialize(pData->audioUnit);
     if (status != noErr) {
@@ -40655,10 +40567,8 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
 
     if (deviceType == ma_device_type_capture) {
         data.shareMode         = pDevice->capture.shareMode;
-        data.registerStopEvent = MA_TRUE;
     } else {
         data.shareMode         = pDevice->playback.shareMode;
-        data.registerStopEvent = (pDevice->type != ma_device_type_duplex);
     }
 
     data.formatIn                   = ma_device_get_format(pDevice, deviceType);
@@ -40752,6 +40662,9 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         return MA_OUT_OF_MEMORY;
     }
 
+    pDeviceStateCoreAudio->areAudioUnitsStopped = MA_TRUE;
+    ma_atomic_bool32_set(&pDeviceStateCoreAudio->isCallbackProcessingBlocked, MA_TRUE);
+
     /* Capture needs to be initialized first. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_device_init_internal_data__coreaudio data;
@@ -40764,7 +40677,6 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         data.periodSizeInMillisecondsIn   = pDescriptorCapture->periodSizeInMilliseconds;
         data.periodsIn                    = pDescriptorCapture->periodCount;
         data.shareMode                    = pDescriptorCapture->shareMode;
-        data.registerStopEvent            = MA_TRUE;
 
         /* Need at least 3 periods for duplex. */
         if (data.periodsIn < 3 && deviceType == ma_device_type_duplex) {
@@ -40813,12 +40725,10 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         if (deviceType == ma_device_type_duplex) {
             data.periodSizeInFramesIn       = pDescriptorCapture->periodSizeInFrames;
             data.periodsIn                  = pDescriptorCapture->periodCount;
-            data.registerStopEvent          = MA_FALSE;
         } else {
             data.periodSizeInFramesIn       = pDescriptorPlayback->periodSizeInFrames;
             data.periodSizeInMillisecondsIn = pDescriptorPlayback->periodSizeInMilliseconds;
             data.periodsIn                  = pDescriptorPlayback->periodCount;
-            data.registerStopEvent          = MA_TRUE;
         }
 
         result = ma_device_init_internal__coreaudio(ma_device_get_context(pDevice), ma_device_type_playback, pDescriptorPlayback->pDeviceID, &data, (void*)pDevice);
@@ -40852,25 +40762,12 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         goto on_error;
     }
 
-    /*
-    When stopping the device, a callback is called on another thread. We need to wait for this callback
-    before returning from ma_device_stop(). This event is used for this.
-    */
-    result = ma_event_init(&pDeviceStateCoreAudio->stopEvent);
-    if (result != MA_SUCCESS) {
-        goto on_error_async;
-    }
-    
     ma_atomic_uint32_set(&pDeviceStateCoreAudio->requestedPlaybackFrameCap, pDeviceStateCoreAudio->async.playback.frameCap);
     ma_atomic_uint32_set(&pDeviceStateCoreAudio->requestedCaptureFrameCap, pDeviceStateCoreAudio->async.capture.frameCap);
 
 #if defined(MA_APPLE_DESKTOP)
     if (pDeviceStateCoreAudio->isDefaultCaptureDevice || pDeviceStateCoreAudio->isDefaultPlaybackDevice) {
-        result = ma_device__track__coreaudio(pDevice, pDeviceStateCoreAudio);
-        if (result != MA_SUCCESS) {
-            ma_event_uninit(&pDeviceStateCoreAudio->stopEvent);
-            goto on_error_async;
-        }
+        ma_device__track__coreaudio(pDevice, pDeviceStateCoreAudio);
     }
 #endif
 
@@ -40886,8 +40783,6 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
 
     return MA_SUCCESS;
 
-on_error_async:
-    ma_device_state_async_uninit(&pDeviceStateCoreAudio->async, ma_device_get_allocation_callbacks(pDevice));
 on_error:
     {
         AudioBufferList* pUnusedBufferList = NULL;
@@ -40938,14 +40833,26 @@ static ma_result ma_device_resize_buffers__coreaudio(ma_device* pDevice, ma_bool
     return result;
 }
 
-static ma_result ma_device_stop_for_reconfiguration__coreaudio(ma_device* pDevice)
+static void ma_device_wait_for_callbacks__coreaudio(ma_device_state_coreaudio* pState)
+{
+    /* The caller has closed the callback gate. Wait for callbacks which entered before it closed. */
+    ma_spinlock_lock(&pState->captureCallbackLock);
+    ma_spinlock_lock(&pState->playbackCallbackLock);
+    {
+        /* Do nothing. */
+    }
+    ma_spinlock_unlock(&pState->playbackCallbackLock);
+    ma_spinlock_unlock(&pState->captureCallbackLock);
+}
+
+static ma_result ma_device_stop_audio_units__coreaudio(ma_device* pDevice)
 {
     ma_device_state_coreaudio* pState = ma_device_get_backend_state__coreaudio(pDevice);
     ma_context_state_coreaudio* pContextState = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
     ma_result result = MA_SUCCESS;
     OSStatus status;
 
-    if (pState->isStoppedForReconfiguration) {
+    if (pState->areAudioUnitsStopped) {
         return MA_SUCCESS;
     }
 
@@ -40963,7 +40870,7 @@ static ma_result ma_device_stop_for_reconfiguration__coreaudio(ma_device* pDevic
         }
     }
 
-    pState->isStoppedForReconfiguration = (result == MA_SUCCESS);
+    pState->areAudioUnitsStopped = (result == MA_SUCCESS);
 
     return result;
 }
@@ -40973,59 +40880,48 @@ static ma_result ma_device_start__coreaudio(ma_device* pDevice)
     ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
     ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    OSStatus status;
+
+    /* All stream resources are ready before the first callback can be delivered by Start(). */
+    ma_atomic_bool32_set(&pDeviceStateCoreAudio->isCallbackProcessingBlocked, MA_FALSE);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        OSStatus status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitCapture);
+        status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitCapture);
         if (status != noErr) {
-            return ma_result_from_OSStatus(status);
+            goto on_error;
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        OSStatus status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitPlayback);
+        status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitPlayback);
         if (status != noErr) {
-            if (deviceType == ma_device_type_duplex) {
-                pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitCapture);
-            }
-            return ma_result_from_OSStatus(status);
+            goto on_error;
         }
     }
 
-    pDeviceStateCoreAudio->isStoppedForReconfiguration = MA_FALSE;
+    pDeviceStateCoreAudio->areAudioUnitsStopped = MA_FALSE;
 
     return MA_SUCCESS;
+
+on_error:
+    /* A failed duplex start may already have started capture. Stop it and wait for active callbacks to finish before returning. */
+    ma_atomic_bool32_set(&pDeviceStateCoreAudio->isCallbackProcessingBlocked, MA_TRUE);
+    pDeviceStateCoreAudio->areAudioUnitsStopped = MA_FALSE;
+    ma_device_stop_audio_units__coreaudio(pDevice);
+    ma_device_wait_for_callbacks__coreaudio(pDeviceStateCoreAudio);
+    return ma_result_from_OSStatus(status);
 }
 
 static ma_result ma_device_stop__coreaudio(ma_device* pDevice)
 {
     ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
-    ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
-    ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
 
-    /* A failed or interrupted reconfiguration may already have stopped both units without a stop notification. */
-    if (pDeviceStateCoreAudio->isStoppedForReconfiguration) {
-        return MA_SUCCESS;
-    }
-
-    /* It's not clear from the documentation whether or not AudioOutputUnitStop() actually drains the device or not. */
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        OSStatus status = pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitCapture);
-        if (status != noErr) {
-            return ma_result_from_OSStatus(status);
-        }
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        OSStatus status = pContextStateCoreAudio->AudioOutputUnitStop(pDeviceStateCoreAudio->audioUnitPlayback);
-        if (status != noErr) {
-            return ma_result_from_OSStatus(status);
-        }
-    }
-
-    /* We need to wait for the callback to finish before returning. */
-    ma_event_wait(&pDeviceStateCoreAudio->stopEvent);
-    return MA_SUCCESS;
+    /* Stop completion is based on audio callbacks leaving, not on an unrelated property notification. */
+    ma_atomic_bool32_set(&pDeviceStateCoreAudio->isCallbackProcessingBlocked, MA_TRUE);
+    result = ma_device_stop_audio_units__coreaudio(pDevice);
+    ma_device_wait_for_callbacks__coreaudio(pDeviceStateCoreAudio);
+    return result;
 }
 
 
@@ -41051,11 +40947,11 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
         return MA_SUCCESS;
     }
 
-    ma_atomic_bool32_set(&pState->isReconfiguring, MA_TRUE);
+    ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, MA_TRUE);
 
     /* A route change can replace descriptors and the shared buffer for both directions. Stop both units first. */
     if (wasReinitialized) {
-        result = ma_device_stop_for_reconfiguration__coreaudio(pDevice);
+        result = ma_device_stop_audio_units__coreaudio(pDevice);
         if (result != MA_SUCCESS) {
             goto on_error;
         }
@@ -41088,7 +40984,7 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
         goto on_error;
     }
 
-    ma_atomic_bool32_set(&pState->isReconfiguring, MA_FALSE);
+    ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, pState->areAudioUnitsStopped);
 
     if (wasReinitialized) {
         if (ma_device_is_started(pDevice)) {
@@ -41105,8 +41001,9 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
 
 on_error:
     /* Do not resume callbacks with a partially rebuilt format or allocation. Final teardown owns the state. */
-    ma_atomic_bool32_set(&pState->isReconfiguring, MA_TRUE);
-    ma_device_stop_for_reconfiguration__coreaudio(pDevice);
+    ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, MA_TRUE);
+    ma_device_stop_audio_units__coreaudio(pDevice);
+    ma_device_wait_for_callbacks__coreaudio(pState);
     ma_device_set_errored(pDevice);
     return result;
 }
