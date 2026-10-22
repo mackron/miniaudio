@@ -37742,6 +37742,10 @@ typedef struct ma_device_state_coreaudio
     ma_bool32 isDefaultCaptureDevice;
     ma_atomic_bool32 isSwitchingPlaybackDevice; /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
     ma_atomic_bool32 isSwitchingCaptureDevice;  /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
+    #if defined(MA_APPLE_DESKTOP)
+    ma_device* pTrackedDevice;
+    struct ma_device_state_coreaudio* pNextTrackedDevice;
+    #endif
     void* pNotificationHandler;                 /* Only used on mobile platforms. Obj-C object for handling route changes. */
 } ma_device_state_coreaudio;
 
@@ -38877,18 +38881,10 @@ static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit au
 
 
 #if defined(MA_APPLE_DESKTOP)
-typedef struct
-{
-    ma_device* pDevice;
-    ma_device_state_coreaudio* pState;
-} ma_tracked_device_coreaudio;
-
 static ma_spinlock g_DeviceTrackingInitLock_CoreAudio = 0;  /* A spinlock for mutal exclusion of the init/uninit of the global tracking data. Initialization to 0 is what we need. */
 static ma_uint32 g_DeviceTrackingInitCounter_CoreAudio = 0;
 static ma_mutex g_DeviceTrackingMutex_CoreAudio;
-static ma_tracked_device_coreaudio* g_pTrackedDevices_CoreAudio = NULL;
-static ma_uint32 g_TrackedDeviceCap_CoreAudio = 0;
-static ma_uint32 g_TrackedDeviceCount_CoreAudio = 0;
+static ma_device_state_coreaudio* g_pTrackedDevices_CoreAudio = NULL;
 
 static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UInt32 addressCount, const AudioObjectPropertyAddress* pAddresses, void* pUserData)
 {
@@ -38909,13 +38905,9 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
 
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
     {
-        ma_uint32 iDevice;
-        for (iDevice = 0; iDevice < g_TrackedDeviceCount_CoreAudio; iDevice += 1) {
-            ma_device* pDevice;
-            ma_device_state_coreaudio* pDeviceStateCoreAudio;
-
-            pDevice               = g_pTrackedDevices_CoreAudio[iDevice].pDevice;
-            pDeviceStateCoreAudio = g_pTrackedDevices_CoreAudio[iDevice].pState;
+        ma_device_state_coreaudio* pDeviceStateCoreAudio;
+        for (pDeviceStateCoreAudio = g_pTrackedDevices_CoreAudio; pDeviceStateCoreAudio != NULL; pDeviceStateCoreAudio = pDeviceStateCoreAudio->pNextTrackedDevice) {
+            ma_device* pDevice = pDeviceStateCoreAudio->pTrackedDevice;
 
             if (ma_device_get_type(pDevice) == deviceType || ma_device_get_type(pDevice) == ma_device_type_duplex) {
                 /* Default-device changes only apply to directions which follow the system default. */
@@ -39011,29 +39003,12 @@ static ma_result ma_device__track__coreaudio(ma_device* pDevice, ma_device_state
 
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
     {
-        /* Allocate memory if required. */
-        if (g_TrackedDeviceCap_CoreAudio <= g_TrackedDeviceCount_CoreAudio) {
-            ma_uint32 newCap;
-            ma_tracked_device_coreaudio* pNewDevices;
+        MA_ASSERT(pState->pTrackedDevice == NULL);
 
-            newCap = g_TrackedDeviceCap_CoreAudio * 2;
-            if (newCap == 0) {
-                newCap = 1;
-            }
+        pState->pTrackedDevice     = pDevice;
+        pState->pNextTrackedDevice = g_pTrackedDevices_CoreAudio;
 
-            pNewDevices = (ma_tracked_device_coreaudio*)ma_realloc(g_pTrackedDevices_CoreAudio, sizeof(*g_pTrackedDevices_CoreAudio)*newCap, ma_device_get_allocation_callbacks(pDevice));
-            if (pNewDevices == NULL) {
-                ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
-                return MA_OUT_OF_MEMORY;
-            }
-
-            g_pTrackedDevices_CoreAudio = pNewDevices;
-            g_TrackedDeviceCap_CoreAudio = newCap;
-        }
-
-        g_pTrackedDevices_CoreAudio[g_TrackedDeviceCount_CoreAudio].pDevice = pDevice;
-        g_pTrackedDevices_CoreAudio[g_TrackedDeviceCount_CoreAudio].pState  = pState;
-        g_TrackedDeviceCount_CoreAudio += 1;
+        g_pTrackedDevices_CoreAudio = pState;
     }
     ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
 
@@ -39046,26 +39021,18 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
     {
-        ma_uint32 iDevice;
-        for (iDevice = 0; iDevice < g_TrackedDeviceCount_CoreAudio; iDevice += 1) {
-            if (g_pTrackedDevices_CoreAudio[iDevice].pDevice == pDevice) {
-                /* We've found the device. We now need to remove it from the list. */
-                ma_uint32 jDevice;
-                for (jDevice = iDevice; jDevice < g_TrackedDeviceCount_CoreAudio-1; jDevice += 1) {
-                    g_pTrackedDevices_CoreAudio[jDevice] = g_pTrackedDevices_CoreAudio[jDevice+1];
-                }
-
-                g_TrackedDeviceCount_CoreAudio -= 1;
-
-                /* If there's nothing else in the list we need to free memory. */
-                if (g_TrackedDeviceCount_CoreAudio == 0) {
-                    ma_free(g_pTrackedDevices_CoreAudio, ma_device_get_allocation_callbacks(pDevice));
-                    g_pTrackedDevices_CoreAudio = NULL;
-                    g_TrackedDeviceCap_CoreAudio = 0;
-                }
-
+        ma_device_state_coreaudio** ppNext = &g_pTrackedDevices_CoreAudio;
+        while (*ppNext != NULL) {
+            ma_device_state_coreaudio* pState = *ppNext;
+            
+            if (pState->pTrackedDevice == pDevice) {
+                *ppNext = pState->pNextTrackedDevice;
+                pState->pTrackedDevice = NULL;
+                pState->pNextTrackedDevice = NULL;
                 break;
             }
+
+            ppNext = &pState->pNextTrackedDevice;
         }
     }
     ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
