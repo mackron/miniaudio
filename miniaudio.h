@@ -38148,6 +38148,7 @@ static ma_result ma_get_AudioObject_uid(ma_context* pContext, AudioObjectID obje
     }
 
     if (!pContextStateCoreAudio->CFStringGetCString(uid, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
+        pContextStateCoreAudio->CFRelease(uid);
         return MA_ERROR;
     }
 
@@ -38176,6 +38177,7 @@ static ma_result ma_get_AudioObject_name(ma_context* pContext, AudioObjectID obj
     }
 
     if (!pContextStateCoreAudio->CFStringGetCString(deviceName, bufferOut, bufferSize, kCFStringEncodingUTF8)) {
+        pContextStateCoreAudio->CFRelease(deviceName);
         return MA_ERROR;
     }
 
@@ -38811,13 +38813,8 @@ static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjec
                         This is the case where both have the same sample rate (good) but different channel counts. Right now both have about
                         the same priority, but we need to compare the format now.
                         */
-                        if (thisSampleFormat == bestSampleFormatSoFar) {
-                            if (ma_get_format_priority_index(thisSampleFormat) < ma_get_format_priority_index(bestSampleFormatSoFar)) {
-                                bestDeviceFormatSoFar = thisDeviceFormat;
-                                continue;
-                            } else {
-                                continue;   /* No change to the best format for now. */
-                            }
+                        if (ma_get_format_priority_index(thisSampleFormat) < ma_get_format_priority_index(bestSampleFormatSoFar)) {
+                            bestDeviceFormatSoFar = thisDeviceFormat;
                         }
                     }
                 }
@@ -38882,7 +38879,7 @@ static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit au
 #if defined(MA_APPLE_DESKTOP)
 static ma_spinlock g_DeviceTrackingInitLock_CoreAudio = 0;  /* A spinlock for mutal exclusion of the init/uninit of the global tracking data. Initialization to 0 is what we need. */
 static ma_uint32 g_DeviceTrackingInitCounter_CoreAudio = 0;
-static ma_mutex g_DeviceTrackingMutex_CoreAudio;
+static ma_spinlock g_DeviceTrackingLock_CoreAudio = 0;
 static ma_device_state_coreaudio* g_pTrackedDevices_CoreAudio = NULL;
 
 static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UInt32 addressCount, const AudioObjectPropertyAddress* pAddresses, void* pUserData)
@@ -38902,7 +38899,7 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
         return noErr;   /* Should never hit this. */
     }
 
-    ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
+    ma_spinlock_lock(&g_DeviceTrackingLock_CoreAudio);
     {
         ma_device_state_coreaudio* pDeviceStateCoreAudio;
         for (pDeviceStateCoreAudio = g_pTrackedDevices_CoreAudio; pDeviceStateCoreAudio != NULL; pDeviceStateCoreAudio = pDeviceStateCoreAudio->pNextTrackedDevice) {
@@ -38926,7 +38923,7 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
             }
         }
     }
-    ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
+    ma_spinlock_unlock(&g_DeviceTrackingLock_CoreAudio);
 
     /* Unused parameters. */
     (void)objectID;
@@ -38935,72 +38932,124 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
     return noErr;
 }
 
+/* Called with the init lock held and no contexts using the listeners. */
+static OSStatus ma_context__add_device_tracking_listener__coreaudio(ma_context_state_coreaudio* pContextStateCoreAudio, const AudioObjectPropertyAddress* pAddress)
+{
+    OSStatus status;
+    
+    status = pContextStateCoreAudio->AudioObjectAddPropertyListener(kAudioObjectSystemObject, pAddress, &ma_default_device_changed__coreaudio, NULL);
+    if (status != noErr) {
+        /* An earlier failed removal may have left this listener registered. Remove it and retry once. */
+        if (pContextStateCoreAudio->AudioObjectRemovePropertyListener(kAudioObjectSystemObject, pAddress, &ma_default_device_changed__coreaudio, NULL) == noErr) {
+            status = pContextStateCoreAudio->AudioObjectAddPropertyListener(kAudioObjectSystemObject, pAddress, &ma_default_device_changed__coreaudio, NULL);
+        }
+    }
+
+    return status;
+}
+
 static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContext, ma_context_state_coreaudio* pContextStateCoreAudio)
 {
-    (void)pContext;
+    ma_result result = MA_SUCCESS;
 
     ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
     {
         /* Don't do anything if we've already initialized device tracking. */
         if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
             AudioObjectPropertyAddress propAddress;
+            OSStatus status;
+
             propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
             propAddress.mElement  = AUDIO_OBJECT_PROPERTY_ELEMENT;
-
-            ma_mutex_init(&g_DeviceTrackingMutex_CoreAudio);
-
+            
             propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
-            pContextStateCoreAudio->AudioObjectAddPropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            status = ma_context__add_device_tracking_listener__coreaudio(pContextStateCoreAudio, &propAddress);
+            if (status != noErr) {
+                result = ma_result_from_OSStatus(status);
+                goto done;
+            }
 
             propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-            pContextStateCoreAudio->AudioObjectAddPropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            status = ma_context__add_device_tracking_listener__coreaudio(pContextStateCoreAudio, &propAddress);
+            if (status != noErr) {
+                result = ma_result_from_OSStatus(status);
+
+                propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+                if (pContextStateCoreAudio->AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL) != noErr) {
+                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to remove Core Audio default input device listener after initialization failed.");
+                }
+
+                goto done;
+            }
         }
+
         g_DeviceTrackingInitCounter_CoreAudio += 1;
     }
+done:
     ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
 
-    return MA_SUCCESS;
+    return result;
 }
 
 static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pContext, ma_context_state_coreaudio* pContextStateCoreAudio)
 {
+    ma_result result = MA_SUCCESS;
+
     ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
     {
-        if (g_DeviceTrackingInitCounter_CoreAudio > 0) {
-            g_DeviceTrackingInitCounter_CoreAudio -= 1;
+        if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
+            goto done;
         }
+
+        if (g_DeviceTrackingInitCounter_CoreAudio == 1) {
+            ma_bool32 hasTrackedDevices;
+
+            ma_spinlock_lock(&g_DeviceTrackingLock_CoreAudio);
+            {
+                hasTrackedDevices = (g_pTrackedDevices_CoreAudio != NULL);
+            }
+            ma_spinlock_unlock(&g_DeviceTrackingLock_CoreAudio);
+
+            if (hasTrackedDevices) {
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "You have uninitialized all contexts while an associated device is still active.");
+                result = MA_INVALID_OPERATION;
+                goto done;
+            }
+        }
+
+        g_DeviceTrackingInitCounter_CoreAudio -= 1;
 
         if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
             AudioObjectPropertyAddress propAddress;
+            OSStatus status;
+
             propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
             propAddress.mElement  = AUDIO_OBJECT_PROPERTY_ELEMENT;
 
             propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
-            pContextStateCoreAudio->AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
-
-            propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-            pContextStateCoreAudio->AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
-
-            /* At this point there should be no tracked devices. If not there's an error somewhere. */
-            if (g_pTrackedDevices_CoreAudio != NULL) {
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "You have uninitialized all contexts while an associated device is still active.");
-                ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
-                return MA_INVALID_OPERATION;
+            status = pContextStateCoreAudio->AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            if (status != noErr) {
+                result = ma_result_from_OSStatus(status);
             }
 
-            ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
+            propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+            status = pContextStateCoreAudio->AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            if (status != noErr && result == MA_SUCCESS) {
+                result = ma_result_from_OSStatus(status);
+            }
         }
     }
+done:
     ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
 
-    return MA_SUCCESS;
+    return result;
 }
 
 static ma_result ma_device__track__coreaudio(ma_device* pDevice, ma_device_state_coreaudio* pState)
 {
     MA_ASSERT(pDevice != NULL);
 
-    ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
+    ma_spinlock_lock(&g_DeviceTrackingLock_CoreAudio);
     {
         MA_ASSERT(pState->pTrackedDevice == NULL);
 
@@ -39009,7 +39058,7 @@ static ma_result ma_device__track__coreaudio(ma_device* pDevice, ma_device_state
 
         g_pTrackedDevices_CoreAudio = pState;
     }
-    ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
+    ma_spinlock_unlock(&g_DeviceTrackingLock_CoreAudio);
 
     return MA_SUCCESS;
 }
@@ -39018,7 +39067,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
+    ma_spinlock_lock(&g_DeviceTrackingLock_CoreAudio);
     {
         ma_device_state_coreaudio** ppNext = &g_pTrackedDevices_CoreAudio;
         while (*ppNext != NULL) {
@@ -39034,7 +39083,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
             ppNext = &pState->pNextTrackedDevice;
         }
     }
-    ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
+    ma_spinlock_unlock(&g_DeviceTrackingLock_CoreAudio);
 
     return MA_SUCCESS;
 }
@@ -39073,6 +39122,8 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
     ma_context_state_coreaudio* pContextStateCoreAudio;
     const ma_context_config_coreaudio* pContextConfigCoreAudio = (const ma_context_config_coreaudio*)pContextBackendConfig;
     ma_context_config_coreaudio defaultConfigCoreAudio;
+
+    *ppContextState = NULL;
     
     if (pContextConfigCoreAudio == NULL) {
         defaultConfigCoreAudio  = ma_context_config_coreaudio_init();
@@ -39139,6 +39190,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
     {
         pContextStateCoreAudio->hCoreFoundation = ma_dlopen(ma_context_get_log(pContext), "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation");
         if (pContextStateCoreAudio->hCoreFoundation == NULL) {
+            ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_API_NOT_FOUND;
         }
 
@@ -39283,14 +39335,16 @@ static void ma_context_uninit__coreaudio(ma_context* pContext)
     }
 #endif
 
+#if !defined(MA_APPLE_MOBILE)
+    if (ma_context__uninit_device_tracking__coreaudio(pContext, pContextStateCoreAudio) != MA_SUCCESS) {
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to uninitialize Core Audio device tracking.");
+    }
+#endif
+
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
     ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hAudioUnit);
     ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreAudio);
     ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreFoundation);
-#endif
-
-#if !defined(MA_APPLE_MOBILE)
-    ma_context__uninit_device_tracking__coreaudio(pContext, pContextStateCoreAudio);
 #endif
 
     ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
@@ -39396,6 +39450,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_by_AudioObjectID
             /* Sample Rates */
             result = ma_get_AudioObject_sample_rates(pContext, deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
             if (result != MA_SUCCESS) {
+                ma_free(pStreamDescriptions, &pContext->allocationCallbacks);
                 return MA_DEVICE_ENUMERATION_CONTINUE;  /* Failed to retrieve sample rates. */
             }
 
