@@ -52949,7 +52949,7 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
 
                     /* Move any remaining data to the front of the buffer. */
                     if (framesToCopy < pAsyncDeviceState->playback.frameCount) {
-                        MA_COPY_MEMORY(pAsyncDeviceState->playback.pBuffer, ma_offset_ptr(pAsyncDeviceState->playback.pBuffer, bytesPerFrame * framesToCopy), bytesPerFrame * (pAsyncDeviceState->playback.frameCount - framesToCopy));
+                        MA_MOVE_MEMORY(pAsyncDeviceState->playback.pBuffer, ma_offset_ptr(pAsyncDeviceState->playback.pBuffer, bytesPerFrame * framesToCopy), bytesPerFrame * (pAsyncDeviceState->playback.frameCount - framesToCopy));
                     }
 
                     pAsyncDeviceState->playback.frameCount -= framesToCopy;
