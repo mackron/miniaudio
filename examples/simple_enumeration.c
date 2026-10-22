@@ -21,7 +21,7 @@ int main(int argc, char** argv)
     ma_uint32 captureDeviceCount;
     ma_uint32 iDevice;
 
-    if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS) {
+    if (ma_context_init(NULL, &context) != MA_SUCCESS) {
         printf("Failed to initialize context.\n");
         return -2;
     }

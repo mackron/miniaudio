@@ -93,7 +93,7 @@ int main()
     contextConfig.allocationCallbacks.onFree    = test_free;
     contextConfig.allocationCallbacks.pUserData = &allocationCallbacksData;
 
-    result = ma_context_init(NULL, 0, &contextConfig, &context);
+    result = ma_context_init(&contextConfig, &context);
     if (result != MA_SUCCESS) {
         printf("ma_context_init() failed.");
     }

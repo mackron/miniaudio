@@ -208,7 +208,7 @@ enumerating devices. The example below shows how to enumerate devices.
 
     ```c
     ma_context context;
-    if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS) {
+    if (ma_context_init(NULL, &context) != MA_SUCCESS) {
         // Error.
     }
 
@@ -246,13 +246,13 @@ enumerating devices. The example below shows how to enumerate devices.
     ```
 
 The first thing we do in this example is initialize a `ma_context` object with `ma_context_init()`.
-The first parameter is a pointer to a list of `ma_backend` values which are used to override the
-default backend priorities. When this is NULL, as in this example, miniaudio's default priorities
-are used. The second parameter is the number of backends listed in the array pointed to by the
-first parameter. The third parameter is a pointer to a `ma_context_config` object which can be
-NULL, in which case defaults are used. The context configuration is used for setting the logging
-callback, custom memory allocation callbacks, user-defined data and some backend-specific
-configurations.
+The first parameter is a pointer to a `ma_context_config` object. When this is NULL, as in this
+example, defaults are used. The second parameter is a pointer to the context being initialized.
+The context configuration is used for setting the log, custom memory allocation callbacks,
+user-defined data and backend-specific configurations. To override the default backend priorities,
+set `ma_context_config.pBackends` to an array of `ma_device_backend_config` objects and set
+`ma_context_config.backendCount` to the number of entries. A NULL backend list uses the default
+priorities.
 
 Once the context has been initialized you can enumerate devices. In the example above we use the
 simpler `ma_context_get_devices()`, however you can also use a callback for handling devices by
@@ -8398,6 +8398,8 @@ struct ma_device_backend_vtable
 
 struct ma_context_config
 {
+    const ma_device_backend_config* pBackends;  /* Backends to try in priority order. NULL selects the default list. */
+    ma_uint32 backendCount;                     /* Number of entries in pBackends. Ignored when pBackends is NULL. */
     ma_log* pLog;
     ma_thread_priority threadPriority;
     size_t threadStackSize;
@@ -8571,14 +8573,8 @@ device. There is one context to many devices, and a device is created from a con
 
 Parameters
 ----------
-pBackends (in, optional)
-    A list of backends to try initializing, in priority order. Can be NULL, in which case it uses default priority order. See examples on how to use this.
-
-backendCount (in, optional)
-    The number of items in `backend`. Ignored if `backend` is NULL.
-
 pConfig (in, optional)
-    The context configuration.
+    The context configuration. Can be NULL to use defaults.
 
 pContext (in)
     A pointer to the context object being initialized.
@@ -8596,7 +8592,7 @@ Unsafe. Do not call this function across multiple threads as some backends read 
 
 Remarks
 -------
-When `pBackends` is NULL, the default priority order will be used. Below is a list of backends in priority order:
+When `pConfig` or `pConfig->pBackends` is NULL, the default priority order will be used. Below is a list of backends in priority order:
 
     +-------------+------------------------------+--------------------------------------------------------+
     | Name        | Enum Name                    | Supported Operating Systems                            |
@@ -8620,6 +8616,15 @@ When `pBackends` is NULL, the default priority order will be used. Below is a li
 
 The context can be configured via the `pConfig` argument. The config object is initialized with `ma_context_config_init()`. Individual configuration settings
 can then be set directly on the structure. Below are the members of the `ma_context_config` object.
+
+    pBackends
+        A list of backends to try in priority order. NULL selects the default list. The array must remain
+        valid until initialization returns. The context does not retain this array. Follow each backend's
+        requirements for the lifetime of its backend-specific configuration objects.
+
+    backendCount
+        The number of entries in pBackends. Ignored when pBackends is NULL. A non-NULL list with a
+        count of zero tries no backends and returns MA_NO_BACKEND.
 
     pLog
         A pointer to the `ma_log` to post log messages to. Can be NULL if the application does not
@@ -8719,7 +8724,7 @@ The example below shows how to initialize the context using the default configur
 
 ```c
 ma_context context;
-ma_result result = ma_context_init(NULL, 0, NULL, &context);
+ma_result result = ma_context_init(NULL, &context);
 if (result != MA_SUCCESS) {
     // Error.
 }
@@ -8744,14 +8749,16 @@ ma_device_backend_config backends[] =
 };
 
 ma_log log;
-ma_log_init(&log);
-ma_log_register_callback(&log, ma_log_callback_init(my_log_callbac, pMyLogUserData));
+ma_log_init(NULL, &log);
+ma_log_register_callback(&log, ma_log_callback_init(my_log_callback, pMyLogUserData));
 
 ma_context_config config = ma_context_config_init();
+config.pBackends = backends;
+config.backendCount = sizeof(backends)/sizeof(backends[0]);
 config.pLog = &log; // Specify a custom log object in the config so any logs that are posted from ma_context_init() are captured.
 
 ma_context context;
-ma_result result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &config, &context);
+ma_result result = ma_context_init(&config, &context);
 if (result != MA_SUCCESS) {
     // Error.
     if (result == MA_NO_BACKEND) {
@@ -8773,7 +8780,7 @@ See Also
 ma_context_config_init()
 ma_context_uninit()
 */
-MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext);
+MA_API ma_result ma_context_init(const ma_context_config* pConfig, ma_context* pContext);
 
 /*
 Uninitializes a context.
@@ -9177,7 +9184,7 @@ Remarks
 Setting `pContext` to NULL will result in miniaudio creating a default context internally and is equivalent to passing in a context initialized like so:
 
     ```c
-    ma_context_init(NULL, 0, NULL, &context);
+    ma_context_init(NULL, &context);
     ```
 
 Do not set `pContext` to NULL if you are needing to open multiple devices. You can, however, use NULL when initializing the first device, and then use
@@ -9408,7 +9415,7 @@ enumeration.
 
 ```c
 ma_context context;
-ma_result result = ma_context_init(NULL, 0, NULL, &context);
+ma_result result = ma_context_init(NULL, &context);
 if (result != MA_SUCCESS) {
     // Error
 }
@@ -9454,20 +9461,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 /*
 Initializes a device without a context, with extra parameters for controlling the configuration of the internal self-managed context.
 
-This is the same as `ma_device_init()`, only instead of a context being passed in, the parameters from `ma_context_init()` are passed in instead. This function
-allows you to configure the internally created context.
+This is the same as `ma_device_init()`, only instead of a context being passed in, a `ma_context_config` is passed in instead. This function
+allows you to configure the internally created context, including backend selection.
 
 
 Parameters
 ----------
-pBackends (in, optional)
-    A list of backends to try initializing, in priority order. Can be NULL, in which case it uses default priority order.
-
-backendCount (in, optional)
-    The number of items in `backend`. Ignored if `backend` is NULL.
-
 pContextConfig (in, optional)
-    The context configuration.
+    The context configuration. Can be NULL to use defaults.
 
 pConfig (in)
     A pointer to the device configuration. Cannot be null. See remarks for details.
@@ -9497,6 +9498,11 @@ Remarks
 You only need to use this function if you want to configure the context differently to its defaults. You should never use this function if you want to manage
 your own context.
 
+Backend selection uses `pContextConfig->pBackends` and `pContextConfig->backendCount`. If the config or
+backend list is NULL, the default list is used. Backends are tried in order until both context and
+device initialization succeed. If device initialization fails, the context is uninitialized before
+the next backend is tried.
+
 See the documentation for `ma_context_init()` for information on the different context configuration options.
 
 
@@ -9507,7 +9513,7 @@ ma_device_uninit()
 ma_device_config_init()
 ma_context_init()
 */
-MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma_uint32 backendCount, const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice);
+MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice);
 
 /*
 Uninitializes a device.
@@ -51075,10 +51081,12 @@ MA_API ma_uint32 ma_get_stock_device_backends(ma_device_backend_config* pBackend
 } 
 
 
-MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext)
+MA_API ma_result ma_context_init(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_result result;
     ma_context_config defaultConfig;
+    const ma_device_backend_config* pBackends;
+    ma_uint32 backendCount;
     ma_uint32 iBackend;
     ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
 
@@ -51120,6 +51128,8 @@ MA_API ma_result ma_context_init(const ma_device_backend_config* pBackends, ma_u
     }
 
     /* If NULL was passed in for the backend list we'll want to iterate over our default list. */
+    pBackends = pConfig->pBackends;
+    backendCount = pConfig->backendCount;
     if (pBackends == NULL) {
         pBackends = pStockBackends;
         backendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
@@ -51562,7 +51572,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     /* The context can be null, in which case we self-manage it. */
     if (pContext == NULL) {
-        return ma_device_init_ex(NULL, 0, NULL, pConfig, pDevice);
+        return ma_device_init_ex(NULL, pConfig, pDevice);
     }
 
     if (pDevice == NULL) {
@@ -51946,10 +51956,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma_uint32 backendCount, const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice)
+MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result;
     ma_context* pContext;
+    ma_context_config contextConfig;
+    const ma_device_backend_config* pBackends;
+    ma_uint32 backendCount;
     ma_uint32 iBackend;
     ma_allocation_callbacks allocationCallbacks;
     ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
@@ -51959,16 +51972,40 @@ MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma
     }
 
     if (pContextConfig != NULL) {
-        allocationCallbacks = ma_allocation_callbacks_init_copy(&pContextConfig->allocationCallbacks);
+        contextConfig = *pContextConfig;
     } else {
-        allocationCallbacks = ma_allocation_callbacks_init_default();
+        contextConfig = ma_context_config_init();
+
+        /* Hack for iOS: Select the default iOS session category from the device type. */
+        #if defined(MA_APPLE_MOBILE)
+        {
+            switch (pConfig->deviceType) {
+                case ma_device_type_duplex:
+                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_play_and_record;
+                    break;
+
+                case ma_device_type_capture:
+                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_record;
+                    break;
+
+                case ma_device_type_playback:
+                default:
+                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_playback;
+                    break;
+            }
+        }
+        #endif
     }
+
+    allocationCallbacks = ma_allocation_callbacks_init_copy(&contextConfig.allocationCallbacks);
 
     pContext = (ma_context*)ma_malloc(sizeof(*pContext), &allocationCallbacks);
     if (pContext == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
+    pBackends = contextConfig.pBackends;
+    backendCount = contextConfig.backendCount;
     if (pBackends == NULL) {
         pBackends = pStockBackends;
         backendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
@@ -51977,36 +52014,11 @@ MA_API ma_result ma_device_init_ex(const ma_device_backend_config* pBackends, ma
     result = MA_NO_BACKEND;
 
     for (iBackend = 0; iBackend < backendCount; iBackend += 1) {
-        /*
-        This is a hack for iOS. If the context config is null, there's a good chance the
-        `ma_device_init(NULL, &deviceConfig, pDevice);` pattern is being used. In this
-        case, set the session category based on the device type.
-        */
-        #if defined(MA_APPLE_MOBILE)
-        {
-            ma_context_config contextConfig;
+        /* Try each backend with both context and device initialization before moving to the next. */
+        contextConfig.pBackends = &pBackends[iBackend];
+        contextConfig.backendCount = 1;
 
-            if (pContextConfig == NULL) {
-                contextConfig = ma_context_config_init();
-                switch (pConfig->deviceType) {
-                    case ma_device_type_duplex: {
-                        contextConfig.coreaudio.sessionCategory = ma_ios_session_category_play_and_record;
-                    } break;
-                    case ma_device_type_capture: {
-                        contextConfig.coreaudio.sessionCategory = ma_ios_session_category_record;
-                    } break;
-                    case ma_device_type_playback:
-                    default: {
-                        contextConfig.coreaudio.sessionCategory = ma_ios_session_category_playback;
-                    } break;
-                }
-
-                pContextConfig = &contextConfig;
-            }
-        }
-        #endif
-
-        result = ma_context_init(&pBackends[iBackend], 1, pContextConfig, pContext);
+        result = ma_context_init(&contextConfig, pContext);
         if (result == MA_SUCCESS) {
             result = ma_device_init(pContext, pConfig, pDevice);
             if (result == MA_SUCCESS) {
@@ -87655,7 +87667,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
                 }
                 #endif
 
-                result = ma_device_init_ex(NULL, 0, &contextConfig, &deviceConfig, pEngine->pDevice);
+                result = ma_device_init_ex(&contextConfig, &deviceConfig, pEngine->pDevice);
             } else {
                 result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
             }

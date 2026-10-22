@@ -5,10 +5,8 @@ To use a custom backend you need to plug in a `ma_device_backend_vtable` pointer
 custom backends, but for this example we're just using the SDL backend which you can find in the extras folder in the miniaudio
 repository. If your custom backend requires it, you can also plug in a user data pointer which will be passed to the backend callbacks.
 
-Custom backends are identified with the `ma_backend_custom` backend type. For the purpose of demonstration, this example only uses the
-`ma_backend_custom` backend type because otherwise the built-in backends would always get chosen first and none of the code for the custom
-backends would actually get hit. By default, the `ma_backend_custom` backend is the second-lowest priority backend, sitting just above
-`ma_backend_null`.
+Set ma_context_config.pBackends and backendCount to the backend list and its size. Backends are tried in list order. This example
+tries SDL first, followed by stock backends if SDL is not available.
 */
 #include "../miniaudio.c"
 
@@ -45,6 +43,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 int main(int argc, char** argv)
 {
     ma_result result;
+    ma_context_config contextConfig;
     ma_context context;
     ma_device_config deviceConfig;
     ma_device device;
@@ -74,7 +73,11 @@ int main(int argc, char** argv)
         { ma_device_backend_pulseaudio, NULL }
     };
 
-    result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), NULL, &context);
+    contextConfig = ma_context_config_init();
+    contextConfig.pBackends = backends;
+    contextConfig.backendCount = sizeof(backends)/sizeof(backends[0]);
+
+    result = ma_context_init(&contextConfig, &context);
     if (result != MA_SUCCESS) {
         return -1;
     }

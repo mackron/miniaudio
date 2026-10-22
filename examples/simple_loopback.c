@@ -25,6 +25,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 int main(int argc, char** argv)
 {
     ma_result result;
+    ma_context_config contextConfig;
     ma_encoder_config encoderConfig;
     ma_encoder encoder;
     ma_device_config deviceConfig;
@@ -55,7 +56,11 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = &encoder;
 
-    result = ma_device_init_ex(backends, sizeof(backends)/sizeof(backends[0]), NULL, &deviceConfig, &device);
+    contextConfig = ma_context_config_init();
+    contextConfig.pBackends = backends;
+    contextConfig.backendCount = sizeof(backends)/sizeof(backends[0]);
+
+    result = ma_device_init_ex(&contextConfig, &deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize loopback device.\n");
         return -2;

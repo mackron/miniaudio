@@ -99,7 +99,12 @@ Java_io_miniaud_miniaudiotester_MainActivity_PlayAudio(JNIEnv *env, jobject, jlo
         deviceConfig.dataCallback = data_callback;
         deviceConfig.pUserData = pAudioState;
 
-        result = ma_device_init_ex((backendCount == 0) ? nullptr : pBackends, backendCount, &contextConfig, &deviceConfig, &pAudioState->device);
+        if (backendCount != 0) {
+            contextConfig.pBackends = pBackends;
+            contextConfig.backendCount = (ma_uint32)backendCount;
+        }
+
+        result = ma_device_init_ex(&contextConfig, &deviceConfig, &pAudioState->device);
         if (result != MA_SUCCESS) {
             audio_state_set_error(pAudioState, (std::string("Failed to initialize device. ") + ma_result_description(result)).c_str());
             pAudioState->hasDevice = false;

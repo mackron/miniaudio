@@ -49,7 +49,11 @@ int main()
 
     #if 0
     ma_device_backend_config backend = ma_device_backend_config_init(ma_device_backend_vita, NULL);
-    result = ma_device_init_ex(&backend, 1, NULL, &deviceConfig, &device);
+    ma_context_config contextConfig = ma_context_config_init();
+    contextConfig.pBackends = &backend;
+    contextConfig.backendCount = 1;
+
+    result = ma_device_init_ex(&contextConfig, &deviceConfig, &device);
     #else
     result = ma_device_init(NULL, &deviceConfig, &device);
     #endif

@@ -614,7 +614,12 @@ int main(int argc, char** argv)
 
     /* Initialize the context first. If no backends were passed into the command line we just use defaults. */
     contextConfig = ma_context_config_init();
-    result = ma_context_init((backendCount == 0) ? NULL : backends, backendCount, &contextConfig, &g_State.context);
+    if (backendCount != 0) {
+        contextConfig.pBackends = backends;
+        contextConfig.backendCount = backendCount;
+    }
+
+    result = ma_context_init(&contextConfig, &g_State.context);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize context.\n");
         return -1;

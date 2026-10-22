@@ -1462,6 +1462,7 @@ MA_API ma_result ma_cli_play_init(const ma_cli_node_config* pConfig, ma_cli_play
     ma_result result;
     ma_cli_node_config nodeConfig;
     ma_device_config deviceConfig;
+    ma_context_config contextConfig;
 
     if (pPlay == NULL) {
         return MA_INVALID_ARGS;
@@ -1482,7 +1483,13 @@ MA_API ma_result ma_cli_play_init(const ma_cli_node_config* pConfig, ma_cli_play
     deviceConfig.pUserData          = pPlay;
     deviceConfig.threadingMode      = MA_THREADING_MODE_SINGLE_THREADED;    /* Devices will be stepped manually. */
 
-    result = ma_device_init_ex((pConfig->backendCount == 0) ? NULL : pConfig->pBackends, pConfig->backendCount, NULL, &deviceConfig, &pPlay->device);
+    contextConfig = ma_context_config_init();
+    if (pConfig->backendCount != 0) {
+        contextConfig.pBackends = pConfig->pBackends;
+        contextConfig.backendCount = pConfig->backendCount;
+    }
+
+    result = ma_device_init_ex(&contextConfig, &deviceConfig, &pPlay->device);
     if (result != MA_SUCCESS) {
         ma_cli_node_uninit(&pPlay->node);
         return result;
@@ -1722,6 +1729,7 @@ MA_API ma_result ma_cli_record_init(const ma_cli_node_config* pConfig, ma_cli_re
     ma_result result;
     ma_cli_node_config nodeConfig;
     ma_device_config deviceConfig;
+    ma_context_config contextConfig;
 
     if (pRecord == NULL) {
         return MA_INVALID_ARGS;
@@ -1742,7 +1750,13 @@ MA_API ma_result ma_cli_record_init(const ma_cli_node_config* pConfig, ma_cli_re
     deviceConfig.pUserData          = pRecord;
     deviceConfig.threadingMode      = MA_THREADING_MODE_SINGLE_THREADED;    /* Devices will be stepped manually. */
 
-    result = ma_device_init_ex((pConfig->backendCount == 0) ? NULL : pConfig->pBackends, pConfig->backendCount, NULL, &deviceConfig, &pRecord->device);
+    contextConfig = ma_context_config_init();
+    if (pConfig->backendCount != 0) {
+        contextConfig.pBackends = pConfig->pBackends;
+        contextConfig.backendCount = pConfig->backendCount;
+    }
+
+    result = ma_device_init_ex(&contextConfig, &deviceConfig, &pRecord->device);
     if (result != MA_SUCCESS) {
         ma_cli_node_uninit(&pRecord->node);
         return result;

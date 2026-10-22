@@ -73,7 +73,7 @@ int main(int argc, char** argv)
 
 
     /* We're going to want a context so we can enumerate our playback devices. */
-    result = ma_context_init(NULL, 0, NULL, &context);
+    result = ma_context_init(NULL, &context);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize context.");
         return -1;
