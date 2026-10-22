@@ -38020,24 +38020,25 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
             } break;
 
             case kAudioChannelLayoutTag_Octagonal:
-            {
-                pChannelMap[7] = MA_CHANNEL_SIDE_RIGHT;
-                pChannelMap[6] = MA_CHANNEL_SIDE_LEFT;
-            } MA_FALLTHROUGH; /* Intentional fallthrough. */
             case kAudioChannelLayoutTag_Hexagonal:
-            {
-                pChannelMap[5] = MA_CHANNEL_BACK_CENTER;
-            } MA_FALLTHROUGH; /* Intentional fallthrough. */
             case kAudioChannelLayoutTag_Pentagonal:
-            {
-                pChannelMap[4] = MA_CHANNEL_FRONT_CENTER;
-            } MA_FALLTHROUGH; /* Intentional fallthrough. */
             case kAudioChannelLayoutTag_Quadraphonic:
             {
-                pChannelMap[3] = MA_CHANNEL_BACK_RIGHT;
-                pChannelMap[2] = MA_CHANNEL_BACK_LEFT;
-                pChannelMap[1] = MA_CHANNEL_RIGHT;
-                pChannelMap[0] = MA_CHANNEL_LEFT;
+                static const ma_channel channelMap[] = {
+                    MA_CHANNEL_LEFT,
+                    MA_CHANNEL_RIGHT,
+                    MA_CHANNEL_BACK_LEFT,
+                    MA_CHANNEL_BACK_RIGHT,
+                    MA_CHANNEL_FRONT_CENTER,
+                    MA_CHANNEL_BACK_CENTER,
+                    MA_CHANNEL_SIDE_LEFT,
+                    MA_CHANNEL_SIDE_RIGHT
+                };
+                UInt32 iChannel;
+
+                for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                    pChannelMap[iChannel] = channelMap[iChannel];
+                }
             } break;
 
             /* TODO: Add support for more tags here. */
