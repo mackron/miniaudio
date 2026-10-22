@@ -31961,7 +31961,7 @@ static void ma_device_on_write__pulse(ma_pa_stream* pStream, size_t byteCount, v
         }
 
         result = ma_device_write_to_stream__pulse(pDevice, pStream, &framesProcessedThisIteration);
-        if (result != MA_SUCCESS) {
+        if (result != MA_SUCCESS || framesProcessedThisIteration == 0) {
             break;
         }
 
@@ -32540,12 +32540,19 @@ static ma_result ma_device_start__pulse(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_uint64 framesProcessed;
+
         /*
-        We need to fill some data before uncorking. Not doing this will result in the write callback
-        never getting fired. We're not going to abort if writing fails because I still want the device
-        to get uncorked.
+        Fill all available blocks before uncorking. pa_stream_begin_write() can return less than the
+        writable size, leaving an outstanding request that may not trigger another write callback.
+        Always try to uncork, even if writing fails.
         */
-        ma_device_write_to_stream__pulse(pDevice, (ma_pa_stream*)(pDevice->pulse.pStreamPlayback), NULL);   /* No need to check the result here. Always want to fall through an uncork.*/
+        for (;;) {
+            result = ma_device_write_to_stream__pulse(pDevice, (ma_pa_stream*)(pDevice->pulse.pStreamPlayback), &framesProcessed);
+            if (result != MA_SUCCESS || framesProcessed == 0) {
+                break;
+            }
+        }
 
         result = ma_device__cork_stream__pulse(pDevice, ma_device_type_playback, 0);
         if (result != MA_SUCCESS) {
