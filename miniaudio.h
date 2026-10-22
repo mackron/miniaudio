@@ -532,11 +532,11 @@ You cannot use `-std=c*` compiler flags, nor `-ansi`.
 You can enable the use of AudioWorklets by defining `MA_ENABLE_AUDIO_WORKLETS` and then compiling
 with the following options:
 
-    -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
+    -sAUDIO_WORKLET=1 -sWASM_WORKERS=1
 
 An example for compiling with AudioWorklet support might look like this:
 
-    emcc program.c -o bin/program.html -DMA_ENABLE_AUDIO_WORKLETS -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
+    emcc program.c -o bin/program.html -DMA_ENABLE_AUDIO_WORKLETS -sAUDIO_WORKLET=1 -sWASM_WORKERS=1
 
 To run locally, you'll need to use emrun:
 
@@ -47345,16 +47345,26 @@ typedef struct ma_context_state_webaudio
     int _unused;
 } ma_context_state_webaudio;
 
+#if defined(MA_USE_AUDIO_WORKLETS)
+typedef struct
+{
+    ma_uint32 state;    /* Bit 0 is set while a callback uses the device. Bit 1 prevents new device access. */
+    ma_device* pDevice;
+    struct ma_device_state_webaudio* pDeviceStateWebAudio;
+} ma_webaudio_callback_data;
+#endif
+
 typedef struct ma_device_state_webaudio
 {
     ma_device_state_async async;    /* Only used in single-threaded mode. Multi-threaded mode does everything straight from the Web Audio processing callback. */
     #if defined(MA_USE_AUDIO_WORKLETS)
     EMSCRIPTEN_WEBAUDIO_T audioContext;
     EMSCRIPTEN_WEBAUDIO_T audioWorklet;
+    ma_webaudio_callback_data* pCallbackData;
     #endif
     float* pIntermediaryBuffer;
-    void* pStackBuffer;
     ma_result initResult;   /* Set to MA_BUSY while initialization is in progress. */
+    ma_bool32 isAsyncInitialized;
     int deviceIndex;        /* We store the device in a list on the JavaScript side. This is used to map our C object to the JS object. */
 } ma_device_state_webaudio;
 
@@ -47401,6 +47411,23 @@ void EMSCRIPTEN_KEEPALIVE ma_free_emscripten(void* p, const ma_allocation_callba
 {
     ma_free(p, pAllocationCallbacks);
 }
+
+#if defined(MA_USE_AUDIO_WORKLETS)
+EMSCRIPTEN_WEBAUDIO_T EMSCRIPTEN_KEEPALIVE ma_webaudio_create_audio_context_emscripten(const EmscriptenWebAudioCreateAttributes* pOptions)
+{
+    return emscripten_create_audio_context(pOptions);
+}
+
+void EMSCRIPTEN_KEEPALIVE ma_webaudio_create_worklet_processor_emscripten(EMSCRIPTEN_WEBAUDIO_T audioContext, const WebAudioWorkletProcessorCreateOptions* pOptions, EmscriptenWorkletProcessorCreatedCallback callback, void* pUserData)
+{
+    emscripten_create_wasm_audio_worklet_processor_async(audioContext, pOptions, callback, pUserData);
+}
+
+EMSCRIPTEN_WEBAUDIO_T EMSCRIPTEN_KEEPALIVE ma_webaudio_create_worklet_node_emscripten(EMSCRIPTEN_WEBAUDIO_T audioContext, const char* pName, const EmscriptenAudioWorkletNodeCreateOptions* pOptions, EmscriptenWorkletNodeProcessCallback callback, void* pUserData)
+{
+    return emscripten_create_wasm_audio_worklet_node(audioContext, pName, pOptions, callback, pUserData);
+}
+#endif
 
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_capture__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
@@ -47526,10 +47553,12 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const void* pCo
 
             miniaudio.unlock = function() {
                 for(var i = 0; i < miniaudio.devices.length; ++i) {
-                    var device = miniaudio.devices[i];
+                    let device = miniaudio.devices[i];
                     if (device != null && device.webaudio != null && device.state === miniaudio.device_status.started) {
                         device.webaudio.resume().then(() => {
-                            _ma_device_post_notification_unlocked_emscripten(device.pDevice);
+                            if (!device.closed && device.pDevice) {
+                                _ma_device_post_notification_unlocked_emscripten(device.pDevice);
+                            }
                         },
                         (error) => {console.error("Failed to resume audiocontext", error);
                         });
@@ -47690,49 +47719,71 @@ static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__webaudio(co
 
 
 #if defined(MA_USE_AUDIO_WORKLETS)
-typedef struct
+/* The audio thread must never wait for the main browser thread. */
+static ma_device* ma_webaudio_callback_acquire(ma_webaudio_callback_data* pCallbackData)
 {
-    ma_device* pDevice;
-    ma_device_state_webaudio* pDeviceStateWebAudio;
-    ma_device_descriptor descriptorPlayback;
-    ma_device_descriptor descriptorCapture;
-} ma_audio_worklet_thread_initialized_data;
+    if (ma_atomic_compare_and_swap_32(&pCallbackData->state, 0, 1) != 0) {
+        return NULL;
+    }
 
-static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const AudioSampleFrame* pInputs, int outputCount, AudioSampleFrame* pOutputs, int paramCount, const AudioParamFrame* pParams, void* pUserData)
+    return pCallbackData->pDevice;
+}
+
+static void ma_webaudio_callback_release(ma_webaudio_callback_data* pCallbackData, ma_device* pDevice)
 {
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
+    /* A failed acquisition must not release another callback's device access. */
+    if (pDevice == NULL) {
+        return;
+    }
+
+    ma_atomic_fetch_and_32(&pCallbackData->state, ~((ma_uint32)1));
+}
+
+static void ma_webaudio_callback_close(ma_webaudio_callback_data* pCallbackData)
+{
+    ma_atomic_fetch_or_32(&pCallbackData->state, 2);
+
+    /* Wait only for a callback already using the device, never for a browser promise or future callback. */
+    while ((ma_atomic_load_32(&pCallbackData->state) & 1) != 0) {
+        ma_yield();
+    }
+
+    pCallbackData->pDevice = NULL;
+    pCallbackData->pDeviceStateWebAudio = NULL;
+}
+
+/* Internal helpers must not access device state when pDevice is NULL. */
+static EM_BOOL ma_audio_worklet_process_callback_internal__webaudio(int inputCount, const AudioSampleFrame* pInputs, int outputCount, AudioSampleFrame* pOutputs, int paramCount, const AudioParamFrame* pParams, ma_device* pDevice)
+{
+    ma_device_state_webaudio* pDeviceStateWebAudio;
+    ma_device_type deviceType;
     ma_uint32 frameCount;
 
     (void)paramCount;
     (void)pParams;
 
-    /*
-    The Emscripten documentation says that it'll always be 128 frames being passed in. Hard coding it like that feels
-    like a very bad idea to me. Even if it's hard coded in the backend, the API and documentation should always refer
-    to variables instead of a hard coded number. In any case, will follow along for the time being.
+    if (pDevice == NULL) {
+        for (int i = 0; i < outputCount; i += 1) {
+            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * pOutputs[i].samplesPerChannel * sizeof(float));
+        }
 
-    Unfortunately the audio data is not interleaved so we'll need to convert it before we give the data to miniaudio
-    for further processing.
-
-    NOTE: Do not use the internal period size for this. A value of 128 is way too small for web and as such miniaudio
-    uses a larger (approximate) value for that. The frame count here must be exactly what Web Audio expects (128 as
-    of now).
-    */
-    if (deviceType == ma_device_type_playback) {
-        frameCount = 128;
-    } else {
-        frameCount = 128;
+        return EM_TRUE;
     }
 
-    /*
-    If this is called by the device has not yet been started we need to return early, making sure we output silence to
-    the output buffer.
-    */
+    pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
+    deviceType = ma_device_get_type(pDevice);
+
+    if (outputCount > 0) {
+        frameCount = (ma_uint32)pOutputs[0].samplesPerChannel;
+    } else if (inputCount > 0) {
+        frameCount = (ma_uint32)pInputs[0].samplesPerChannel;
+    } else {
+        return EM_TRUE;
+    }
+
     if (ma_device_get_status(pDevice) != ma_device_status_started) {
         for (int i = 0; i < outputCount; i += 1) {
-            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
+            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * pOutputs[i].samplesPerChannel * sizeof(float));
         }
 
         return EM_TRUE;
@@ -47778,18 +47829,42 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     return EM_TRUE;
 }
 
-
-static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, void* pUserData)
+static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const AudioSampleFrame* pInputs, int outputCount, AudioSampleFrame* pOutputs, int paramCount, const AudioParamFrame* pParams, void* pUserData)
 {
-    ma_audio_worklet_thread_initialized_data* pParameters = (ma_audio_worklet_thread_initialized_data*)pUserData;
-    ma_device_type deviceType = ma_device_get_type(pParameters->pDevice);
+    ma_webaudio_callback_data* pCallbackData = (ma_webaudio_callback_data*)pUserData;
+    ma_device* pDevice;
+    EM_BOOL result;
+
+    pDevice = ma_webaudio_callback_acquire(pCallbackData);
+    {
+        result = ma_audio_worklet_process_callback_internal__webaudio(inputCount, pInputs, outputCount, pOutputs, paramCount, pParams, pDevice);
+    }
+    ma_webaudio_callback_release(pCallbackData, pDevice);
+
+    /* A busy startup callback must not stop the processor, but closure must stop it. */
+    if ((ma_atomic_load_32(&pCallbackData->state) & 2) != 0) {
+        return EM_FALSE;
+    }
+
+    return result;
+}
+
+static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, ma_device* pDevice, ma_webaudio_callback_data* pCallbackData)
+{
+    ma_device_state_webaudio* pDeviceStateWebAudio;
+    ma_device_type deviceType;
     EmscriptenAudioWorkletNodeCreateOptions audioWorkletOptions;
     int channels = 0;
-    size_t intermediaryBufferSizeInFrames;
+
+    if (pDevice == NULL) {
+        return;
+    }
+
+    pDeviceStateWebAudio = pCallbackData->pDeviceStateWebAudio;
+    deviceType = ma_device_get_type(pDevice);
 
     if (success == EM_FALSE) {
-        pParameters->pDeviceStateWebAudio->initResult = MA_ERROR;
-        ma_free(pParameters, ma_device_get_allocation_callbacks(pParameters->pDevice));
+        pDeviceStateWebAudio->initResult = MA_ERROR;
         return;
     }
 
@@ -47804,12 +47879,14 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     proper control over the channel count. In the capture case, we'll have to output silence to its output node.
     */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        MA_ASSERT(pParameters->descriptorCapture.channels > 0);   /* Should have been initialized to a valid value earlier. */
-        channels = (int)pParameters->descriptorCapture.channels;
+        MA_ASSERT(ma_device_get_internal_channels(pDevice, ma_device_type_capture) > 0);   /* Should have been initialized to a valid value earlier. */
+
+        channels = (int)ma_device_get_internal_channels(pDevice, ma_device_type_capture);
         audioWorkletOptions.numberOfInputs = 1;
     } else {
-        MA_ASSERT(pParameters->descriptorPlayback.channels > 0);   /* Should have been initialized to a valid value earlier. */
-        channels = (int)pParameters->descriptorPlayback.channels;
+        MA_ASSERT(ma_device_get_internal_channels(pDevice, ma_device_type_playback) > 0);   /* Should have been initialized to a valid value earlier. */
+
+        channels = (int)ma_device_get_internal_channels(pDevice, ma_device_type_playback);
 
         if (deviceType == ma_device_type_duplex) {
             audioWorkletOptions.numberOfInputs = 1;
@@ -47821,77 +47898,83 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     audioWorkletOptions.numberOfOutputs = 1;
     audioWorkletOptions.outputChannelCounts = &channels;
 
+    pDeviceStateWebAudio->audioWorklet = EM_ASM_INT({
+        try {
+            return _ma_webaudio_create_worklet_node_emscripten($0, $1, $2, $3, $4);
+        } catch (error) {
+            return 0;
+        }
+    }, audioContext, "miniaudio", &audioWorkletOptions, &ma_audio_worklet_process_callback__webaudio, pCallbackData);
 
-    /*
-    Now that we know the channel count to use we can allocate the intermediary buffer. The
-    intermediary buffer is used for interleaving and deinterleaving.
-    */
-    #if defined(MA_SUPPORT_AUDIO_WORKLETS_VARIABLE_BUFFER_SIZE)
-    {
-        intermediaryBufferSizeInFrames = (size_t)emscripten_audio_context_quantum_size(audioContext);
-    }
-    #else
-    {
-        intermediaryBufferSizeInFrames = 128;
-    }
-    #endif
-
-    pParameters->pDeviceStateWebAudio->pIntermediaryBuffer = (float*)ma_malloc(intermediaryBufferSizeInFrames * (ma_uint32)channels * sizeof(float), &pParameters->pDevice->pContext->allocationCallbacks);
-    if (pParameters->pDeviceStateWebAudio->pIntermediaryBuffer == NULL) {
-        pParameters->pDeviceStateWebAudio->initResult = MA_OUT_OF_MEMORY;
-        ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
+    if (pDeviceStateWebAudio->audioWorklet == 0) {
+        pDeviceStateWebAudio->initResult = MA_ERROR;
         return;
     }
-
-    pParameters->pDeviceStateWebAudio->audioWorklet = emscripten_create_wasm_audio_worklet_node(audioContext, "miniaudio", &audioWorkletOptions, &ma_audio_worklet_process_callback__webaudio, pParameters->pDevice);
 
     /* With the audio worklet initialized we can now attach it to the graph. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         ma_result attachmentResult = (ma_result)EM_ASM_INT({
             var getMediaResult = 0;
+            var device = window.miniaudio.get_device_by_index($3);
             var audioWorklet = emscriptenGetAudioObject($0);
             var audioContext = emscriptenGetAudioObject($1);
             var deviceType   = $2;
 
-            if (deviceType == window.miniaudio.device_type.loopback) {
-                if (navigator.mediaDevices.getDisplayMedia === 'undefined') {
-                    console.log("navigator.mediaDevices.getDisplayMedia undefined. Cannot use loopback mode.");
-                    getMediaResult = -1;
+            try {
+                if (deviceType == window.miniaudio.device_type.loopback) {
+                    if (typeof navigator.mediaDevices.getDisplayMedia === 'undefined') {
+                        console.log("navigator.mediaDevices.getDisplayMedia undefined. Cannot use loopback mode.");
+                        getMediaResult = -1;
+                    } else {
+                        navigator.mediaDevices.getDisplayMedia({audio:true, video:true})
+                            .then(function(stream) {
+                                if (device.closed) {
+                                    stream.getTracks().forEach(function(track) { track.stop(); });
+                                    return;
+                                }
+
+                                device.stream = stream;
+                                device.streamNode = audioContext.createMediaStreamSource(stream);
+                                device.streamNode.connect(audioWorklet);
+                                audioWorklet.connect(audioContext.destination);
+                                getMediaResult = 0;   /* 0 = MA_SUCCESS */
+                            })
+                            .catch(function(error) {
+                                console.log("navigator.mediaDevices.getDisplayMedia Failed: " + error);
+                                getMediaResult = -1;  /* -1 = MA_ERROR */
+                            });
+                    }
                 } else {
-                    navigator.mediaDevices.getDisplayMedia({audio:true, video:true})
+                    navigator.mediaDevices.getUserMedia({audio:true, video:false})
                         .then(function(stream) {
-                            audioContext.streamNode = audioContext.createMediaStreamSource(stream);
-                            audioContext.streamNode.connect(audioWorklet);
+                            if (device.closed) {
+                                stream.getTracks().forEach(function(track) { track.stop(); });
+                                return;
+                            }
+
+                            device.stream = stream;
+                            device.streamNode = audioContext.createMediaStreamSource(stream);
+                            device.streamNode.connect(audioWorklet);
                             audioWorklet.connect(audioContext.destination);
                             getMediaResult = 0;   /* 0 = MA_SUCCESS */
                         })
                         .catch(function(error) {
-                            console.log("navigator.mediaDevices.getDisplayMedia Failed: " + error);
+                            console.log("navigator.mediaDevices.getUserMedia Failed: " + error);
                             getMediaResult = -1;  /* -1 = MA_ERROR */
                         });
                 }
-            } else {
-                navigator.mediaDevices.getUserMedia({audio:true, video:false})
-                    .then(function(stream) {
-                        audioContext.streamNode = audioContext.createMediaStreamSource(stream);
-                        audioContext.streamNode.connect(audioWorklet);
-                        audioWorklet.connect(audioContext.destination);
-                        getMediaResult = 0;   /* 0 = MA_SUCCESS */
-                    })
-                    .catch(function(error) {
-                        console.log("navigator.mediaDevices.getUserMedia Failed: " + error);
-                        getMediaResult = -1;  /* -1 = MA_ERROR */
-                    });
+            } catch (error) {
+                getMediaResult = -1;
             }
 
             return getMediaResult;
-        }, pParameters->pDeviceStateWebAudio->audioWorklet, audioContext, deviceType);
+        }, pDeviceStateWebAudio->audioWorklet, audioContext, deviceType, pDeviceStateWebAudio->deviceIndex);
 
         if (attachmentResult != MA_SUCCESS) {
-            ma_log_postf(ma_device_get_log(pParameters->pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect capture node.");
-            emscripten_destroy_web_audio_node(pParameters->pDeviceStateWebAudio->audioWorklet);
-            pParameters->pDeviceStateWebAudio->initResult = attachmentResult;
-            ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect capture node.");
+            emscripten_destroy_web_audio_node(pDeviceStateWebAudio->audioWorklet);
+            pDeviceStateWebAudio->audioWorklet = 0;
+            pDeviceStateWebAudio->initResult = attachmentResult;
             return;
         }
     }
@@ -47901,48 +47984,83 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
         ma_result attachmentResult = (ma_result)EM_ASM_INT({
             var audioWorklet = emscriptenGetAudioObject($0);
             var audioContext = emscriptenGetAudioObject($1);
-            audioWorklet.connect(audioContext.destination);
-            return 0;   /* 0 = MA_SUCCESS */
-        }, pParameters->pDeviceStateWebAudio->audioWorklet, audioContext);
+            try {
+                audioWorklet.connect(audioContext.destination);
+                return 0;   /* 0 = MA_SUCCESS */
+            } catch (error) {
+                return -1;  /* -1 = MA_ERROR */
+            }
+        }, pDeviceStateWebAudio->audioWorklet, audioContext);
 
         if (attachmentResult != MA_SUCCESS) {
-            ma_log_postf(ma_device_get_log(pParameters->pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect playback node.");
-            pParameters->pDeviceStateWebAudio->initResult = attachmentResult;
-            ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect playback node.");
+            pDeviceStateWebAudio->initResult = attachmentResult;
             return;
         }
     }
 
-    
-
     /* At this point we're done and we can return. */
-    ma_log_postf(ma_device_get_log(pParameters->pDevice), MA_LOG_LEVEL_DEBUG, "AudioWorklets: Created worklet node: %d", pParameters->pDeviceStateWebAudio->audioWorklet);
-    pParameters->pDeviceStateWebAudio->initResult = MA_SUCCESS;
-    ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "AudioWorklets: Created worklet node: %d", pDeviceStateWebAudio->audioWorklet);
+    pDeviceStateWebAudio->initResult = MA_SUCCESS;
 }
 
-static void ma_audio_worklet_thread_initialized__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, void* pUserData)
+static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, void* pUserData)
 {
-    ma_audio_worklet_thread_initialized_data* pParameters = (ma_audio_worklet_thread_initialized_data*)pUserData;
+    ma_webaudio_callback_data* pCallbackData = (ma_webaudio_callback_data*)pUserData;
+    ma_device* pDevice;
+
+    pDevice = ma_webaudio_callback_acquire(pCallbackData);
+    {
+        ma_audio_worklet_processor_created_internal__webaudio(audioContext, success, pDevice, pCallbackData);
+    }
+    ma_webaudio_callback_release(pCallbackData, pDevice);
+}
+
+static void ma_audio_worklet_thread_initialized_internal__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, ma_device* pDevice, ma_webaudio_callback_data* pCallbackData)
+{
+    ma_device_state_webaudio* pDeviceStateWebAudio;
     WebAudioWorkletProcessorCreateOptions workletProcessorOptions;
 
-    MA_ASSERT(pParameters != NULL);
+    if (pDevice == NULL) {
+        return;
+    }
 
+    pDeviceStateWebAudio = pCallbackData->pDeviceStateWebAudio;
     if (success == EM_FALSE) {
-        ma_device_state_webaudio* pDeviceStateWebAudio;
-
-        pDeviceStateWebAudio = pParameters->pDeviceStateWebAudio;
-        ma_free(pParameters, ma_device_get_allocation_callbacks(pParameters->pDevice));
         pDeviceStateWebAudio->initResult = MA_ERROR;
         return;
     }
 
     MA_ZERO_OBJECT(&workletProcessorOptions);
-    workletProcessorOptions.name = "miniaudio"; /* I'm not entirely sure what to call this. Does this need to be globally unique, or does it need only be unique for a given AudioContext? */
+    workletProcessorOptions.name = "miniaudio";
 
-    emscripten_create_wasm_audio_worklet_processor_async(audioContext, &workletProcessorOptions, ma_audio_worklet_processor_created__webaudio, pParameters);
+    if (EM_ASM_INT({
+        try {
+            _ma_webaudio_create_worklet_processor_emscripten($0, $1, $2, $3);
+            return 1;
+        } catch (error) {
+            return 0;
+        }
+    }, audioContext, &workletProcessorOptions, &ma_audio_worklet_processor_created__webaudio, pCallbackData) == 0) {
+        pDeviceStateWebAudio->initResult = MA_ERROR;
+    }
 }
+
+static void ma_audio_worklet_thread_initialized__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, void* pUserData)
+{
+    ma_webaudio_callback_data* pCallbackData = (ma_webaudio_callback_data*)pUserData;
+    ma_device* pDevice;
+
+    pDevice = ma_webaudio_callback_acquire(pCallbackData);
+    {
+        ma_audio_worklet_thread_initialized_internal__webaudio(audioContext, success, pDevice, pCallbackData);
+    }
+    ma_webaudio_callback_release(pCallbackData, pDevice);
+}
+
 #endif
+
+static void ma_device_state_uninit__webaudio(ma_device* pDevice, ma_device_state_webaudio* pDeviceStateWebAudio);
 
 static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -47974,8 +48092,8 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
     #if defined(MA_USE_AUDIO_WORKLETS)
     {
         EmscriptenWebAudioCreateAttributes audioContextAttributes;
-        ma_audio_worklet_thread_initialized_data* pInitParameters;
-        void* pStackBuffer;
+        ma_result result = MA_OUT_OF_MEMORY;
+        void* pStackBuffer = NULL;
 
         MA_ZERO_OBJECT(&audioContextAttributes);
         /*  */ if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_interactive) {
@@ -48000,8 +48118,18 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             audioContextAttributes.sampleRate = 0;
         }
 
-        /* It's not clear if this can return an error. None of the tests in the Emscripten repository check for this, so neither am I for now. */
-        pDeviceStateWebAudio->audioContext = emscripten_create_audio_context(&audioContextAttributes);
+        pDeviceStateWebAudio->audioContext = EM_ASM_INT({
+            try {
+                return _ma_webaudio_create_audio_context_emscripten($0);
+            } catch (error) {
+                return 0;
+            }
+        }, &audioContextAttributes);
+
+        if (pDeviceStateWebAudio->audioContext == 0) {
+            ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
+            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        }
 
         /*
         With the context created we can now create the worklet. We can only have a single worklet per audio
@@ -48013,11 +48141,10 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         own buffer for the thread's stack. The stack needs to be aligned to 16 bytes. I'm going to
         allocate this on the heap to keep it simple.
         */
-        pStackBuffer = ma_aligned_malloc(MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, 16, ma_device_get_allocation_callbacks(pDevice));
+        /* This retained storage must not depend on the lifetime of a custom allocator's user data. */
+        pStackBuffer = ma_aligned_malloc(MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, 16, NULL);
         if (pStackBuffer == NULL) {
-            emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
-            ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
-            return MA_OUT_OF_MEMORY;
+            goto on_error_worklet;
         }
 
         /*
@@ -48058,6 +48185,11 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             }
             #endif
 
+            pDeviceStateWebAudio->pIntermediaryBuffer = (float*)ma_malloc(periodSizeInFrames * channels * sizeof(float), ma_device_get_allocation_callbacks(pDevice));
+            if (pDeviceStateWebAudio->pIntermediaryBuffer == NULL) {
+                goto on_error_worklet;
+            }
+
             if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
                 if (pDescriptorCapture != NULL) {
                     if (periodSizeInFrames < pDescriptorCapture->periodSizeInFrames) {
@@ -48097,27 +48229,23 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         }
 
         if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-            ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateWebAudio->async);
+            result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateWebAudio->async);
+            if (result != MA_SUCCESS) {
+                goto on_error_worklet;
+            }
+
+            pDeviceStateWebAudio->isAsyncInitialized = MA_TRUE;
         }
 
-        /* Our thread initialization parameters need to be allocated on the heap so they don't go out of scope. */
-        pInitParameters = (ma_audio_worklet_thread_initialized_data*)ma_calloc(sizeof(*pInitParameters), ma_device_get_allocation_callbacks(pDevice));
-        if (pInitParameters == NULL) {
-            ma_aligned_free(pStackBuffer, ma_device_get_allocation_callbacks(pDevice));
-            emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
-            ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
-            return MA_OUT_OF_MEMORY;
+        pDeviceStateWebAudio->pCallbackData = (ma_webaudio_callback_data*)ma_calloc(sizeof(*pDeviceStateWebAudio->pCallbackData), NULL);
+        if (pDeviceStateWebAudio->pCallbackData == NULL) {
+            result = MA_OUT_OF_MEMORY;
+            goto on_error_worklet;
         }
 
-        pInitParameters->pDevice              = pDevice;
-        pInitParameters->pDeviceStateWebAudio = pDeviceStateWebAudio;
-
-        if (pDescriptorPlayback != NULL) {
-            pInitParameters->descriptorPlayback = *pDescriptorPlayback;
-        }
-        if (pDescriptorCapture != NULL) {
-            pInitParameters->descriptorCapture  = *pDescriptorCapture;
-        }
+        pDeviceStateWebAudio->pCallbackData->pDevice = pDevice;
+        pDeviceStateWebAudio->pCallbackData->pDeviceStateWebAudio = pDeviceStateWebAudio;
+        pDeviceStateWebAudio->initResult = MA_BUSY;
 
         /* We need to add an entry to the miniaudio.devices list on the JS side so we can do some JS/C interop. */
         pDeviceStateWebAudio->deviceIndex = EM_ASM_INT({
@@ -48129,19 +48257,38 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         }, pDeviceStateWebAudio->audioContext, (ma_uintptr)pDevice);
 
         /*
-        We now have enough to initialize the audio worklet. This is asynchronous. Waiting for it to complete will
-        require a call to emscripten_sleep() which in turn requires building with `-sASYNCIFY`. We're just going
-        to not wait for it and just assume it was successful. Audio should resume once it's all up and running.
-
-        Web Audio teardown does not wait for all stack users to stop. Retain this allocation after
-        handing it to Emscripten, including when initialization fails.
+        Startup is asynchronous and does not require Asyncify. Once handed to Emscripten, retain the
+        stack and callback record, including on later startup failures. Emscripten cannot guarantee
+        that no more callbacks or stack accesses will occur after disconnecting a node. The default
+        retained cost is 128 KiB per stack, plus the callback record and allocation overhead.
         */
-        emscripten_start_wasm_audio_worklet_thread_async(pDeviceStateWebAudio->audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pInitParameters);
+        emscripten_start_wasm_audio_worklet_thread_async(pDeviceStateWebAudio->audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pDeviceStateWebAudio->pCallbackData);
+        *ppDeviceState = pDeviceStateWebAudio;
+        return MA_SUCCESS;
+
+    on_error_worklet:
+        if (pStackBuffer != NULL) {
+            ma_aligned_free(pStackBuffer, NULL);
+        }
+
+        if (pDeviceStateWebAudio->isAsyncInitialized) {
+            ma_device_state_async_uninit(&pDeviceStateWebAudio->async, ma_device_get_allocation_callbacks(pDevice));
+        }
+
+        ma_free(pDeviceStateWebAudio->pCallbackData, NULL);
+        ma_free(pDeviceStateWebAudio->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
+        EM_ASM({
+            var audioContext = emscriptenGetAudioObject($0);
+            Promise.resolve().then(function() { return audioContext.close(); }).catch(function() {});
+        }, pDeviceStateWebAudio->audioContext);
+        emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
+        ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
+        return result;
     }
     #else
     {
         /* ScriptProcessorNode. This path requires us to do almost everything in JS, but we'll do as much as we can in C. */
-        ma_uint32 deviceIndex;
+        int deviceIndex;
         ma_uint32 channels;
         ma_uint32 sampleRate;
         ma_uint32 periodSizeInFrames;
@@ -48173,6 +48320,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         /* We need an intermediary buffer for doing interleaving and deinterleaving. */
         pDeviceStateWebAudio->pIntermediaryBuffer = (float*)ma_malloc(periodSizeInFrames * channels * sizeof(float), ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateWebAudio->pIntermediaryBuffer == NULL) {
+            ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
             return MA_OUT_OF_MEMORY;
         }
 
@@ -48190,107 +48338,137 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
 
             var device = {};
 
-            /* First thing we need is an AudioContext. */
-            var audioContextOptions = {};
-            if (deviceType == window.miniaudio.device_type.playback && sampleRate != 0) {
-                audioContextOptions.sampleRate = sampleRate;
-            }
+            try {
 
-            device.webaudio = new (window.AudioContext || window.webkitAudioContext)(audioContextOptions);
-            device.webaudio.suspend();  /* The AudioContext must be created in a suspended state. */
-            device.state = window.miniaudio.device_status.stopped;
-
-            /*
-            We need to create a ScriptProcessorNode. The channel situation is the same as the AudioWorklet path in that we
-            need to specify an output and configure the channel count there.
-            */
-            var channelCountIn  = 0;
-            var channelCountOut = channels;
-            if (deviceType != window.miniaudio.device_type.playback) {
-                channelCountIn  = channels;
-            }
-
-            device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channelCountIn, channelCountOut);
-
-            /* The node processing callback. */
-            device.scriptNode.onaudioprocess = function(e) {
-                if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0 || device.intermediaryBufferView.buffer !== HEAPF32.buffer) {
-                    device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, Number(pIntermediaryBuffer), bufferSize * channels);
+                /* First thing we need is an AudioContext. */
+                var audioContextOptions = {};
+                if (deviceType == window.miniaudio.device_type.playback && sampleRate != 0) {
+                    audioContextOptions.sampleRate = sampleRate;
                 }
 
-                /* Do the capture side first. */
+                device.webaudio = new (window.AudioContext || window.webkitAudioContext)(audioContextOptions);
+                device.webaudio.suspend();  /* The AudioContext must be created in a suspended state. */
+                device.state = window.miniaudio.device_status.stopped;
+
+                /*
+                We need to create a ScriptProcessorNode. The channel situation is the same as the AudioWorklet path in that we
+                need to specify an output and configure the channel count there.
+                */
+                var channelCountIn  = 0;
+                var channelCountOut = channels;
+                if (deviceType != window.miniaudio.device_type.playback) {
+                    channelCountIn  = channels;
+                }
+
+                device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channelCountIn, channelCountOut);
+
+                /* The node processing callback. */
+                device.scriptNode.onaudioprocess = function(e) {
+                    if (device.closed) {
+                        return;
+                    }
+
+                    if (device.intermediaryBufferView == null || device.intermediaryBufferView.length == 0 || device.intermediaryBufferView.buffer !== HEAPF32.buffer) {
+                        device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, Number(pIntermediaryBuffer), bufferSize * channels);
+                    }
+
+                    /* Do the capture side first. */
+                    if (deviceType == window.miniaudio.device_type.capture || deviceType == window.miniaudio.device_type.duplex) {
+                        /* The data must be interleaved before being processed miniaudio. */
+                        for (var iChannel = 0; iChannel < channels; iChannel += 1) {
+                            var inputBuffer = e.inputBuffer.getChannelData(iChannel);
+                            var intermediaryBuffer = device.intermediaryBufferView;
+
+                            for (var iFrame = 0; iFrame < bufferSize; iFrame += 1) {
+                                intermediaryBuffer[iFrame*channels + iChannel] = inputBuffer[iFrame];
+                            }
+                        }
+
+                        _ma_device_process_pcm_frames_capture__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
+                    }
+
+                    if (deviceType == window.miniaudio.device_type.playback || deviceType == window.miniaudio.device_type.duplex) {
+                        _ma_device_process_pcm_frames_playback__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
+
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            var outputBuffer = e.outputBuffer.getChannelData(iChannel);
+                            var intermediaryBuffer = device.intermediaryBufferView;
+
+                            for (var iFrame = 0; iFrame < bufferSize; iFrame += 1) {
+                                outputBuffer[iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
+                            }
+                        }
+                    } else {
+                        /* It's a capture-only device. Make sure the output is silenced. */
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                        }
+                    }
+                };
+
+                /* Now we need to connect our node to the graph. */
                 if (deviceType == window.miniaudio.device_type.capture || deviceType == window.miniaudio.device_type.duplex) {
-                    /* The data must be interleaved before being processed miniaudio. */
-                    for (var iChannel = 0; iChannel < channels; iChannel += 1) {
-                        var inputBuffer = e.inputBuffer.getChannelData(iChannel);
-                        var intermediaryBuffer = device.intermediaryBufferView;
+                    navigator.mediaDevices.getUserMedia({audio:true, video:false})
+                        .then(function(stream) {
+                            if (device.closed) {
+                                stream.getTracks().forEach(function(track) { track.stop(); });
+                                return;
+                            }
 
-                        for (var iFrame = 0; iFrame < bufferSize; iFrame += 1) {
-                            intermediaryBuffer[iFrame*channels + iChannel] = inputBuffer[iFrame];
-                        }
-                    }
-
-                    _ma_device_process_pcm_frames_capture__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
+                            device.stream = stream;
+                            device.streamNode = device.webaudio.createMediaStreamSource(stream);
+                            device.streamNode.connect(device.scriptNode);
+                            device.scriptNode.connect(device.webaudio.destination);
+                        })
+                        .catch(function(error) {
+                            console.log("Failed to get user media: " + error);
+                        });
                 }
 
-                if (deviceType == window.miniaudio.device_type.playback || deviceType == window.miniaudio.device_type.duplex) {
-                    _ma_device_process_pcm_frames_playback__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
-
-                    for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                        var outputBuffer = e.outputBuffer.getChannelData(iChannel);
-                        var intermediaryBuffer = device.intermediaryBufferView;
-
-                        for (var iFrame = 0; iFrame < bufferSize; iFrame += 1) {
-                            outputBuffer[iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
-                        }
+                if (deviceType == window.miniaudio.device_type.loopback) {
+                    if (typeof navigator.mediaDevices.getDisplayMedia === 'undefined') {
+                        throw new Error("Display capture is not supported.");
                     }
-                } else {
-                    /* It's a capture-only device. Make sure the output is silenced. */
-                    for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                        e.outputBuffer.getChannelData(iChannel).fill(0.0);
-                    }
-                }
-            };
 
-            /* Now we need to connect our node to the graph. */
-            if (deviceType == window.miniaudio.device_type.capture || deviceType == window.miniaudio.device_type.duplex) {
-                navigator.mediaDevices.getUserMedia({audio:true, video:false})
-                    .then(function(stream) {
-                        device.streamNode = device.webaudio.createMediaStreamSource(stream);
-                        device.streamNode.connect(device.scriptNode);
-                        device.scriptNode.connect(device.webaudio.destination);
-                    })
-                    .catch(function(error) {
-                        console.log("Failed to get user media: " + error);
-                    });
-            }
+                    navigator.mediaDevices.getDisplayMedia({audio:true, video:true})
+                        .then(function(stream) {
+                            if (device.closed) {
+                                stream.getTracks().forEach(function(track) { track.stop(); });
+                                return;
+                            }
 
-            if (deviceType == window.miniaudio.device_type.loopback) {
-                if (navigator.mediaDevices.getDisplayMedia === 'undefined') {
-                    return -1;
+                            device.stream = stream;
+                            device.streamNode = device.webaudio.createMediaStreamSource(stream);
+                            device.streamNode.connect(device.scriptNode);
+                            device.scriptNode.connect(device.webaudio.destination);
+                        })
+                        .catch(function(error) {
+                            console.log("Failed to get user media: " + error);
+                        });
                 }
 
-                navigator.mediaDevices.getDisplayMedia({audio:true, video:true})
-                    .then(function(stream) {
-                        device.streamNode = device.webaudio.createMediaStreamSource(stream);
-                        device.streamNode.connect(device.scriptNode);
-                        device.scriptNode.connect(device.webaudio.destination);
-                    })
-                    .catch(function(error) {
-                        console.log("Failed to get user media: " + error);
-                    });
+                if (deviceType == window.miniaudio.device_type.playback) {
+                    device.scriptNode.connect(device.webaudio.destination);
+                }
+
+                device.pDevice = pDevice;
+
+                return window.miniaudio.track_device(device);
+            } catch (error) {
+                device.closed = true;
+                if (device.scriptNode) {
+                    device.scriptNode.onaudioprocess = null;
+                    device.scriptNode.disconnect();
+                }
+                if (device.webaudio) {
+                    device.webaudio.close().catch(function() {});
+                }
+                return -1;
             }
-
-            if (deviceType == window.miniaudio.device_type.playback) {
-                device.scriptNode.connect(device.webaudio.destination);
-            }
-
-            device.pDevice = pDevice;
-
-            return window.miniaudio.track_device(device);
         }, deviceType, channels, sampleRate, periodSizeInFrames, (ma_uintptr)pDeviceStateWebAudio->pIntermediaryBuffer, (ma_uintptr)pDevice);
 
         if (deviceIndex < 0) {
+            ma_free(pDeviceStateWebAudio->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
             ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
             return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
         }
@@ -48319,7 +48497,15 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         }
 
         if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-            ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateWebAudio->async);
+            ma_result result;
+
+            result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateWebAudio->async);
+            if (result != MA_SUCCESS) {
+                ma_device_state_uninit__webaudio(pDevice, pDeviceStateWebAudio);
+                return result;
+            }
+
+            pDeviceStateWebAudio->isAsyncInitialized = MA_TRUE;
         }
     }
     #endif
@@ -48329,65 +48515,66 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
     return MA_SUCCESS;
 }
 
-static void ma_device_uninit__webaudio(ma_device* pDevice)
+static void ma_device_state_uninit__webaudio(ma_device* pDevice, ma_device_state_webaudio* pDeviceStateWebAudio)
 {
-    ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
+    #if defined(MA_USE_AUDIO_WORKLETS)
+    ma_webaudio_callback_close(pDeviceStateWebAudio->pCallbackData);
+    #endif
+
+    EM_ASM({
+        var device = window.miniaudio.get_device_by_index($0);
+        device.closed = true;
+        device.pDevice = undefined;
+
+        if (device.scriptNode !== undefined) {
+            device.scriptNode.onaudioprocess = null;
+            device.scriptNode.disconnect();
+            device.scriptNode = undefined;
+        }
+
+        if (device.streamNode !== undefined) {
+            device.streamNode.disconnect();
+            device.streamNode = undefined;
+        }
+
+        if (device.stream !== undefined) {
+            device.stream.getTracks().forEach(function(track) { track.stop(); });
+            device.stream = undefined;
+        }
+    }, pDeviceStateWebAudio->deviceIndex);
 
     #if defined(MA_USE_AUDIO_WORKLETS)
-    {
-        EM_ASM({
-            var device = window.miniaudio.get_device_by_index($0);
-
-            if (device.streamNode !== undefined) {
-                device.streamNode.disconnect();
-                device.streamNode = undefined;
-            }
-
-            device.pDevice = undefined;
-        }, pDeviceStateWebAudio->deviceIndex);
-
+    if (pDeviceStateWebAudio->audioWorklet != 0) {
         emscripten_destroy_web_audio_node(pDeviceStateWebAudio->audioWorklet);
-        emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
     }
-    #else
-    {
-        EM_ASM({
-            var device = window.miniaudio.get_device_by_index($0);
 
-            /* Make sure all nodes are disconnected and marked for collection. */
-            if (device.scriptNode !== undefined) {
-                device.scriptNode.onaudioprocess = function(e) {};  /* We want to reset the callback to ensure it doesn't get called after AudioContext.close() has returned. Shouldn't happen since we're disconnecting, but just to be safe... */
-                device.scriptNode.disconnect();
-                device.scriptNode = undefined;
-            }
-
-            if (device.streamNode !== undefined) {
-                device.streamNode.disconnect();
-                device.streamNode = undefined;
-            }
-
-            /*
-            Stop the device. I think there is a chance the callback could get fired after calling this, hence why we want
-            to clear the callback before closing.
-            */
-            device.webaudio.close();
-            device.webaudio = undefined;
-            device.pDevice = undefined;
-        }, pDeviceStateWebAudio->deviceIndex);
-    }
+    emscripten_destroy_audio_context(pDeviceStateWebAudio->audioContext);
     #endif
+
+    EM_ASM({
+        var device = window.miniaudio.get_device_by_index($0);
+        
+        /* Promise completion must not access the C device or its allocator. */
+        device.webaudio.close().catch(function() {});
+        device.webaudio = undefined;
+    }, pDeviceStateWebAudio->deviceIndex);
 
     /* Clean up the device on the JS side. */
     EM_ASM({
         window.miniaudio.untrack_device_by_index($0);
     }, pDeviceStateWebAudio->deviceIndex);
 
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+    if (pDeviceStateWebAudio->isAsyncInitialized) {
         ma_device_state_async_uninit(&pDeviceStateWebAudio->async, ma_device_get_allocation_callbacks(pDevice));
     }
 
     ma_free(pDeviceStateWebAudio->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStateWebAudio, ma_device_get_allocation_callbacks(pDevice));
+}
+
+static void ma_device_uninit__webaudio(ma_device* pDevice)
+{
+    ma_device_state_uninit__webaudio(pDevice, ma_device_get_backend_state__webaudio(pDevice));
 }
 
 static ma_result ma_device_start__webaudio(ma_device* pDevice)
