@@ -298,7 +298,7 @@ int main(int argc, char** argv)
     Note that the configuration of Steam Audio below (IPLAudioSettings) will use this variable to specify the
     update size to ensure it remains consistent.
     */
-    engineConfig.periodSizeInFrames = 256;
+    engineConfig.processingSizeInFrames = 256;
 
     result = ma_engine_init(&engineConfig, &g_engine);
     if (result != MA_SUCCESS) {
@@ -318,10 +318,10 @@ int main(int argc, char** argv)
     need not be exposed to the public API. There should be no need for the public API to require a
     fixed sized update.
 
-    It's important that this be set to the periodSizeInFrames specified in the engine config above.
+    It's important that this be set to the processingSizeInFrames specified in the engine config above.
     This ensures updates on both the miniaudio side and the Steam Audio side are consistent.
     */
-    iplAudioSettings.frameSize = engineConfig.periodSizeInFrames;
+    iplAudioSettings.frameSize = engineConfig.processingSizeInFrames;
 
 
     /* IPLContext */

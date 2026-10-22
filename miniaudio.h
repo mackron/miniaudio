@@ -1277,7 +1277,8 @@ configure the engine with an engine config:
     ma_engine_config engineConfig;
 
     engineConfig = ma_engine_config_init();
-    engineConfig.pDevice = &myDevice;
+    engineConfig.channels   = 2;
+    engineConfig.sampleRate = 44100;
 
     result = ma_engine_init(&engineConfig, &engine);
     if (result != MA_SUCCESS) {
@@ -1285,9 +1286,49 @@ configure the engine with an engine config:
     }
     ```
 
-In the example above we're passing in a pre-initialized device. Since the caller is the one in
-control of the device's data callback, it's their responsibility to manually call
-`ma_engine_read_pcm_frames()` from inside their data callback:
+By default, the engine will create and manage a `ma_device` object internally. You can configure
+this device through the `deviceConfig` member of the engine config:
+
+    ```c
+    engineConfig = ma_engine_config_init();
+    engineConfig.deviceConfig.playback.pDeviceID = &myDeviceID;
+    engineConfig.deviceConfig.aaudio.performanceMode = ma_aaudio_performance_mode_low_latency;
+    ```
+
+The engine and device have some necessary overlapping properties. When they are non-zero at the
+engine level, they will overwrite those at the device level. Below are the relevant properties:
+
+    ```c
+    engineConfig.channels               -> engineConfig.deviceConfig.playback.channels;
+    engineConfig.sampleRate             -> engineConfig.deviceConfig.sampleRate;
+    engineConfig.processingSizeInFrames -> engineConfig.deviceConfig.periodSizeInFrames;
+    ```
+
+For example, if `engineConfig.channels` is non-zero, it will overwrite
+`engineConfig.deviceConfig.playback.channels`.
+
+The playback sample format and data callback of an engine-managed device must retain their defaults
+(`ma_format_f32` and the internal engine callback). Changing either will result in an error.
+
+If you want to use a specific device, set the ID in the device config explicitly. You will
+typically need a `ma_context` to enumerate the device IDs first. This context should also be passed
+into the engine config:
+
+    ```c
+    engineConfig.pContext = pContext;
+    engineConfig.deviceConfig.playback.pDeviceID = &myDeviceID;
+    ```
+
+If you have your own pre-existing `ma_device` object and would like the engine to use it directly,
+you can pass that into the engine config, in which case the device config will be ignored:
+
+    ```c
+    engineConfig = ma_engine_config_init();
+    engineConfig.pDevice = &myDevice;
+    ```
+
+In this case, since the caller is the one in control of the device's data callback, it's their
+responsibility to manually call `ma_engine_read_pcm_frames()` from inside their data callback:
 
     ```c
     void playback_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -1316,9 +1357,9 @@ You can also use the engine independent of a device entirely:
 
 Note that when you're not using a device, you must set the channel count and sample rate in the
 config or else miniaudio won't know what to use (miniaudio will use the device to determine this
-normally). When not using a device, you need to use `ma_engine_read_pcm_frames()` to process audio
-data from the engine. This kind of setup is useful if you want to do something like offline
-processing or want to use a different audio system for playback such as SDL.
+normally). You will also need to use `ma_engine_read_pcm_frames()` to process audio data from the
+engine. This kind of setup is useful if you want to do something like offline processing or want to
+use a different audio system for playback such as SDL.
 
 When a sound is loaded it goes through a resource manager. By default the engine will initialize a
 resource manager internally, but you can also specify a pre-initialized resource manager:
@@ -12070,25 +12111,22 @@ typedef struct
 #endif
 #if !defined(MA_NO_DEVICE_IO)
     ma_context* pContext;
-    ma_device* pDevice;                                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
-    ma_device_id* pPlaybackDeviceID;                        /* The ID of the playback device to use with the default listener. */
-    ma_device_data_proc dataCallback;                       /* Can be null. Can be used to provide a custom device data callback. */
-    ma_device_notification_proc notificationCallback;
+    ma_device* pDevice;                                     /* If set, the caller is responsible for calling ma_engine_read_pcm_frames() in the device's data callback. */
+    ma_device_config deviceConfig;                          /* Used only when the engine creates its own device. Defaults to device-level clipping disabled because the engine clips by default. */
 #endif
+    ma_allocation_callbacks allocationCallbacks;
     ma_log* pLog;                                           /* When set to NULL, will use the context's log. */
     ma_uint32 listenerCount;                                /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
-    ma_uint32 channels;                                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
-    ma_uint32 sampleRate;                                   /* The sample rate. When set to 0 will use the native channel count of the device. */
-    ma_uint32 periodSizeInFrames;                           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
-    ma_uint32 periodSizeInMilliseconds;                     /* Used if periodSizeInFrames is unset. */
+    ma_uint32 channels;                                     /* Overrides deviceConfig.playback.channels when nonzero. Required when no device is used. An existing device determines the engine channel count. */
+    ma_uint32 sampleRate;                                   /* Overrides deviceConfig.sampleRate when nonzero. Required when no device is used. An existing device determines the engine sample rate. */
+    ma_uint32 processingSizeInFrames;                       /* Overrides deviceConfig.periodSizeInFrames when nonzero. With a device, the engine uses its resolved period size. Without a device, sets the node graph processing size. */
     ma_uint32 spatializationVolumeSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
     ma_uint32 spatializationVolumeSmoothTimeInMilliseconds; /* When set to 0, spatializationVolumeSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_uint32 defaultVolumeSmoothTimeInFrames;              /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. Higher values means more smoothing at the expense of higher latency (will take longer to reach the new volume). */
     ma_uint32 preMixStackSizeInBytes;                       /* A stack is used for internal processing in the node graph. This allows you to configure the size of this stack. Smaller values will reduce the maximum depth of your node graph. You should rarely need to modify this. */
-    ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
     ma_bool32 noDevice;                                     /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
-    ma_bool32 noClip;                                       /* When set to true, do not clip samples. */
+    ma_bool32 noClip;                                       /* Disable engine output clipping. Defaults to false. Device-level clipping is controlled separately by deviceConfig.noClip and is disabled by default to avoid redundant clipping overhead. */
     ma_mono_expansion_mode monoExpansionMode;               /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
     ma_vfs* pResourceManagerVFS;                            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
     ma_engine_process_proc onProcess;                       /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
@@ -87441,11 +87479,23 @@ MA_API ma_sound_group_config ma_sound_group_config_init(ma_engine* pEngine)
 }
 
 
+#if !defined(MA_NO_DEVICE_IO)
+static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount);
+#endif
+
 MA_API ma_engine_config ma_engine_config_init(void)
 {
     ma_engine_config config;
 
     MA_ZERO_OBJECT(&config);
+    #if !defined(MA_NO_DEVICE_IO)
+    config.deviceConfig = ma_device_config_init(ma_device_type_playback);
+    config.deviceConfig.playback.format           = ma_format_f32;
+    config.deviceConfig.dataCallback              = ma_engine_data_callback_internal;
+    config.deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* The engine writes every output frame. */
+    config.deviceConfig.noClip                    = MA_TRUE;    /* The engine clips its output by default. */
+    #endif
+
     config.listenerCount             = 1;   /* Always want at least one listener. */
     config.monoExpansionMode         = ma_mono_expansion_mode_default;
     config.resourceManagerResampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear);
@@ -87535,23 +87585,41 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         if (pEngine->pDevice == NULL && engineConfig.noDevice == MA_FALSE) {
             ma_device_config deviceConfig;
 
+            deviceConfig = engineConfig.deviceConfig;
+            deviceConfig.pUserData = pEngine;
+
+            if (deviceConfig.deviceType != ma_device_type_playback && deviceConfig.deviceType != ma_device_type_duplex) {
+                return MA_INVALID_ARGS;
+            }
+
+            if (deviceConfig.playback.format != ma_format_f32) {
+                MA_ASSERT(!"ma_engine_init(): Sample format must always be ma_format_f32.");
+                return MA_FORMAT_NOT_SUPPORTED;
+            }
+
+            if (deviceConfig.dataCallback != ma_engine_data_callback_internal) {
+                MA_ASSERT(!"ma_engine_init(): Internal device data callback cannot be changed from default.");
+                return MA_INVALID_ARGS;
+            }
+
+
+            if (engineConfig.channels != 0) {
+                deviceConfig.playback.channels = engineConfig.channels;
+            }
+
+            if (engineConfig.sampleRate != 0) {
+                deviceConfig.sampleRate = engineConfig.sampleRate;
+            }
+
+            if (engineConfig.processingSizeInFrames != 0) {
+                deviceConfig.periodSizeInFrames = engineConfig.processingSizeInFrames;
+            }
+            
+
             pEngine->pDevice = (ma_device*)ma_malloc(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks);
             if (pEngine->pDevice == NULL) {
                 return MA_OUT_OF_MEMORY;
             }
-
-            deviceConfig = ma_device_config_init(ma_device_type_playback);
-            deviceConfig.playback.pDeviceID        = engineConfig.pPlaybackDeviceID;
-            deviceConfig.playback.format           = ma_format_f32;
-            deviceConfig.playback.channels         = engineConfig.channels;
-            deviceConfig.sampleRate                = engineConfig.sampleRate;
-            deviceConfig.dataCallback              = (engineConfig.dataCallback != NULL) ? engineConfig.dataCallback : ma_engine_data_callback_internal;
-            deviceConfig.pUserData                 = pEngine;
-            deviceConfig.notificationCallback      = engineConfig.notificationCallback;
-            deviceConfig.periodSizeInFrames        = engineConfig.periodSizeInFrames;
-            deviceConfig.periodSizeInMilliseconds  = engineConfig.periodSizeInMilliseconds;
-            deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
-            deviceConfig.noClip                    = engineConfig.noClip;
 
             if (engineConfig.pContext == NULL) {
                 ma_context_config contextConfig = ma_context_config_init();
@@ -87587,12 +87655,12 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             engineConfig.sampleRate = pEngine->pDevice->sampleRate;
 
             /*
-            The processing size used by the engine is determined by engineConfig.periodSizeInFrames. We want
+            The processing size used by the engine is determined by engineConfig.processingSizeInFrames. We want
             to make this equal to what the device is using for it's period size. If we don't do that, it's
             possible that the node graph will split it's processing into multiple passes which can introduce
             glitching.
             */
-            engineConfig.periodSizeInFrames = ma_device_get_period_size_in_frames(pEngine->pDevice);
+            engineConfig.processingSizeInFrames = ma_device_get_period_size_in_frames(pEngine->pDevice);
         }
     }
     #endif
@@ -87621,7 +87689,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     /* The engine is a node graph. This needs to be initialized after we have the device so we can determine the channel count. */
     nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
-    nodeGraphConfig.processingSizeInFrames = engineConfig.periodSizeInFrames;
+    nodeGraphConfig.processingSizeInFrames = engineConfig.processingSizeInFrames;
     nodeGraphConfig.preMixStackSizeInBytes = engineConfig.preMixStackSizeInBytes;
 
     result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
@@ -87849,13 +87917,7 @@ MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut,
 
     /* Apply clipping, unless it's been disabled. */
     if (pEngine->noClip == MA_FALSE) {
-        /* Don't bother clipping if the device is already doing it. */
-        #ifndef MA_NO_DEVICE_IO
-        if (pEngine->pDevice != NULL && pEngine->pDevice->noClip == MA_FALSE)
-        #endif
-        {
-            ma_clip_samples_f32((float*)pFramesOut, (const float*)pFramesOut, frameCount * ma_engine_get_channels(pEngine));
-        }
+        ma_clip_samples_f32((float*)pFramesOut, (const float*)pFramesOut, frameCount * ma_engine_get_channels(pEngine));
     }
 
     return MA_SUCCESS;
