@@ -18838,7 +18838,7 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
                 bitOffset = ma_ffs_32(~oldBitfield);
                 MA_ASSERT(bitOffset < 32);
 
-                newBitfield = oldBitfield | (1 << bitOffset);
+                newBitfield = oldBitfield | (1U << bitOffset);
 
                 if (ma_atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
                     ma_uint32 slotIndex;
@@ -18899,12 +18899,12 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
         ma_uint32 newBitfield;
 
         oldBitfield = ma_atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
-        newBitfield = oldBitfield & ~(1 << iBit);
+        newBitfield = oldBitfield & ~(1U << iBit);
 
         /* Debugging for checking for double-frees. */
         #if defined(MA_DEBUG_OUTPUT)
         {
-            if ((oldBitfield & (1 << iBit)) == 0) {
+            if ((oldBitfield & (1U << iBit)) == 0) {
                 MA_ASSERT(MA_FALSE);    /* Double free detected.*/
             }
         }
@@ -33916,7 +33916,7 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
         UInt32 iBit;
         AudioChannelBitmap bitmap = pChannelLayout->mChannelBitmap;
         for (iBit = 0; iBit < 32 && iChannel < channelMapCap; ++iBit) {
-            AudioChannelBitmap bit = bitmap & (1 << iBit);
+            AudioChannelBitmap bit = bitmap & (1U << iBit);
             if (bit != 0) {
                 pChannelMap[iChannel++] = ma_channel_from_AudioChannelBit(bit);
             }
