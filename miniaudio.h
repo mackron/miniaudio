@@ -1362,7 +1362,11 @@ engine. This kind of setup is useful if you want to do something like offline pr
 use a different audio system for playback such as SDL.
 
 When a sound is loaded it goes through a resource manager. By default the engine will initialize a
-resource manager internally, but you can also specify a pre-initialized resource manager:
+resource manager internally. Configure it through `engineConfig.resourceManagerConfig`. Decoding
+defaults to f32 with native channel counts, but these settings can be changed. The engine sets the
+decoded sample rate to its resolved sample rate and uses its own log and allocation callbacks. You
+can also specify a pre-initialized resource manager, in which case `resourceManagerConfig` is
+ignored:
 
     ```c
     ma_result result;
@@ -12108,6 +12112,7 @@ typedef struct
 {
 #if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;                  /* Can be null in which case a resource manager will be created for you. */
+    ma_resource_manager_config resourceManagerConfig;       /* Used only when the engine creates its own resource manager. Defaults to f32 decoding with native channel counts. The engine sets the decoded sample rate, log, and allocation callbacks. */
 #endif
 #if !defined(MA_NO_DEVICE_IO)
     ma_context* pContext;
@@ -12128,10 +12133,8 @@ typedef struct
     ma_bool32 noDevice;                                     /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
     ma_bool32 noClip;                                       /* Disable engine output clipping. Defaults to false. Device-level clipping is controlled separately by deviceConfig.noClip and is disabled by default to avoid redundant clipping overhead. */
     ma_mono_expansion_mode monoExpansionMode;               /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
-    ma_vfs* pResourceManagerVFS;                            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
     ma_engine_process_proc onProcess;                       /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
     void* pProcessUserData;                                 /* User data that's passed into onProcess. */
-    ma_resampler_config resourceManagerResampling;          /* The resampling config to use with the resource manager. */
     ma_resampler_config pitchResampling;                    /* The resampling config for the pitch and Doppler effects. You will typically want this to be a fast resampler. For high quality stuff, it's recommended that you pre-resample. */
 } ma_engine_config;
 
@@ -87488,17 +87491,34 @@ MA_API ma_engine_config ma_engine_config_init(void)
     ma_engine_config config;
 
     MA_ZERO_OBJECT(&config);
-    #if !defined(MA_NO_DEVICE_IO)
-    config.deviceConfig = ma_device_config_init(ma_device_type_playback);
-    config.deviceConfig.playback.format           = ma_format_f32;
-    config.deviceConfig.dataCallback              = ma_engine_data_callback_internal;
-    config.deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* The engine writes every output frame. */
-    config.deviceConfig.noClip                    = MA_TRUE;    /* The engine clips its output by default. */
+    #if !defined(MA_NO_RESOURCE_MANAGER)
+    {
+        config.resourceManagerConfig = ma_resource_manager_config_init();
+        config.resourceManagerConfig.decodedFormat   = ma_format_f32;
+        config.resourceManagerConfig.decodedChannels = 0;  /* Preserve native channel counts for spatialization. */
+
+        /* The Emscripten build cannot use threads unless it's targeting pthreads. */
+        #if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
+        {
+            config.resourceManagerConfig.jobThreadCount = 0;
+            config.resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+        }
+        #endif
+    }
     #endif
 
-    config.listenerCount             = 1;   /* Always want at least one listener. */
-    config.monoExpansionMode         = ma_mono_expansion_mode_default;
-    config.resourceManagerResampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear);
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        config.deviceConfig = ma_device_config_init(ma_device_type_playback);
+        config.deviceConfig.playback.format           = ma_format_f32;
+        config.deviceConfig.dataCallback              = ma_engine_data_callback_internal;
+        config.deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* The engine writes every output frame. */
+        config.deviceConfig.noClip                    = MA_TRUE;    /* The engine clips its output by default. */
+    }
+    #endif
+
+    config.listenerCount     = 1;   /* Always want at least one listener. */
+    config.monoExpansionMode = ma_mono_expansion_mode_default;
 
     config.pitchResampling = ma_resampler_config_init(ma_format_f32, 0, 0, 0, ma_resample_algorithm_linear);
     config.pitchResampling.linear.lpfOrder = 0; /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
@@ -87762,22 +87782,10 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
                 goto on_error_2;
             }
 
-            resourceManagerConfig = ma_resource_manager_config_init();
+            resourceManagerConfig = engineConfig.resourceManagerConfig;
             resourceManagerConfig.pLog                = pEngine->pLog;    /* Always use the engine's log for internally-managed resource managers. */
-            resourceManagerConfig.decodedFormat       = ma_format_f32;
-            resourceManagerConfig.decodedChannels     = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
             resourceManagerConfig.decodedSampleRate   = ma_engine_get_sample_rate(pEngine);
             resourceManagerConfig.allocationCallbacks = ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks);
-            resourceManagerConfig.pVFS                = engineConfig.pResourceManagerVFS;
-            resourceManagerConfig.resampling          = engineConfig.resourceManagerResampling;
-
-            /* The Emscripten build cannot use threads unless it's targeting pthreads. */
-            #if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
-            {
-                resourceManagerConfig.jobThreadCount = 0;
-                resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
-            }
-            #endif
 
             result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
             if (result != MA_SUCCESS) {
