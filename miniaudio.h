@@ -40440,17 +40440,14 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         changed by miniaudio.
         */
         if (pData->allowNominalSampleRateChange) {
-            AudioValueRange sampleRateRange;
+            Float64 sampleRate = bestFormat.mSampleRate;
             AudioObjectPropertyAddress propAddress;
-
-            sampleRateRange.mMinimum = bestFormat.mSampleRate;
-            sampleRateRange.mMaximum = bestFormat.mSampleRate;
 
             propAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
             propAddress.mScope    = (deviceType == ma_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
             propAddress.mElement  = AUDIO_OBJECT_PROPERTY_ELEMENT;
 
-            status = pContextStateCoreAudio->AudioObjectSetPropertyData(deviceObjectID, &propAddress, 0, NULL, sizeof(sampleRateRange), &sampleRateRange);
+            status = pContextStateCoreAudio->AudioObjectSetPropertyData(deviceObjectID, &propAddress, 0, NULL, sizeof(sampleRate), &sampleRate);
             if (status != noErr) {
                 bestFormat.mSampleRate = origFormat.mSampleRate;
             }
