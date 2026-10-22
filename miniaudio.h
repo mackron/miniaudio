@@ -482,6 +482,42 @@ any libraries or frameworks. The iOS build needs to be compiled as Objective-C a
 link the relevant frameworks but should compile cleanly out of the box with Xcode. Compiling
 through the command line requires linking to `-lpthread` and `-lm`.
 
+On iOS, session settings apply to the whole application. The Core Audio backend defaults to the
+Playback category and does not select a category from the device type. For capture-only use, set
+`contextConfig.coreaudio.sessionCategory` to `ma_ios_session_category_record`. For playback and
+capture, including separate playback and capture devices, use `ma_ios_session_category_play_and_record`:
+
+    ```c
+    ma_context_config contextConfig = ma_context_config_init();
+    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_play_and_record;
+
+    ma_context context;
+    ma_context_init(&contextConfig, &context);
+    ```
+
+On iOS, the Playback category defaults to the main speaker when no external output is selected.
+The PlayAndRecord category defaults to the receiver (the phone's earpiece). To use the main speaker
+by default with PlayAndRecord, set the following option before initializing the context:
+
+    ```c
+    contextConfig.coreaudio.sessionCategoryOptions |= ma_ios_session_category_option_default_to_speaker;
+    ```
+
+Pass this context to `ma_device_init()`, or pass the context config to `ma_device_init_ex()` for an
+internally managed context. When using multiple devices, share one context and choose a session
+category that supports all of them. Multiple contexts do not provide independent audio sessions:
+initializing one can change the shared session, and uninitializing one can deactivate it while
+another context still needs it.
+
+If the application manages AVAudioSession itself, configure and activate it before initializing
+miniaudio, and prevent miniaudio from changing its category or activation state:
+
+    ```c
+    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_none;
+    contextConfig.coreaudio.noAudioSessionActivate = MA_TRUE;
+    contextConfig.coreaudio.noAudioSessionDeactivate = MA_TRUE;
+    ```
+
 Due to the way miniaudio links to frameworks at runtime, your application may not pass Apple's
 notarization process. To fix this there are two options. The first is to compile with
 `-DMA_NO_RUNTIME_LINKING` which in turn will require linking with
@@ -7397,7 +7433,7 @@ MA_API ma_device_backend_vtable* ma_winmm_get_vtable(void);
 /* iOS/tvOS/watchOS session categories. */
 typedef enum
 {
-    ma_ios_session_category_default = 0,        /* AVAudioSessionCategoryPlayAndRecord. */
+    ma_ios_session_category_default = 0,        /* AVAudioSessionCategoryPlayback. */
     ma_ios_session_category_none,               /* Leave the session category unchanged. */
     ma_ios_session_category_ambient,            /* AVAudioSessionCategoryAmbient */
     ma_ios_session_category_solo_ambient,       /* AVAudioSessionCategorySoloAmbient */
@@ -7424,8 +7460,8 @@ typedef struct ma_context_config_coreaudio
 {
     ma_ios_session_category sessionCategory;
     ma_uint32 sessionCategoryOptions;
-    ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:true] on initialization. */
-    ma_bool32 noAudioSessionDeactivate; /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:false] on uninitialization. */
+    ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:true] on initialization. */
+    ma_bool32 noAudioSessionDeactivate; /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:false] on uninitialization. */
 } ma_context_config_coreaudio;
 
 MA_API ma_context_config_coreaudio ma_context_config_coreaudio_init(void);
@@ -8668,7 +8704,8 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         intrusive for the end user.
 
     coreaudio.sessionCategory
-        iOS only. The session category to use for the shared AudioSession instance. Below is a list of allowable values and their Core Audio equivalents.
+        iOS only. The session category to use for the application's shared AVAudioSession instance. Defaults to Playback, regardless of device type.
+        Capture requires an explicit input-capable category, such as Record or PlayAndRecord. Below is a list of allowable values and their Core Audio equivalents.
 
         +-----------------------------------------+-------------------------------------+
         | miniaudio Token                         | Core Audio Token                    |
@@ -8679,8 +8716,8 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         | ma_ios_session_category_record          | AVAudioSessionCategoryRecord        |
         | ma_ios_session_category_play_and_record | AVAudioSessionCategoryPlayAndRecord |
         | ma_ios_session_category_multi_route     | AVAudioSessionCategoryMultiRoute    |
-        | ma_ios_session_category_none            | AVAudioSessionCategoryAmbient       |
-        | ma_ios_session_category_default         | AVAudioSessionCategoryAmbient       |
+        | ma_ios_session_category_none            | Leave unchanged                     |
+        | ma_ios_session_category_default         | AVAudioSessionCategoryPlayback      |
         +-----------------------------------------+-------------------------------------+
 
     coreaudio.sessionCategoryOptions
@@ -8699,10 +8736,10 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         +---------------------------------------------------------------------------+------------------------------------------------------------------+
 
     coreaudio.noAudioSessionActivate
-        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:true] on initialization.
+        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:true] on initialization.
 
     coreaudio.noAudioSessionDeactivate
-        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:false] on uninitialization.
+        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:false] on uninitialization.
 
     jack.pClientName
         The name of the client to pass to `jack_client_open()`.
@@ -39150,11 +39187,10 @@ static void ma_backend_info__coreaudio(ma_device_backend_info* pBackendInfo)
     pBackendInfo->pName = "Core Audio";
 }
 
-#if defined(MA_APPLE_MOBILE) && defined(__IPHONE_12_0)
-static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_category category)
+#if defined(MA_APPLE_MOBILE)
+static NSString* ma_to_AVAudioSessionCategory(ma_ios_session_category category)
 {
-    /* The "default" and "none" categories are treated different and should not be used as an input into this function. */
-    MA_ASSERT(category != ma_ios_session_category_default);
+    /* The "none" category leaves the session unchanged and must not be converted. */
     MA_ASSERT(category != ma_ios_session_category_none);
 
     switch (category) {
@@ -39165,7 +39201,7 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
         case ma_ios_session_category_play_and_record: return AVAudioSessionCategoryPlayAndRecord;
         case ma_ios_session_category_multi_route:     return AVAudioSessionCategoryMultiRoute;
         case ma_ios_session_category_none:            return AVAudioSessionCategoryAmbient;
-        case ma_ios_session_category_default:         return AVAudioSessionCategoryAmbient;
+        case ma_ios_session_category_default:         return AVAudioSessionCategoryPlayback;
         default:                                      return AVAudioSessionCategoryAmbient;
     }
 }
@@ -39197,35 +39233,11 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
 
             MA_ASSERT(pAudioSession != NULL);
 
-            if (pContextConfigCoreAudio->sessionCategory == ma_ios_session_category_default) {
-                /*
-                I'm going to use trial and error to determine our default session category. First we'll try PlayAndRecord. If that fails
-                we'll try Playback and if that fails we'll try record. If all of these fail we'll just not set the category.
-                */
-            #if !defined(MA_APPLE_TV) && !defined(MA_APPLE_WATCH)
-                options |= AVAudioSessionCategoryOptionDefaultToSpeaker;
-            #endif
-
-                if ([pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil]) {
-                    /* Using PlayAndRecord */
-                } else if ([pAudioSession setCategory: AVAudioSessionCategoryPlayback withOptions:options error:nil]) {
-                    /* Using Playback */
-                } else if ([pAudioSession setCategory: AVAudioSessionCategoryRecord withOptions:options error:nil]) {
-                    /* Using Record */
-                } else {
-                    /* Leave as default? */
-                }
-            } else {
-                if (pContextConfigCoreAudio->sessionCategory != ma_ios_session_category_none) {
-                #if defined(__IPHONE_12_0)
-                    if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pContextConfigCoreAudio->sessionCategory) withOptions:options error:nil]) {
-                        ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
-                        return MA_INVALID_OPERATION;    /* Failed to set session category. */
-                    }
-                #else
-                    /* Ignore the session category on version 11 and older, but post a warning. */
-                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Session category only supported in iOS 12 and newer.");
-                #endif
+            /* Session policy applies to all audio in the application, independent of device type. */
+            if (pContextConfigCoreAudio->sessionCategory != ma_ios_session_category_none) {
+                if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pContextConfigCoreAudio->sessionCategory) withOptions:options error:nil]) {
+                    ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
+                    return MA_INVALID_OPERATION;    /* Failed to set session category. */
                 }
             }
 
@@ -51975,26 +51987,6 @@ MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, cons
         contextConfig = *pContextConfig;
     } else {
         contextConfig = ma_context_config_init();
-
-        /* Hack for iOS: Select the default iOS session category from the device type. */
-        #if defined(MA_APPLE_MOBILE)
-        {
-            switch (pConfig->deviceType) {
-                case ma_device_type_duplex:
-                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_play_and_record;
-                    break;
-
-                case ma_device_type_capture:
-                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_record;
-                    break;
-
-                case ma_device_type_playback:
-                default:
-                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_playback;
-                    break;
-            }
-        }
-        #endif
     }
 
     allocationCallbacks = ma_allocation_callbacks_init_copy(&contextConfig.allocationCallbacks);
