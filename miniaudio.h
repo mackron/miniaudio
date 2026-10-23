@@ -77180,6 +77180,9 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
         return MA_INVALID_ARGS;
     }
 
+    pDecoder->data.memory.pData    = (const ma_uint8*)pData;
+    pDecoder->data.memory.dataSize = dataSize;
+
     for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
         if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), config.encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
@@ -77486,7 +77489,7 @@ MA_API ma_result ma_decoder_init_copy(ma_decoder* pDecoder, ma_decoder* pNewDeco
             MA_ASSERT(MA_FALSE);
             return MA_NOT_IMPLEMENTED;  /* Don't have a file path for some reason. Should never hit this. */
         }
-    } else if (pDecoder->onRead == ma_decoder__on_read_memory) {
+    } else if (pDecoder->onRead == ma_decoder__on_read_memory || (pDecoder->onRead == NULL && pDecoder->data.memory.pData != NULL)) {
         return ma_decoder_init_memory(pDecoder->data.memory.pData, pDecoder->data.memory.dataSize, &config, pNewDecoder);
     } else {
         return MA_NOT_IMPLEMENTED;
