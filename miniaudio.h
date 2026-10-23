@@ -7460,7 +7460,7 @@ typedef struct ma_context_config_coreaudio
 {
     ma_ios_session_category sessionCategory;
     ma_uint32 sessionCategoryOptions;
-    ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:true] on initialization. */
+    ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not explicitly activate the audio session or automatically resume after an interruption. */
     ma_bool32 noAudioSessionDeactivate; /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:false] on uninitialization. */
 } ma_context_config_coreaudio;
 
@@ -8736,7 +8736,8 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         +---------------------------------------------------------------------------+------------------------------------------------------------------+
 
     coreaudio.noAudioSessionActivate
-        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:true] on initialization.
+        iOS only. When set to true, does not explicitly activate the audio session during initialization or device start, and does not automatically
+        resume after an interruption. The application is responsible for reactivating its session and restarting the device.
 
     coreaudio.noAudioSessionDeactivate
         iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:false] on uninitialization.
@@ -37807,6 +37808,7 @@ typedef struct ma_context_state_coreaudio
     ma_AudioUnitRender_proc                   AudioUnitRender;
 
     AudioComponent component;
+    ma_bool32 noAudioSessionActivate;
     ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not the iOS audio session should be explicitly deactivated. Set from the config in ma_context_init__coreaudio(). */
 } ma_context_state_coreaudio;
 
@@ -37819,6 +37821,13 @@ typedef struct ma_device_state_coreaudio
     ma_atomic_uint32 requestedPlaybackFrameCap;
     ma_atomic_uint32 requestedCaptureFrameCap;
     ma_bool32 areAudioUnitsStopped; /* Only accessed by the device worker. */
+    #if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+    ma_spinlock interruptionLock;
+    ma_bool32 isInterrupted;
+    ma_bool32 isInterruptionRecoveryPending;
+    ma_bool32 canResumeAfterInterruption;
+    ma_uint32 interruptionGeneration;
+    #endif
     ma_uint32 deviceObjectIDPlayback;
     ma_uint32 deviceObjectIDCapture;
     AudioUnit audioUnitPlayback;
@@ -37830,8 +37839,8 @@ typedef struct ma_device_state_coreaudio
     ma_uint32 originalPeriods;
     ma_bool32 isDefaultPlaybackDevice;
     ma_bool32 isDefaultCaptureDevice;
-    ma_atomic_bool32 isSwitchingPlaybackDevice; /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
-    ma_atomic_bool32 isSwitchingCaptureDevice;  /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
+    ma_atomic_bool32 isSwitchingPlaybackDevice; /* Set to true when the default device has changed and miniaudio is in the process of switching. */
+    ma_atomic_bool32 isSwitchingCaptureDevice;  /* Set to true when the default device has changed and miniaudio is in the process of switching. */
     #if defined(MA_APPLE_DESKTOP)
     ma_device* pTrackedDevice;
     struct ma_device_state_coreaudio* pNextTrackedDevice;
@@ -39382,6 +39391,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
     }
     #endif
 
+    pContextStateCoreAudio->noAudioSessionActivate   = pContextConfigCoreAudio->noAudioSessionActivate;
     pContextStateCoreAudio->noAudioSessionDeactivate = pContextConfigCoreAudio->noAudioSessionDeactivate;
 
     *ppContextState = pContextStateCoreAudio;
@@ -40065,17 +40075,176 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     return status;
 }
 
+#if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+static ma_bool32 ma_device_begin_interruption_nolock__coreaudio(ma_device_state_coreaudio* pState)
+{
+    if (pState->isInterrupted) {
+        return MA_FALSE;
+    }
+
+    pState->isInterrupted = MA_TRUE;
+    pState->isInterruptionRecoveryPending = MA_TRUE;
+    pState->canResumeAfterInterruption = MA_FALSE;
+    pState->interruptionGeneration += 1;
+    ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, MA_TRUE);
+
+    return MA_TRUE;
+}
+
+static ma_bool32 ma_device_begin_interruption__coreaudio(ma_device_state_coreaudio* pState)
+{
+    ma_bool32 result;
+
+    ma_spinlock_lock(&pState->interruptionLock);
+    {
+        result = ma_device_begin_interruption_nolock__coreaudio(pState);
+    }
+    ma_spinlock_unlock(&pState->interruptionLock);
+
+    if (result) {
+        ma_device_state_async_release(&pState->async);
+    }
+
+    return result;
+}
+
+static ma_bool32 ma_device_end_interruption_nolock__coreaudio(ma_device_state_coreaudio* pState, ma_bool32 canResume)
+{
+    if (!pState->isInterrupted) {
+        return MA_FALSE;
+    }
+
+    pState->isInterrupted = MA_FALSE;
+    pState->isInterruptionRecoveryPending = MA_TRUE;
+    pState->canResumeAfterInterruption = canResume;
+    pState->interruptionGeneration += 1;
+
+    return MA_TRUE;
+}
+
+static ma_bool32 ma_device_end_interruption__coreaudio(ma_device* pDevice, ma_device_state_coreaudio* pState, ma_bool32 shouldResume)
+{
+    ma_context_state_coreaudio* pContextState;
+    ma_bool32 result;
+
+    pContextState = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
+
+    ma_spinlock_lock(&pState->interruptionLock);
+    {
+        result = ma_device_end_interruption_nolock__coreaudio(pState, shouldResume && !pContextState->noAudioSessionActivate);
+    }
+    ma_spinlock_unlock(&pState->interruptionLock);
+
+    if (result) {
+        ma_device_state_async_release(&pState->async);
+    }
+
+    return result;
+}
+
+static ma_result ma_device_prepare_start_nolock__coreaudio(ma_device_state_coreaudio* pState, ma_bool32 isInterruptionRecovery, ma_uint32* pInterruptionGeneration)
+{
+    if (pState->isInterrupted) {
+        return MA_NO_DATA_AVAILABLE;
+    }
+
+    if (isInterruptionRecovery && !pState->canResumeAfterInterruption) {
+        pState->isInterruptionRecoveryPending = MA_FALSE;
+        return MA_DEVICE_NOT_STARTED;
+    }
+
+    *pInterruptionGeneration = pState->interruptionGeneration;
+    pState->isInterruptionRecoveryPending = MA_FALSE;
+
+    return MA_SUCCESS;
+}
+
+static ma_bool32 ma_device_validate_start_nolock__coreaudio(ma_device_state_coreaudio* pState, ma_uint32 interruptionGeneration, ma_bool32 enableCallbacks)
+{
+    if (interruptionGeneration != pState->interruptionGeneration) {
+        ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, MA_TRUE);
+        return MA_FALSE;
+    }
+
+    if (enableCallbacks) {
+        ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, MA_FALSE);
+    }
+
+    return MA_TRUE;
+}
+
+static ma_bool32 ma_device_validate_start__coreaudio(ma_device_state_coreaudio* pState, ma_uint32 interruptionGeneration, ma_bool32 enableCallbacks)
+{
+    ma_bool32 result;
+
+    ma_spinlock_lock(&pState->interruptionLock);
+    {
+        result = ma_device_validate_start_nolock__coreaudio(pState, interruptionGeneration, enableCallbacks);
+    }
+    ma_spinlock_unlock(&pState->interruptionLock);
+
+    return result;
+}
+
+static ma_bool32 ma_device_needs_interruption_recovery_nolock__coreaudio(ma_device_state_coreaudio* pState)
+{
+    return pState->isInterrupted || pState->isInterruptionRecoveryPending;
+}
+
+static ma_bool32 ma_device_needs_interruption_recovery__coreaudio(ma_device_state_coreaudio* pState)
+{
+    ma_bool32 result;
+
+    ma_spinlock_lock(&pState->interruptionLock);
+    {
+        result = ma_device_needs_interruption_recovery_nolock__coreaudio(pState);
+    }
+    ma_spinlock_unlock(&pState->interruptionLock);
+
+    return result;
+}
+
+static void ma_device_restore_callback_gate_nolock__coreaudio(ma_device_state_coreaudio* pState)
+{
+    ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, pState->areAudioUnitsStopped || ma_device_needs_interruption_recovery_nolock__coreaudio(pState));
+}
+
+static ma_result ma_device_activate_audio_session__coreaudio(ma_device* pDevice)
+{
+    ma_context_state_coreaudio* pContextState = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
+
+    if (!pContextState->noAudioSessionActivate) {
+        @autoreleasepool {
+            NSError* pError = nil;
+
+            if (![[AVAudioSession sharedInstance] setActive:true error:&pError]) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[Core Audio] Failed to activate audio session: %s", [[pError localizedDescription] UTF8String]);
+                return MA_DEVICE_NOT_STARTED;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+#endif
+
 #if defined(MA_APPLE_MOBILE)
 @interface ma_ios_notification_handler:NSObject {
     ma_device* m_pDevice;
+    ma_device_state_coreaudio* m_pDeviceState;
 }
 @end
 
 @implementation ma_ios_notification_handler
--(id)init:(ma_device*)pDevice
+-(id)init:(ma_device*)pDevice state:(ma_device_state_coreaudio*)pState
 {
     self = [super init];
+    if (self == nil) {
+        return nil;
+    }
+
     m_pDevice = pDevice;
+    m_pDeviceState = pState;
 
     /* For route changes. */
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handle_route_change:) name:AVAudioSessionRouteChangeNotification object:[AVAudioSession sharedInstance]];
@@ -40112,23 +40281,22 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
         {
             ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_INFO, "[Core Audio] Interruption: AVAudioSessionInterruptionTypeBegan");
 
-            /*
-            Core Audio will have stopped the internal device automatically, but we need explicitly
-            stop it at a higher level to ensure miniaudio-specific state is updated for consistency.
-            */
-            ma_device_stop(m_pDevice);
-
-            /*
-            Fire the notification after the device has been stopped to ensure it's in the correct
-            state when the notification handler is invoked.
-            */
-            ma_device_post_notification_interruption_began(m_pDevice);
+            /* Preserve the application's running intent. The worker suspends the native audio units. */
+            if (ma_device_begin_interruption__coreaudio(m_pDeviceState)) {
+                ma_device_post_notification_interruption_began(m_pDevice);
+            }
         } break;
 
         case AVAudioSessionInterruptionTypeEnded:
         {
+            AVAudioSessionInterruptionOptions options;
+
+            options = [[[pNotification userInfo] objectForKey:AVAudioSessionInterruptionOptionKey] unsignedIntegerValue];
+
             ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_INFO, "[Core Audio] Interruption: AVAudioSessionInterruptionTypeEnded");
-            ma_device_post_notification_interruption_ended(m_pDevice);
+            if (ma_device_end_interruption__coreaudio(m_pDevice, m_pDeviceState, (options & AVAudioSessionInterruptionOptionShouldResume) != 0)) {
+                ma_device_post_notification_interruption_ended(m_pDevice);
+            }
         } break;
     }
 }
@@ -40897,7 +41065,12 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
     differently on non-Desktop Apple platforms.
     */
 #if defined(MA_APPLE_MOBILE)
-    pDeviceStateCoreAudio->pNotificationHandler = (MA_BRIDGE_RETAINED void*)[[ma_ios_notification_handler alloc] init:pDevice];
+    pDeviceStateCoreAudio->pNotificationHandler = (MA_BRIDGE_RETAINED void*)[[ma_ios_notification_handler alloc] init:pDevice state:pDeviceStateCoreAudio];
+    if (pDeviceStateCoreAudio->pNotificationHandler == NULL) {
+        result = MA_OUT_OF_MEMORY;
+        ma_device_state_async_uninit(&pDeviceStateCoreAudio->async, ma_device_get_allocation_callbacks(pDevice));
+        goto on_error;
+    }
 #endif
 
     *ppDeviceState = pDeviceStateCoreAudio;
@@ -40996,16 +41169,52 @@ static ma_result ma_device_stop_audio_units__coreaudio(ma_device* pDevice)
     return result;
 }
 
-static ma_result ma_device_start__coreaudio(ma_device* pDevice)
+static ma_result ma_device_start_internal__coreaudio(ma_device* pDevice, ma_bool32 isInterruptionRecovery)
 {
     ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
     ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
     OSStatus status;
 
+    #if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+    ma_uint32 interruptionGeneration;
+    ma_result result;
+
+    ma_spinlock_lock(&pDeviceStateCoreAudio->interruptionLock);
+    {
+        result = ma_device_prepare_start_nolock__coreaudio(pDeviceStateCoreAudio, isInterruptionRecovery, &interruptionGeneration);
+    }
+    ma_spinlock_unlock(&pDeviceStateCoreAudio->interruptionLock);
+
+    if (result != MA_SUCCESS) {
+        if (result == MA_NO_DATA_AVAILABLE && !isInterruptionRecovery) {
+            return MA_SUCCESS;
+        }
+
+        return result;
+    }
+
+    result = ma_device_activate_audio_session__coreaudio(pDevice);
+    if (result != MA_SUCCESS) {
+        if (!ma_device_validate_start__coreaudio(pDeviceStateCoreAudio, interruptionGeneration, MA_FALSE)) {
+            return MA_SUCCESS;
+        }
+
+        return result;
+    }
+
+    /* Activation can synchronously deliver another interruption. Never open the gate for an obsolete start. */
+    if (!ma_device_validate_start__coreaudio(pDeviceStateCoreAudio, interruptionGeneration, MA_TRUE)) {
+        return MA_SUCCESS;
+    }
+    #else
+    (void)isInterruptionRecovery;
+
     /* All stream resources are ready before the first callback can be delivered by Start(). */
     ma_atomic_bool32_set(&pDeviceStateCoreAudio->isCallbackProcessingBlocked, MA_FALSE);
+    #endif
 
+    
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitCapture);
         if (status != noErr) {
@@ -41022,6 +41231,13 @@ static ma_result ma_device_start__coreaudio(ma_device* pDevice)
 
     pDeviceStateCoreAudio->areAudioUnitsStopped = MA_FALSE;
 
+    #if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+    if (!ma_device_validate_start__coreaudio(pDeviceStateCoreAudio, interruptionGeneration, MA_FALSE)) {
+        ma_device_stop_audio_units__coreaudio(pDevice);
+        ma_device_wait_for_callbacks__coreaudio(pDeviceStateCoreAudio);
+    }
+    #endif
+
     return MA_SUCCESS;
 
 on_error:
@@ -41030,7 +41246,19 @@ on_error:
     pDeviceStateCoreAudio->areAudioUnitsStopped = MA_FALSE;
     ma_device_stop_audio_units__coreaudio(pDevice);
     ma_device_wait_for_callbacks__coreaudio(pDeviceStateCoreAudio);
+
+    #if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+    if (!ma_device_validate_start__coreaudio(pDeviceStateCoreAudio, interruptionGeneration, MA_FALSE)) {
+        return MA_SUCCESS;
+    }
+    #endif
+
     return ma_result_from_OSStatus(status);
+}
+
+static ma_result ma_device_start__coreaudio(ma_device* pDevice)
+{
+    return ma_device_start_internal__coreaudio(pDevice, MA_FALSE);
 }
 
 static ma_result ma_device_stop__coreaudio(ma_device* pDevice)
@@ -41105,7 +41333,19 @@ static ma_result ma_device_step_extra__coreaudio(ma_device* pDevice)
         goto on_error;
     }
 
-    ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, pState->areAudioUnitsStopped);
+    #if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+    {
+        ma_spinlock_lock(&pState->interruptionLock);
+        {
+            ma_device_restore_callback_gate_nolock__coreaudio(pState);
+        }
+        ma_spinlock_unlock(&pState->interruptionLock);
+    }
+    #else
+    {
+        ma_atomic_bool32_set(&pState->isCallbackProcessingBlocked, pState->areAudioUnitsStopped);
+    }
+    #endif
 
     if (wasReinitialized) {
         if (ma_device_is_started(pDevice)) {
@@ -41132,7 +41372,71 @@ on_error:
 static ma_result ma_device_step__coreaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_coreaudio* pDeviceStateCoreAudio = ma_device_get_backend_state__coreaudio(pDevice);
-    return ma_device_state_async_step(&pDeviceStateCoreAudio->async, pDevice, blockingMode, ma_device_step_extra__coreaudio);
+
+    #if defined(MA_APPLE_MOBILE) /* Interruption recovery. */
+    {
+        ma_result result;
+        ma_bool32 needsRecovery;
+
+        for (;;) {
+            if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
+                ma_device_state_async_wait(&pDeviceStateCoreAudio->async);
+            }
+
+            if (!ma_device_is_started(pDevice)) {
+                return MA_DEVICE_NOT_STARTED;
+            }
+
+            needsRecovery = ma_device_needs_interruption_recovery__coreaudio(pDeviceStateCoreAudio);
+            if (needsRecovery) {
+                result = ma_device_stop__coreaudio(pDevice);
+                if (result != MA_SUCCESS) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[Core Audio] Failed to suspend device: %s", ma_result_description(result));
+                    if (!pDevice->hasAudioThread) {
+                        ma_device_stop(pDevice);
+                    }
+
+                    return result;
+                }
+
+                /* Recheck the interruption state in start_internal: notifications may arrive while stopping. */
+                result = ma_device_start_internal__coreaudio(pDevice, MA_TRUE);
+                if (result == MA_NO_DATA_AVAILABLE) {
+                    if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+                        return MA_NO_DATA_AVAILABLE;
+                    }
+
+                    continue;
+                }
+
+                if (result != MA_SUCCESS) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[Core Audio] Interruption recovery stopped: %s", ma_result_description(result));
+                    if (!pDevice->hasAudioThread) {
+                        ma_device_stop(pDevice);
+                    }
+
+                    return result;
+                }
+
+                needsRecovery = ma_device_needs_interruption_recovery__coreaudio(pDeviceStateCoreAudio);
+                if (needsRecovery) {
+                    if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+                        return MA_NO_DATA_AVAILABLE;
+                    }
+
+                    continue;
+                }
+            }
+
+            /* The semaphore was consumed above. Never wait a second time for an audio callback. */
+            return ma_device_state_async_step(&pDeviceStateCoreAudio->async, pDevice, MA_BLOCKING_MODE_NON_BLOCKING, ma_device_step_extra__coreaudio);
+        }
+    }
+    #else
+    {
+        return ma_device_state_async_step(&pDeviceStateCoreAudio->async, pDevice, blockingMode, ma_device_step_extra__coreaudio);
+    }
+    #endif
 }
 
 static void ma_device_wakeup__coreaudio(ma_device* pDevice)
