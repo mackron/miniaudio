@@ -31418,18 +31418,18 @@ static void ma_device_source_name_callback(ma_pa_context* pPulseContext, const m
 }
 #endif
 
-static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
+static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, ma_ptr pMainLoop, ma_ptr pPulseContext, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
 {
     ma_pa_operation* pOP;
     ma_result result;
 
     MA_ZERO_OBJECT(pSinkInfo);
-    pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
+    pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
     if (pOP == NULL) {
         return MA_ERROR;
     }
 
-    result = ma_wait_for_operation_and_unref__pulse(pContext, pContext->pulse.pMainLoop, pOP);
+    result = ma_wait_for_operation_and_unref__pulse(pContext, pMainLoop, pOP);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -31441,18 +31441,18 @@ static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, const cha
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_source_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_source_info* pSourceInfo)
+static ma_result ma_context_get_source_info__pulse(ma_context* pContext, ma_ptr pMainLoop, ma_ptr pPulseContext, const char* pDeviceName, ma_pa_source_info* pSourceInfo)
 {
     ma_pa_operation* pOP;
     ma_result result;
 
     MA_ZERO_OBJECT(pSourceInfo);
-    pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
+    pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
     if (pOP == NULL) {
         return MA_ERROR;
     }
 
-    result = ma_wait_for_operation_and_unref__pulse(pContext, pContext->pulse.pMainLoop, pOP);
+    result = ma_wait_for_operation_and_unref__pulse(pContext, pMainLoop, pOP);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -31477,7 +31477,7 @@ static ma_result ma_context_get_default_device_index__pulse(ma_context* pContext
 
     if (deviceType == ma_device_type_playback) {
         ma_pa_sink_info sinkInfo;
-        result = ma_context_get_sink_info__pulse(pContext, NULL, &sinkInfo);
+        result = ma_context_get_sink_info__pulse(pContext, pContext->pulse.pMainLoop, pContext->pulse.pPulseContext, NULL, &sinkInfo);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -31489,7 +31489,7 @@ static ma_result ma_context_get_default_device_index__pulse(ma_context* pContext
 
     if (deviceType == ma_device_type_capture) {
         ma_pa_source_info sourceInfo;
-        result = ma_context_get_source_info__pulse(pContext, NULL, &sourceInfo);
+        result = ma_context_get_source_info__pulse(pContext, pContext->pulse.pMainLoop, pContext->pulse.pPulseContext, NULL, &sourceInfo);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -32123,7 +32123,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     }
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_context_get_source_info__pulse(pDevice->pContext, devCapture, &sourceInfo);
+        result = ma_context_get_source_info__pulse(pDevice->pContext, pDevice->pulse.pMainLoop, pDevice->pulse.pPulseContext, devCapture, &sourceInfo);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve source info for capture device.");
             goto on_error0;
@@ -32283,7 +32283,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_context_get_sink_info__pulse(pDevice->pContext, devPlayback, &sinkInfo);
+        result = ma_context_get_sink_info__pulse(pDevice->pContext, pDevice->pulse.pMainLoop, pDevice->pulse.pPulseContext, devPlayback, &sinkInfo);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve sink info for playback device.\n");
             goto on_error2;
