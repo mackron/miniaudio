@@ -2196,6 +2196,10 @@ the fence, only we set `pNotification` instead of `pFence`. You can set both of 
 time and they should both work as expected. If using the `pNotification` system, you need to ensure
 your `ma_async_notification_callbacks` object stays valid.
 
+Ranges and loop points can be set in `ma_resource_manager_data_source_config` before initializing a
+stream. The worker applies these settings before it decodes the first pages. Seek positions and
+loop points are relative to the start of the range. At runtime, use
+`ma_data_source_set_range_in_pcm_frames()` and `ma_data_source_set_loop_point_in_pcm_frames()`.
 
 
 6.2. Resource Manager Implementation Details
@@ -7265,6 +7269,9 @@ struct ma_job
             {
                 /*ma_resource_manager_data_stream**/ void* pDataStream;
                 ma_uint64 initialSeekPoint;
+                ma_pcm_range range;
+                ma_pcm_range loopPoint;
+                ma_bool32 isLooping;
                 ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
                 ma_fence* pInitFence;
             } loadDataStream;
@@ -7283,6 +7290,9 @@ struct ma_job
             {
                 /*ma_resource_manager_data_stream**/ void* pDataStream;
                 ma_uint64 frameIndex;
+                ma_pcm_range range;
+                ma_pcm_range loopPoint;
+                ma_bool32 isLooping;
             } seekDataStream;
         } resourceManager;
     } data;
@@ -11325,40 +11335,46 @@ struct ma_resource_manager_data_buffer
     ma_atomic_bool32 isConnectorInitialized;        /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
     union
     {
-        ma_decoder decoder;                 /* Supply type is ma_resource_manager_data_supply_type_encoded */
-        ma_audio_buffer buffer;             /* Supply type is ma_resource_manager_data_supply_type_decoded */
-        ma_paged_audio_buffer pagedBuffer;  /* Supply type is ma_resource_manager_data_supply_type_decoded_paged */
+        ma_decoder decoder;                         /* Supply type is ma_resource_manager_data_supply_type_encoded */
+        ma_audio_buffer buffer;                     /* Supply type is ma_resource_manager_data_supply_type_decoded */
+        ma_paged_audio_buffer pagedBuffer;          /* Supply type is ma_resource_manager_data_supply_type_decoded_paged */
     } connector;    /* Connects this object to the node's data supply. */
 };
 
 struct ma_resource_manager_data_stream
 {
-    ma_data_source_base ds;                     /* Base data source. A data stream is a data source. */
-    ma_resource_manager* pResourceManager;      /* A pointer to the resource manager that owns this data stream. */
-    ma_uint32 flags;                            /* The flags that were passed used to initialize the stream. */
-    ma_decoder decoder;                         /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
-    ma_bool32 isDecoderInitialized;             /* Required for determining whether or not the decoder should be uninitialized in MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM. */
-    ma_uint64 totalLengthInPCMFrames;           /* This is calculated when first loaded by the MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM. */
-    ma_uint32 relativeCursor;                   /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
-    MA_ATOMIC(8, ma_uint64) absoluteCursor;     /* The playback cursor, in absolute position starting from the start of the file. */
-    ma_uint32 currentPageIndex;                 /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
-    MA_ATOMIC(4, ma_uint32) executionCounter;   /* For allocating execution orders for jobs. */
-    MA_ATOMIC(4, ma_uint32) executionPointer;   /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
-    char* pFilePath;                            /* We keep track of the file path for the purpose of duplication. */
+    ma_data_source_base ds;                         /* Base data source. A data stream is a data source. */
+    ma_resource_manager* pResourceManager;          /* A pointer to the resource manager that owns this data stream. */
+    ma_uint32 flags;                                /* The flags that were passed used to initialize the stream. */
+    ma_decoder decoder;                             /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
+    ma_bool32 isDecoderInitialized;                 /* Required for determining whether or not the decoder should be uninitialized in MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM. */
+    MA_ATOMIC(8, ma_uint64) totalLengthInPCMFrames; /* This is calculated when first loaded by the MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM. */
+    ma_pcm_range range;                             /* Requested settings. Only accessed by the public API. */
+    ma_pcm_range loopPoint;
+    ma_bool32 appliedLooping;                       /* Looping state in the last accepted load/update job. Only accessed by the public API. */
+    ma_bool32 isDecoderLooping;                     /* Looping state applied to the decoder. Only accessed by the worker. */
+    ma_uint64 pageCursorInPCMFrames[2];             /* Cursor at the first frame of each page, relative to the range. Published by isPageValid. */
+    ma_uint64 pageLoopEndInPCMFrames[2];            /* Effective loop boundary for cursor tracking, including discovered EOF. Published by isPageValid. */
+    ma_uint32 relativeCursor;                       /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
+    MA_ATOMIC(8, ma_uint64) absoluteCursor;         /* The playback cursor, in absolute position starting from the start of the file. */
+    ma_uint32 currentPageIndex;                     /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
+    MA_ATOMIC(4, ma_uint32) executionCounter;       /* For allocating execution orders for jobs. */
+    MA_ATOMIC(4, ma_uint32) executionPointer;       /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    char* pFilePath;                                /* We keep track of the file path for the purpose of duplication. */
     wchar_t* pFilePathW;
 
-    /* Written by the public API, read by the job thread. */
-    MA_ATOMIC(4, ma_bool32) isLooping;          /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
+    /* May be changed independently. The public read path queues an update before using new looping state. */
+    MA_ATOMIC(4, ma_bool32) isLooping;              /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
 
     /* Written by the job thread, read by the public API. */
-    void* pPageData;                            /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
-    MA_ATOMIC(4, ma_uint32) pageFrameCount[2];  /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
+    void* pPageData;                                /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
+    MA_ATOMIC(4, ma_uint32) pageFrameCount[2];      /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
 
     /* Written and read by both the public API and the job thread. These must be atomic. */
-    MA_ATOMIC(4, ma_result) result;             /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
-    MA_ATOMIC(4, ma_bool32) isDecoderAtEnd;     /* Whether or not the decoder has reached the end. */
-    MA_ATOMIC(4, ma_bool32) isPageValid[2];     /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
-    MA_ATOMIC(4, ma_bool32) seekCounter;        /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
+    MA_ATOMIC(4, ma_result) result;                 /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
+    MA_ATOMIC(4, ma_bool32) isDecoderAtEnd;         /* Whether or not the decoder has reached the end. */
+    MA_ATOMIC(4, ma_bool32) isPageValid[2];         /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
+    MA_ATOMIC(4, ma_bool32) seekCounter;            /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
 };
 
 union ma_resource_manager_data_source
@@ -82285,6 +82301,90 @@ static ma_result ma_resource_manager_data_stream_cb__seek_to_pcm_frame(ma_data_s
     return ma_resource_manager_data_stream_seek_to_pcm_frame((ma_resource_manager_data_stream*)pDataSource, frameIndex);
 }
 
+static ma_result ma_resource_manager_data_stream_post_update(ma_resource_manager_data_stream* pDataStream, const ma_pcm_range* pRange, const ma_pcm_range* pLoopPoint, ma_uint64 frameIndex)
+{
+    ma_job job;
+    ma_result result;
+    ma_uint64 length;
+    ma_bool32 isLooping;
+
+    result = ma_resource_manager_data_stream_result(pDataStream);
+    if (result != MA_SUCCESS && result != MA_BUSY) {
+        return result;
+    }
+
+    if (frameIndex > pRange->endInFrames - pRange->begInFrames) {
+        return MA_INVALID_OPERATION;
+    }
+
+    length = ma_atomic_load_64(&pDataStream->totalLengthInPCMFrames);
+    if (length > 0 && (pRange->begInFrames > length || frameIndex > length - pRange->begInFrames)) {
+        return MA_BAD_SEEK;
+    }
+
+    isLooping = ma_atomic_load_32(&pDataStream->isLooping);
+
+    ma_atomic_fetch_add_32(&pDataStream->seekCounter, 1);
+
+    job = ma_job_init(MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM);
+    job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
+    job.data.resourceManager.seekDataStream.pDataStream = pDataStream;
+    job.data.resourceManager.seekDataStream.frameIndex = frameIndex;
+    job.data.resourceManager.seekDataStream.range = *pRange;
+    job.data.resourceManager.seekDataStream.loopPoint = *pLoopPoint;
+    job.data.resourceManager.seekDataStream.isLooping = isLooping;
+
+    result = ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+    if (result != MA_SUCCESS) {
+        ma_atomic_fetch_sub_32(&pDataStream->executionCounter, 1);
+        ma_atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
+        return result;
+    }
+
+    pDataStream->relativeCursor = 0;
+    pDataStream->currentPageIndex = 0;
+    pDataStream->range = *pRange;
+    pDataStream->loopPoint = *pLoopPoint;
+    pDataStream->appliedLooping = isLooping;
+    ma_atomic_exchange_64(&pDataStream->absoluteCursor, pRange->begInFrames + frameIndex);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_data_stream_update_looping(ma_resource_manager_data_stream* pDataStream)
+{
+    ma_uint64 cursor;
+    ma_result result;
+
+    if (ma_atomic_load_32(&pDataStream->isLooping) == pDataStream->appliedLooping) {
+        return MA_SUCCESS;
+    }
+
+    result = ma_resource_manager_data_stream_get_cursor_in_pcm_frames(pDataStream, &cursor);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_resource_manager_data_stream_post_update(pDataStream, &pDataStream->range, &pDataStream->loopPoint, cursor);
+}
+
+static ma_result ma_resource_manager_data_stream_get_length_internal(ma_resource_manager_data_stream* pDataStream, ma_uint64* pLength)
+{
+    ma_result result;
+
+    result = ma_resource_manager_data_stream_result(pDataStream);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pLength = ma_atomic_load_64(&pDataStream->totalLengthInPCMFrames);
+    if (*pLength == 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_resource_manager_data_stream_cb__prop(ma_data_source* pDataSource, int prop, void* pData)
 {
     ma_resource_manager_data_stream* pDataStream = (ma_resource_manager_data_stream*)pDataSource;
@@ -82310,7 +82410,7 @@ static ma_result ma_resource_manager_data_stream_cb__prop(ma_data_source* pDataS
 
         case MA_DATA_SOURCE_GET_LENGTH:
         {
-            return ma_resource_manager_data_stream_get_length_in_pcm_frames(pDataStream, (ma_uint64*)pData);
+            return ma_resource_manager_data_stream_get_length_internal(pDataStream, (ma_uint64*)pData);
         }
 
         case MA_DATA_SOURCE_SET_LOOPING:
@@ -82322,6 +82422,56 @@ static ma_result ma_resource_manager_data_stream_cb__prop(ma_data_source* pDataS
         case MA_DATA_SOURCE_GET_LOOPING:
         {
             *((ma_bool32*)pData) = ma_atomic_load_32(&pDataStream->isLooping);
+            return MA_SUCCESS;
+        }
+
+        case MA_DATA_SOURCE_SET_RANGE:
+        {
+            ma_pcm_range* pRange = (ma_pcm_range*)pData;
+            ma_pcm_range loopPoint;
+            ma_uint64 cursor;
+
+            cursor = ma_atomic_load_64(&pDataStream->absoluteCursor);
+            if (cursor < pRange->begInFrames) {
+                cursor = pRange->begInFrames;
+            }
+            if (cursor > pRange->endInFrames) {
+                cursor = pRange->endInFrames;
+            }
+
+            loopPoint.begInFrames = 0;
+            loopPoint.endInFrames = ~((ma_uint64)0);
+
+            return ma_resource_manager_data_stream_post_update(pDataStream, pRange, &loopPoint, cursor - pRange->begInFrames);
+        }
+
+        case MA_DATA_SOURCE_GET_RANGE:
+        {
+            *((ma_pcm_range*)pData) = pDataStream->range;
+            return MA_SUCCESS;
+        }
+
+        case MA_DATA_SOURCE_SET_LOOP_POINT:
+        {
+            ma_pcm_range* pLoopPoint = (ma_pcm_range*)pData;
+            ma_uint64 cursor;
+            ma_result result;
+
+            if (pLoopPoint->endInFrames < pLoopPoint->begInFrames || pLoopPoint->begInFrames > pDataStream->range.endInFrames - pDataStream->range.begInFrames) {
+                return MA_INVALID_ARGS;
+            }
+
+            result = ma_resource_manager_data_stream_get_cursor_in_pcm_frames(pDataStream, &cursor);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            return ma_resource_manager_data_stream_post_update(pDataStream, &pDataStream->range, pLoopPoint, cursor);
+        }
+
+        case MA_DATA_SOURCE_GET_LOOP_POINT:
+        {
+            *((ma_pcm_range*)pData) = pDataStream->loopPoint;
             return MA_SUCCESS;
         }
 
@@ -82340,16 +82490,6 @@ static ma_data_source_vtable ma_gDataSourceVTable_ResourceManagerDataStream =
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
     ma_resource_manager_data_stream_cb__prop
 };
-
-static void ma_resource_manager_data_stream_set_absolute_cursor(ma_resource_manager_data_stream* pDataStream, ma_uint64 absoluteCursor)
-{
-    /* Loop if possible. */
-    if (absoluteCursor > pDataStream->totalLengthInPCMFrames && pDataStream->totalLengthInPCMFrames > 0) {
-        absoluteCursor = absoluteCursor % pDataStream->totalLengthInPCMFrames;
-    }
-
-    ma_atomic_exchange_64(&pDataStream->absoluteCursor, absoluteCursor);
-}
 
 MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_stream* pDataStream)
 {
@@ -82396,14 +82536,36 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     pDataStream->flags            = pConfig->flags;
     pDataStream->result           = MA_BUSY;
 
-    ma_data_source_set_range_in_pcm_frames(pDataStream, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
-    ma_data_source_set_loop_point_in_pcm_frames(pDataStream, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
-    ma_data_source_set_looping(pDataStream, (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0);
-
     if (pResourceManager == NULL || (pConfig->pFilePath == NULL && pConfig->pFilePathW == NULL)) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return MA_INVALID_ARGS;
     }
+
+    if (pConfig->rangeEndInPCMFrames < pConfig->rangeBegInPCMFrames) {
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+        return MA_INVALID_ARGS;
+    }
+
+    pDataStream->range.begInFrames = pConfig->rangeBegInPCMFrames;
+    pDataStream->range.endInFrames = pConfig->rangeEndInPCMFrames;
+    pDataStream->loopPoint.begInFrames = pConfig->loopPointBegInPCMFrames;
+    pDataStream->loopPoint.endInFrames = pConfig->loopPointEndInPCMFrames;
+    if (pDataStream->loopPoint.endInFrames != ~((ma_uint64)0)) {
+        pDataStream->loopPoint.endInFrames = ma_min(pDataStream->loopPoint.endInFrames, pDataStream->range.endInFrames - pDataStream->range.begInFrames);
+    }
+
+    if (pDataStream->loopPoint.endInFrames < pDataStream->loopPoint.begInFrames || pDataStream->loopPoint.begInFrames > pDataStream->range.endInFrames - pDataStream->range.begInFrames) {
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->initialSeekPointInPCMFrames > pDataStream->range.endInFrames - pDataStream->range.begInFrames) {
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+        return MA_INVALID_ARGS;
+    }
+
+    pDataStream->appliedLooping = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
+    ma_atomic_exchange_32(&pDataStream->isLooping, pDataStream->appliedLooping);
 
     /* We want all access to the VFS and the internal decoder to happen on the job thread just to keep things easier to manage for the VFS.  */
 
@@ -82431,15 +82593,19 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
 
     /* Set the absolute cursor to our initial seek position so retrieval of the cursor returns a good value. */
-    ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, pConfig->initialSeekPointInPCMFrames);
+    ma_atomic_exchange_64(&pDataStream->absoluteCursor, pDataStream->range.begInFrames + pConfig->initialSeekPointInPCMFrames);
 
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
     job = ma_job_init(MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.data.resourceManager.loadDataStream.pDataStream       = pDataStream;
     job.data.resourceManager.loadDataStream.initialSeekPoint  = pConfig->initialSeekPointInPCMFrames;
+    job.data.resourceManager.loadDataStream.range             = pDataStream->range;
+    job.data.resourceManager.loadDataStream.loopPoint         = pDataStream->loopPoint;
+    job.data.resourceManager.loadDataStream.isLooping         = pDataStream->appliedLooping;
     job.data.resourceManager.loadDataStream.pInitNotification = (waitBeforeReturning == MA_TRUE) ? &waitNotification : notifications.init.pNotification;
     job.data.resourceManager.loadDataStream.pInitFence        = notifications.init.pFence;
+
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
@@ -82520,9 +82686,17 @@ MA_API ma_result ma_resource_manager_data_stream_init_copy(ma_resource_manager_d
     }
 
     config = ma_resource_manager_data_source_config_init();
-    config.pFilePath  = pDataStream->pFilePath;
-    config.pFilePathW = pDataStream->pFilePathW;
-    config.flags      = pDataStream->flags;
+    config.pFilePath               = pDataStream->pFilePath;
+    config.pFilePathW              = pDataStream->pFilePathW;
+    config.rangeBegInPCMFrames     = pDataStream->range.begInFrames;
+    config.rangeEndInPCMFrames     = pDataStream->range.endInFrames;
+    config.loopPointBegInPCMFrames = pDataStream->loopPoint.begInFrames;
+    config.loopPointEndInPCMFrames = pDataStream->loopPoint.endInFrames;
+
+    config.flags = pDataStream->flags & ~MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    if (ma_resource_manager_data_stream_is_looping(pDataStream)) {
+        config.flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
 
     return ma_resource_manager_data_stream_init_ex(pDataStream->pResourceManager, &config, pNewDataStream);
 }
@@ -82531,6 +82705,7 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
 {
     ma_resource_manager_inline_notification freeEvent;
     ma_job job;
+    ma_result result;
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
@@ -82550,7 +82725,32 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     job.data.resourceManager.freeDataStream.pDataStream       = pDataStream;
     job.data.resourceManager.freeDataStream.pDoneNotification = &freeEvent;
     job.data.resourceManager.freeDataStream.pDoneFence        = NULL;
-    ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+
+    /*
+    This awkward loop is for dealing with the case when the resource manager has run out of room in the job queue. It's just waiting
+    for space in multi-threaded mode, or processing jobs in place right here when in single-threaded mode which will free up a slot.
+    */
+    for (;;) {
+        result = ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+        if (result != MA_OUT_OF_MEMORY) {
+            break;
+        }
+
+        if (ma_resource_manager_is_threading_enabled(pDataStream->pResourceManager)) {
+            ma_yield();
+        } else {
+            result = ma_resource_manager_process_next_job(pDataStream->pResourceManager);
+            if (result == MA_CANCELLED) {
+                break;
+            }
+        }
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_atomic_fetch_sub_32(&pDataStream->executionCounter, 1);
+        ma_resource_manager_inline_notification_uninit(&freeEvent);
+        return result;
+    }
 
     /* We need to wait for the job to finish processing before we return. */
     ma_resource_manager_inline_notification_wait_and_uninit(&freeEvent);
@@ -82579,52 +82779,152 @@ static void* ma_resource_manager_data_stream_get_page_data_pointer(ma_resource_m
     return ma_offset_ptr(pDataStream->pPageData, ((ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream) * pageIndex) + relativeCursor) * ma_get_bytes_per_frame(pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels));
 }
 
-static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex)
+static ma_result ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex)
 {
-    ma_result result = MA_SUCCESS;
+    ma_result result;
     ma_uint64 pageSizeInFrames;
-    ma_uint64 totalFramesReadForThisPage = 0;
-    void* pPageData = ma_resource_manager_data_stream_get_page_data_pointer(pDataStream, pageIndex, 0);
+    ma_uint64 totalFramesRead = 0;
+    ma_uint64 cursor;
+    ma_uint64 rangeLength;
+    ma_uint64 length;
+    ma_uint64 loopEnd;
+    ma_pcm_range range;
+    ma_pcm_range loopPoint;
+    void* pPageData;
+    ma_bool32 isAtEnd = MA_FALSE;
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
+    pPageData = ma_resource_manager_data_stream_get_page_data_pointer(pDataStream, pageIndex, 0);
 
-    /* The decoder needs to inherit the stream's looping and range state. */
-    {
-        ma_uint64 rangeBeg;
-        ma_uint64 rangeEnd;
-        ma_uint64 loopPointBeg;
-        ma_uint64 loopPointEnd;
+    ma_data_source_get_range_in_pcm_frames(&pDataStream->decoder, &range.begInFrames, &range.endInFrames);
+    ma_data_source_get_loop_point_in_pcm_frames(&pDataStream->decoder, &loopPoint.begInFrames, &loopPoint.endInFrames);
 
-        ma_data_source_set_looping(&pDataStream->decoder, ma_resource_manager_data_stream_is_looping(pDataStream));
-
-        ma_data_source_get_range_in_pcm_frames(pDataStream, &rangeBeg, &rangeEnd);
-        ma_data_source_set_range_in_pcm_frames(&pDataStream->decoder, rangeBeg, rangeEnd);
-
-        ma_data_source_get_loop_point_in_pcm_frames(pDataStream, &loopPointBeg, &loopPointEnd);
-        ma_data_source_set_loop_point_in_pcm_frames(&pDataStream->decoder, loopPointBeg, loopPointEnd);
+    rangeLength = ~((ma_uint64)0);
+    if (range.endInFrames != ~((ma_uint64)0)) {
+        rangeLength = range.endInFrames - range.begInFrames;
     }
 
-    /* Just read straight from the decoder. It will deal with ranges and looping for us. */
-    result = ma_data_source_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames, &totalFramesReadForThisPage);
-    if (result == MA_AT_END || totalFramesReadForThisPage < pageSizeInFrames) {
+    length = ma_atomic_load_64(&pDataStream->totalLengthInPCMFrames);
+    if (length > 0) {
+        if (length > range.begInFrames) {
+            rangeLength = ma_min(rangeLength, length - range.begInFrames);
+        } else {
+            rangeLength = 0;
+        }
+    }
+
+    loopEnd = ma_min(rangeLength, loopPoint.endInFrames);
+
+    result = ma_data_source_get_cursor_in_pcm_frames(&pDataStream->decoder, &cursor);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataStream->pageCursorInPCMFrames[pageIndex] = cursor;
+
+    while (totalFramesRead < pageSizeInFrames) {
+        ma_uint64 framesToRead;
+        ma_uint64 framesRead = 0;
+        void* pFramesOut;
+
+        if (pDataStream->isDecoderLooping && cursor >= loopEnd) {
+            if (loopPoint.begInFrames >= loopEnd) {
+                isAtEnd = MA_TRUE;
+                break;  /* Empty loop. */
+            }
+
+            result = ma_data_source_seek_to_pcm_frame(&pDataStream->decoder, loopPoint.begInFrames);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            cursor = loopPoint.begInFrames;
+        }
+
+        if (totalFramesRead == 0) {
+            pDataStream->pageCursorInPCMFrames[pageIndex] = cursor;
+        }
+
+        framesToRead = pageSizeInFrames - totalFramesRead;
+        if (pDataStream->isDecoderLooping) {
+            framesToRead = ma_min(framesToRead, loopEnd - cursor);
+        }
+
+        pFramesOut = ma_offset_pcm_frames_ptr(pPageData, totalFramesRead, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels);
+        
+        result = ma_data_source_read_pcm_frames(&pDataStream->decoder, pFramesOut, framesToRead, &framesRead);
+        if (result != MA_SUCCESS && result != MA_AT_END) {
+            return result;
+        }
+
+        totalFramesRead += framesRead;
+        cursor += framesRead;
+
+        if (result == MA_AT_END || framesRead == 0) {
+            /* An open-ended range reaching EOF gives us the previously unknown full source length. */
+            if (range.endInFrames == ~((ma_uint64)0) || cursor < rangeLength) {
+                ma_atomic_compare_and_swap_64(&pDataStream->totalLengthInPCMFrames, 0, range.begInFrames + cursor);
+            }
+
+            loopEnd = ma_min(loopEnd, cursor);
+            if (!pDataStream->isDecoderLooping || loopPoint.begInFrames >= loopEnd) {
+                isAtEnd = MA_TRUE;
+                break;
+            }
+        }
+    }
+
+    pDataStream->pageLoopEndInPCMFrames[pageIndex] = loopEnd;
+    if (isAtEnd) {
         ma_atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
     }
 
-    ma_atomic_exchange_32(&pDataStream->pageFrameCount[pageIndex], (ma_uint32)totalFramesReadForThisPage);
+    ma_atomic_exchange_32(&pDataStream->pageFrameCount[pageIndex], (ma_uint32)totalFramesRead);
     ma_atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
+
+    return MA_SUCCESS;
 }
 
-static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream)
+static ma_result ma_resource_manager_data_stream_apply_state(ma_resource_manager_data_stream* pDataStream, const ma_pcm_range* pRange, const ma_pcm_range* pLoopPoint, ma_bool32 isLooping, ma_uint64 frameIndex)
 {
+    ma_result result;
     ma_uint32 iPage;
 
-    MA_ASSERT(pDataStream != NULL);
+    ma_atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
+    ma_atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
+    ma_atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_FALSE);
+    pDataStream->isDecoderLooping = isLooping;
+
+    /* The stream fills loops explicitly so page cursor metadata can include unknown-length EOF. */
+    result = ma_data_source_set_looping(&pDataStream->decoder, MA_FALSE);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_data_source_set_range_in_pcm_frames(&pDataStream->decoder, pRange->begInFrames, pRange->endInFrames);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_data_source_set_loop_point_in_pcm_frames(&pDataStream->decoder, pLoopPoint->begInFrames, pLoopPoint->endInFrames);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_data_source_seek_to_pcm_frame(&pDataStream->decoder, frameIndex);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     for (iPage = 0; iPage < 2; iPage += 1) {
-        ma_resource_manager_data_stream_fill_page(pDataStream, iPage);
+        result = ma_resource_manager_data_stream_fill_page(pDataStream, iPage);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
     }
-}
 
+    return MA_SUCCESS;
+}
 
 static ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount)
 {
@@ -82695,6 +82995,9 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
     ma_uint32 newRelativeCursor;
     ma_uint32 pageSizeInFrames;
     ma_job job;
+    ma_result result;
+    ma_uint64 cursor;
+    ma_uint64 loopEnd;
 
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
@@ -82714,8 +83017,14 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
-    /* The absolute cursor needs to be updated for ma_resource_manager_data_stream_get_cursor_in_pcm_frames(). */
-    ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, ma_atomic_load_64(&pDataStream->absoluteCursor) + frameCount);
+    cursor = pDataStream->pageCursorInPCMFrames[pDataStream->currentPageIndex] + pDataStream->relativeCursor + frameCount;
+    loopEnd = pDataStream->pageLoopEndInPCMFrames[pDataStream->currentPageIndex];
+
+    if (pDataStream->appliedLooping && cursor > loopEnd && loopEnd > pDataStream->loopPoint.begInFrames) {
+        cursor = pDataStream->loopPoint.begInFrames + 1 + (cursor - loopEnd - 1) % (loopEnd - pDataStream->loopPoint.begInFrames);
+    }
+
+    ma_atomic_exchange_64(&pDataStream->absoluteCursor, pDataStream->range.begInFrames + cursor);
 
     /* Here is where we need to check if we need to load a new page, and if so, post a job to load it. */
     newRelativeCursor = pDataStream->relativeCursor + (ma_uint32)frameCount;
@@ -82736,7 +83045,14 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
         /* Before posting the job we need to make sure we set some state. */
         pDataStream->relativeCursor   = newRelativeCursor;
         pDataStream->currentPageIndex = (pDataStream->currentPageIndex + 1) & 0x01;
-        return ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+        
+        result = ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+        if (result != MA_SUCCESS) {
+            ma_atomic_fetch_sub_32(&pDataStream->executionCounter, 1);
+            ma_atomic_compare_and_swap_i32(&pDataStream->result, MA_SUCCESS, result);
+        }
+
+        return result;
     } else {
         /* We haven't moved into a new page so we can just move the cursor forward. */
         pDataStream->relativeCursor = newRelativeCursor;
@@ -82768,8 +83084,14 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
         return MA_INVALID_ARGS;
     }
 
-    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
-        return MA_INVALID_OPERATION;
+    result = ma_resource_manager_data_stream_result(pDataStream);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_resource_manager_data_stream_update_looping(pDataStream);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     /* Don't attempt to read while we're in the middle of seeking. Tell the caller that we're busy. */
@@ -82817,58 +83139,19 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
 {
-    ma_job job;
-    ma_result streamResult;
-
-    streamResult = ma_resource_manager_data_stream_result(pDataStream);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(streamResult != MA_UNAVAILABLE);
-
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (streamResult != MA_SUCCESS && streamResult != MA_BUSY) {
-        return MA_INVALID_OPERATION;
-    }
-
-    /* If we're not already seeking and we're sitting on the same frame, just make this a no-op. */
-    if (ma_atomic_load_32(&pDataStream->seekCounter) == 0) {
-        if (ma_atomic_load_64(&pDataStream->absoluteCursor) == frameIndex) {
-            return MA_SUCCESS;
+    if (ma_resource_manager_data_stream_result(pDataStream) == MA_SUCCESS && ma_resource_manager_data_stream_seek_counter(pDataStream) == 0) {
+        if (ma_atomic_load_32(&pDataStream->isLooping) == pDataStream->appliedLooping) {
+            if (frameIndex == ma_atomic_load_64(&pDataStream->absoluteCursor) - pDataStream->range.begInFrames) {
+                return MA_SUCCESS;
+            }
         }
     }
 
-
-    /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
-    ma_atomic_fetch_add_32(&pDataStream->seekCounter, 1);
-
-    /* Update the absolute cursor so that ma_resource_manager_data_stream_get_cursor_in_pcm_frames() returns the new position. */
-    ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, frameIndex);
-
-    /*
-    We need to clear our currently loaded pages so that the stream starts playback from the new seek point as soon as possible. These are for the purpose of the public
-    API and will be ignored by the seek job. The seek job will operate on the assumption that both pages have been marked as invalid and the cursor is at the start of
-    the first page.
-    */
-    pDataStream->relativeCursor   = 0;
-    pDataStream->currentPageIndex = 0;
-    ma_atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
-    ma_atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
-
-    /* Make sure the data stream is not marked as at the end or else if we seek in response to hitting the end, we won't be able to read any more data. */
-    ma_atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_FALSE);
-
-    /*
-    The public API is not allowed to touch the internal decoder so we need to use a job to perform the seek. When seeking, the job thread will assume both pages
-    are invalid and any content contained within them will be discarded and replaced with newly decoded data.
-    */
-    job = ma_job_init(MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM);
-    job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.data.resourceManager.seekDataStream.pDataStream = pDataStream;
-    job.data.resourceManager.seekDataStream.frameIndex  = frameIndex;
-    return ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+    return ma_resource_manager_data_stream_post_update(pDataStream, &pDataStream->range, &pDataStream->loopPoint, frameIndex);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
@@ -82937,44 +83220,14 @@ MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_res
         return MA_INVALID_OPERATION;
     }
 
-    *pCursor = ma_atomic_load_64(&pDataStream->absoluteCursor);
+    *pCursor = ma_atomic_load_64(&pDataStream->absoluteCursor) - pDataStream->range.begInFrames;
 
     return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resource_manager_data_stream_get_length_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pLength)
 {
-    ma_result streamResult;
-
-    if (pLength == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pLength = 0;
-
-    streamResult = ma_resource_manager_data_stream_result(pDataStream);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(streamResult != MA_UNAVAILABLE);
-
-    if (pDataStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (streamResult != MA_SUCCESS) {
-        return streamResult;
-    }
-
-    /*
-    We most definitely do not want to be calling ma_decoder_get_length_in_pcm_frames() directly. Instead we want to use a cached value that we
-    calculated when we initialized it on the job thread.
-    */
-    *pLength = pDataStream->totalLengthInPCMFrames;
-    if (*pLength == 0) {
-        return MA_NOT_IMPLEMENTED;  /* Some decoders may not have a known length. */
-    }
-
-    return MA_SUCCESS;
+    return ma_data_source_get_length_in_pcm_frames(pDataStream, pLength);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream)
@@ -83002,6 +83255,7 @@ MA_API ma_bool32 ma_resource_manager_data_stream_is_looping(const ma_resource_ma
 
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
 {
+    ma_result result;
     ma_uint32 pageIndex0;
     ma_uint32 pageIndex1;
     ma_uint32 relativeCursor;
@@ -83015,6 +83269,20 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    result = ma_resource_manager_data_stream_result(pDataStream);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_resource_manager_data_stream_update_looping(pDataStream);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (ma_resource_manager_data_stream_seek_counter(pDataStream) > 0) {
+        return MA_BUSY;
     }
 
     pageIndex0     =  pDataStream->currentPageIndex;
@@ -83619,6 +83887,7 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     ma_uint32 pageBufferSizeInBytes;
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
+    ma_uint64 length;
 
     MA_ASSERT(pJob != NULL);
 
@@ -83650,13 +83919,16 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
 
     /* Retrieve the total length of the file before marking the decoder as loaded. */
     if ((pDataStream->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH) == 0) {
-        result = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
+        result = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder, &length);
         if (result != MA_SUCCESS) {
+            ma_decoder_uninit(&pDataStream->decoder);
             goto done;  /* Failed to retrieve the length. */
         }
     } else {
-        pDataStream->totalLengthInPCMFrames = 0;
+        length = 0;
     }
+
+    ma_atomic_exchange_64(&pDataStream->totalLengthInPCMFrames, length);
 
     /*
     Only mark the decoder as initialized when the length of the decoder has been retrieved because that can possibly require a scan over the whole file
@@ -83670,20 +83942,24 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     pDataStream->pPageData = ma_malloc(pageBufferSizeInBytes, &pResourceManager->config.allocationCallbacks);
     if (pDataStream->pPageData == NULL) {
         ma_decoder_uninit(&pDataStream->decoder);
+        pDataStream->isDecoderInitialized = MA_FALSE;
         result = MA_OUT_OF_MEMORY;
         goto done;
     }
 
-    /* Seek to our initial seek point before filling the initial pages. */
-    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.loadDataStream.initialSeekPoint);
-
-    /* We have our decoder and our page buffer, so now we need to fill our pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream);
-
-    /* And now we're done. We want to make sure the result is MA_SUCCESS. */
-    result = MA_SUCCESS;
+    result = ma_resource_manager_data_stream_apply_state(pDataStream, &pJob->data.resourceManager.loadDataStream.range, &pJob->data.resourceManager.loadDataStream.loopPoint, pJob->data.resourceManager.loadDataStream.isLooping, pJob->data.resourceManager.loadDataStream.initialSeekPoint);
+    if (result != MA_SUCCESS) {
+        ma_free(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks);
+        pDataStream->pPageData = NULL;
+        ma_decoder_uninit(&pDataStream->decoder);
+        pDataStream->isDecoderInitialized = MA_FALSE;
+    }
 
 done:
+    if (result == MA_BUSY) {
+        result = MA_ERROR;  /* This job is retiring, so no operation remains to resolve a busy state. */
+    }
+
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
     ma_atomic_compare_and_swap_i32(&pDataStream->result, MA_BUSY, result);
 
@@ -83764,7 +84040,14 @@ static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob
         goto done;
     }
 
-    ma_resource_manager_data_stream_fill_page(pDataStream, pJob->data.resourceManager.pageDataStream.pageIndex);
+    result = ma_resource_manager_data_stream_fill_page(pDataStream, pJob->data.resourceManager.pageDataStream.pageIndex);
+    if (result == MA_BUSY) {
+        result = MA_ERROR;  /* No retry job remains after this operation completes. */
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_atomic_compare_and_swap_i32(&pDataStream->result, MA_SUCCESS, result);
+    }
 
 done:
     ma_atomic_fetch_add_32(&pDataStream->executionPointer, 1);
@@ -83794,19 +84077,17 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
         goto done;
     }
 
-    /*
-    With seeking we just assume both pages are invalid and the relative frame cursor at position 0. This is basically exactly the same as loading, except
-    instead of initializing the decoder, we seek to a frame.
-    */
-    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.seekDataStream.frameIndex);
+    result = ma_resource_manager_data_stream_apply_state(pDataStream, &pJob->data.resourceManager.seekDataStream.range, &pJob->data.resourceManager.seekDataStream.loopPoint, pJob->data.resourceManager.seekDataStream.isLooping, pJob->data.resourceManager.seekDataStream.frameIndex);
+    if (result == MA_BUSY) {
+        result = MA_ERROR;  /* No retry job remains after this operation completes. */
+    }
 
-    /* After seeking we'll need to reload the pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream);
-
-    /* We need to let the public API know that we're done seeking. */
-    ma_atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
+    if (result != MA_SUCCESS) {
+        ma_atomic_compare_and_swap_i32(&pDataStream->result, MA_SUCCESS, result);
+    }
 
 done:
+    ma_atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
     ma_atomic_fetch_add_32(&pDataStream->executionPointer, 1);
     return result;
 }
