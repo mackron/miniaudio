@@ -70553,8 +70553,8 @@ MA_API ma_result ma_data_source_get_channel_map(ma_data_source* pDataSource, ma_
     MA_ZERO_MEMORY(pQueriedChannelMap, sizeof(pQueriedChannelMap));
 
     result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_GET_CHANNEL_MAP, pQueriedChannelMap);
-    if (result != MA_SUCCESS) {
-        /* Most likely this just means MA_DATA_SOURCE_GET_CHANNEL_MAP is not implemented which means it's wants to use the default channel map. Just assume that. */
+    if (result == MA_NOT_IMPLEMENTED) {
+        /* The data source does not provide a channel map. Derive the default from its channel count. */
         ma_data_source_data_format dataFormat;
 
         result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_GET_DATA_FORMAT, &dataFormat);
@@ -70563,6 +70563,8 @@ MA_API ma_result ma_data_source_get_channel_map(ma_data_source* pDataSource, ma_
         }
 
         ma_channel_map_init_standard(ma_standard_channel_map_default, pQueriedChannelMap, ma_countof(pQueriedChannelMap), dataFormat.channels);
+    } else if (result != MA_SUCCESS) {
+        return result;
     }
 
     MA_COPY_MEMORY(pChannelMap, pQueriedChannelMap, ma_min(ma_countof(pQueriedChannelMap), channelMapCap));
