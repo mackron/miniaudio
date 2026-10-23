@@ -130,6 +130,7 @@ int main(int argc, char** argv)
                     native channels. You can use whatever format/channels/rate you like.
                     */
                     deviceConfig = ma_device_config_init(ma_device_type_playback);
+                    deviceConfig.pContext           = &context;
                     deviceConfig.playback.pDeviceID = &pPlaybackDeviceInfos[c].id;
                     deviceConfig.playback.format    = resourceManager.config.decodedFormat;
                     deviceConfig.playback.channels  = 0;
@@ -137,7 +138,7 @@ int main(int argc, char** argv)
                     deviceConfig.dataCallback       = data_callback;
                     deviceConfig.pUserData          = &engines[engineCount];
 
-                    result = ma_device_init(&context, &deviceConfig, &devices[engineCount]);
+                    result = ma_device_init(&deviceConfig, &devices[engineCount]);
                     if (result != MA_SUCCESS) {
                         printf("Failed to initialize device for %s.\n", pPlaybackDeviceInfos[c].name);
                         return -1;

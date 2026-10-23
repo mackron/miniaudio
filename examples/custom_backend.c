@@ -106,6 +106,7 @@ int main(int argc, char** argv)
     };
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.pContext           = &context;
     deviceConfig.playback.format    = DEVICE_FORMAT;
     deviceConfig.playback.channels  = DEVICE_CHANNELS;
     deviceConfig.capture.format     = DEVICE_FORMAT;
@@ -116,7 +117,7 @@ int main(int argc, char** argv)
     deviceConfig.pBackendConfigs    = pBackendDeviceConfigs;
     deviceConfig.backendConfigCount = sizeof(pBackendDeviceConfigs) / sizeof(pBackendDeviceConfigs[0]);
 
-    result = ma_device_init(&context, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         ma_context_uninit(&context);
         return -1;

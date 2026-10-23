@@ -661,6 +661,7 @@ int main(int argc, char** argv)
     }
 
     deviceConfig = ma_device_config_init(deviceType);
+    deviceConfig.pContext             = &g_State.context;
     deviceConfig.playback.shareMode   = shareMode;
     deviceConfig.capture.shareMode    = shareMode;
     deviceConfig.threadingMode        = threadingMode;
@@ -690,7 +691,7 @@ int main(int argc, char** argv)
         }
     }
 
-    result = ma_device_init(&g_State.context, &deviceConfig, &g_State.device);
+    result = ma_device_init(&deviceConfig, &g_State.device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize device: %s.\n", ma_result_description(result));
         ma_context_uninit(&g_State.context);

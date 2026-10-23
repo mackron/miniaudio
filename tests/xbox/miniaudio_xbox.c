@@ -31,7 +31,7 @@ int main()
     deviceConfig.pUserData          = &decoder;
     deviceConfig.periodSizeInFrames = 1024;
     
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         debugPrint("Failed to initialize device.\n");
         return 1;

@@ -151,7 +151,7 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = NULL;
 
-    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+    if (ma_device_init(&deviceConfig, &device) != MA_SUCCESS) {
         for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {
             ma_decoder_uninit(&g_pDecoders[iDecoder]);
         }

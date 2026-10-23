@@ -62,7 +62,8 @@ int main(int argc, char** argv)
     deviceConfig.playback.channels  = g_decoder.outputChannels;
     deviceConfig.sampleRate         = g_decoder.outputSampleRate;
     deviceConfig.dataCallback       = data_callback;
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         return result;
     }

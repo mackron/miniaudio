@@ -51,9 +51,9 @@ int main(int argc, char** argv)
     /* Initialize the capture device. */
     deviceConfig = ma_device_config_init(ma_device_type_capture);
     deviceConfig.capture.format = ma_format_f32;
-    deviceConfig.dataCallback = capture_data_callback;
+    deviceConfig.dataCallback   = capture_data_callback;
 
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize capture device.");
         return -1;

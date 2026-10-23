@@ -74,7 +74,7 @@ device on the stack, but you could allocate it on the heap if that suits your si
         config.pUserData         = pMyCustomData;   // Can be accessed from the device object (device.pUserData).
 
         ma_device device;
-        if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+        if (ma_device_init(&config, &device) != MA_SUCCESS) {
             return -1;  // Failed to initialize the device.
         }
 
@@ -227,6 +227,7 @@ enumerating devices. The example below shows how to enumerate devices.
     }
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.pContext           = &context;
     config.playback.pDeviceID = &pPlaybackInfos[chosenPlaybackDeviceIndex].id;
     config.playback.format    = MY_FORMAT;
     config.playback.channels  = MY_CHANNEL_COUNT;
@@ -235,7 +236,7 @@ enumerating devices. The example below shows how to enumerate devices.
     config.pUserData          = pMyCustomData;
 
     ma_device device;
-    if (ma_device_init(&context, &config, &device) != MA_SUCCESS) {
+    if (ma_device_init(&config, &device) != MA_SUCCESS) {
         // Error
     }
 
@@ -266,10 +267,10 @@ The `ma_device_info` structure contains an `id` member which is the ID you pass 
 config. It also contains the name of the device which is useful for presenting a list of devices
 to the user via the UI.
 
-When creating your own context you will want to pass it to `ma_device_init()` when initializing the
-device. Passing in NULL, like we do in the first example, will result in miniaudio creating the
-context for you, which you don't want to do since you've already created a context. Note that
-internally the context is only tracked by it's pointer which means you must not change the location
+When creating your own context, set `ma_device_config.pContext` to its address before initializing
+the device. Leaving this member NULL, like we do in the first example, will result in miniaudio
+creating the context for you, which you don't want to do since you've already created a context.
+Internally the context is only tracked by its pointer which means you must not change the location
 of the `ma_context` object. If this is an issue, consider using `malloc()` to allocate memory for
 the context.
 
@@ -503,11 +504,11 @@ by default with PlayAndRecord, set the following option before initializing the 
     contextConfig.coreaudio.sessionCategoryOptions |= ma_ios_session_category_option_default_to_speaker;
     ```
 
-Pass this context to `ma_device_init()`, or pass the context config to `ma_device_init_ex()` for an
-internally managed context. When using multiple devices, share one context and choose a session
-category that supports all of them. Multiple contexts do not provide independent audio sessions:
-initializing one can change the shared session, and uninitializing one can deactivate it while
-another context still needs it.
+Set `ma_device_config.pContext` to the address of this context, or pass the context config to
+`ma_device_init_ex()` for an internally managed context. When using multiple devices, share one
+context and choose a session category that supports all of them. Multiple contexts do not provide
+independent audio sessions: initializing one can change the shared session, and uninitializing one
+can deactivate it while another context still needs it.
 
 If the application manages AVAudioSession itself, configure and activate it before initializing
 miniaudio, and prevent miniaudio from changing its category or activation state:
@@ -1351,7 +1352,7 @@ typically need a `ma_context` to enumerate the device IDs first. This context sh
 into the engine config:
 
     ```c
-    engineConfig.pContext = pContext;
+    engineConfig.deviceConfig.pContext = pContext;
     engineConfig.deviceConfig.playback.pDeviceID = &myDeviceID;
     ```
 
@@ -4166,11 +4167,13 @@ a single context to many devices:
 ma_context context;
 ma_context_init(...);
 
+deviceConfig.pContext = &context;
+
 deviceConfig.dreamcast.voiceChannel = 0;
-ma_device_init(&context, &deviceConfig, &device0);
+ma_device_init(&deviceConfig, &device0);
 
 deviceConfig.dreamcast.voiceChannel = 2;    // <-- Make sure the voice channel is different between devices. Remember that a stereo device consumes two channels.
-ma_device_init(&context, &deviceConfig, &device1);
+ma_device_init(&deviceConfig, &device1);
 ```
 
 Note that the `ma_device` struct itself has memory overhead just from its own members.
@@ -8261,6 +8264,7 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
 
 struct ma_device_config
 {
+    ma_context* pContext;               /* Optional existing context. When NULL, the device creates and owns a context. An existing context must remain valid until the device is uninitialized. */
     ma_device_type deviceType;
     ma_threading_mode threadingMode;
     ma_uint32 sampleRate;
@@ -8512,7 +8516,7 @@ struct ma_device
     ma_thread audioThread;
     ma_mutex startStopLock;
 #endif
-    ma_bool8 isOwnerOfContext;                      /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
+    ma_bool8 isOwnerOfContext;                      /* When set to true, uninitializing the device will also uninitialize the context. Set to true when the device creates its own context. */
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
@@ -9191,9 +9195,6 @@ can assume the format is the same as what you requested when you initialized the
 
 Parameters
 ----------
-pContext (in, optional)
-    A pointer to the context that owns the device. This can be null, in which case it creates a default context internally.
-
 pConfig (in)
     A pointer to the device configuration. Cannot be null. See remarks for details.
 
@@ -9219,17 +9220,21 @@ Unsafe. It is not safe to call this inside any callback.
 
 Remarks
 -------
-Setting `pContext` to NULL will result in miniaudio creating a default context internally and is equivalent to passing in a context initialized like so:
+Setting `pConfig->pContext` to NULL will result in miniaudio creating a default context internally and is equivalent to using a context initialized like so:
 
     ```c
     ma_context_init(NULL, &context);
     ```
 
-Do not set `pContext` to NULL if you are needing to open multiple devices. You can, however, use NULL when initializing the first device, and then use
-device.pContext for the initialization of other devices.
+For multiple devices, set `ma_device_config.pContext` to one shared context. You can also leave it NULL when initializing the first device and set it to
+that device's `pContext` for subsequent devices. The owning device must remain initialized until all devices that share its context are uninitialized.
 
 The device can be configured via the `pConfig` argument. The config object is initialized with `ma_device_config_init()`. Individual configuration settings can
 then be set directly on the structure. Below are the members of the `ma_device_config` object.
+
+    pContext
+        An optional existing context. Defaults to NULL, in which case the device creates and owns its context. An existing context remains owned by the
+        caller and must remain valid until the device is uninitialized. Use ma_device_init_ex() to configure an internally created context.
 
     deviceType
         Must be `ma_device_type_playback`, `ma_device_type_capture`, `ma_device_type_duplex` of `ma_device_type_loopback`.
@@ -9438,7 +9443,7 @@ config.dataCallback      = ma_data_callback;
 config.pMyUserData       = pMyUserData;
 
 ma_device device;
-ma_result result = ma_device_init(NULL, &config, &device);
+ma_result result = ma_device_init(&config, &device);
 if (result != MA_SUCCESS) {
     // Error
 }
@@ -9468,6 +9473,7 @@ if (result != MA_SUCCESS) {
 // ... choose a device from pPlaybackDeviceInfos ...
 
 ma_device_config config = ma_device_config_init(ma_device_type_playback);
+config.pContext                 = &context;
 config.playback.pDeviceID       = pMyChosenDeviceID;    // <-- Get this from the `id` member of one of the `ma_device_info` objects returned by ma_context_get_devices().
 config.playback.format          = ma_format_f32;
 config.playback.channels        = 2;
@@ -9478,7 +9484,7 @@ config.periodSizeInMilliseconds = 10;
 config.periods                  = 3;
 
 ma_device device;
-result = ma_device_init(&context, &config, &device);
+result = ma_device_init(&config, &device);
 if (result != MA_SUCCESS) {
     // Error
 }
@@ -9494,13 +9500,14 @@ ma_context_init()
 ma_context_get_devices()
 ma_context_enumerate_devices()
 */
-MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
+MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDevice);
 
 /*
 Initializes a device without a context, with extra parameters for controlling the configuration of the internal self-managed context.
 
-This is the same as `ma_device_init()`, only instead of a context being passed in, a `ma_context_config` is passed in instead. This function
-allows you to configure the internally created context, including backend selection.
+This is the same as `ma_device_init()`, with an additional `ma_context_config` argument for configuring
+an internally created context, including backend selection. If `pConfig->pContext` is non-NULL, that
+context is used and `pContextConfig` is ignored.
 
 
 Parameters
@@ -9534,7 +9541,7 @@ Unsafe. It is not safe to call this inside any callback.
 Remarks
 -------
 You only need to use this function if you want to configure the context differently to its defaults. You should never use this function if you want to manage
-your own context.
+your own context. For an existing context, set `pConfig->pContext` and call `ma_device_init()`.
 
 Backend selection uses `pContextConfig->pBackends` and `pContextConfig->backendCount`. If the config or
 backend list is NULL, the default list is used. Backends are tried in order until both context and
@@ -12159,7 +12166,6 @@ typedef struct
     ma_resource_manager_config resourceManagerConfig;       /* Used only when the engine creates its own resource manager. Defaults to f32 decoding with native channel counts. The engine sets the decoded sample rate, log, and allocation callbacks. */
 #endif
 #if !defined(MA_NO_DEVICE_IO)
-    ma_context* pContext;
     ma_device* pDevice;                                     /* If set, the caller is responsible for calling ma_engine_read_pcm_frames() in the device's data callback. */
     ma_device_config deviceConfig;                          /* Used only when the engine creates its own device. Defaults to device-level clipping disabled because the engine clips by default. */
 #endif
@@ -51875,9 +51881,10 @@ static const void* ma_device_config_find_backend_config(const ma_device_config* 
 }
 
 
-MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result;
+    ma_context* pContext;
     ma_device_backend_info backendInfo;
     ma_device_descriptor publicDescriptorPlayback;
     ma_device_descriptor publicDescriptorCapture;
@@ -51885,11 +51892,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_device_descriptor descriptorCapture;
     ma_threading_mode threadingMode;
     ma_device_op_params initParams;
-
-    /* The context can be null, in which case we self-manage it. */
-    if (pContext == NULL) {
-        return ma_device_init_ex(NULL, pConfig, pDevice);
-    }
 
     if (pDevice == NULL) {
         return MA_INVALID_ARGS;
@@ -51899,6 +51901,12 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    /* The context can be null, in which case we self-manage it. */
+    pContext = pConfig->pContext;
+    if (pContext == NULL) {
+        return ma_device_init_ex(NULL, pConfig, pDevice);
     }
 
     /* We'll need the backend info to determine whether or not an audio thread can be created. */
@@ -52277,6 +52285,7 @@ MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, cons
     ma_result result;
     ma_context* pContext;
     ma_context_config contextConfig;
+    ma_device_config deviceConfig;
     const ma_device_backend_config* pBackends;
     ma_uint32 backendCount;
     ma_uint32 iBackend;
@@ -52286,6 +52295,12 @@ MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, cons
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    if (pConfig->pContext != NULL) {
+        return ma_device_init(pConfig, pDevice);
+    }
+
+    deviceConfig = *pConfig;
 
     if (pContextConfig != NULL) {
         contextConfig = *pContextConfig;
@@ -52316,7 +52331,9 @@ MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, cons
 
         result = ma_context_init(&contextConfig, pContext);
         if (result == MA_SUCCESS) {
-            result = ma_device_init(pContext, pConfig, pDevice);
+            deviceConfig.pContext = pContext;
+
+            result = ma_device_init(&deviceConfig, pDevice);
             if (result == MA_SUCCESS) {
                 break;  /* Success. */
             } else {
@@ -87949,7 +87966,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
                 return MA_OUT_OF_MEMORY;
             }
 
-            if (engineConfig.pContext == NULL) {
+            if (engineConfig.deviceConfig.pContext == NULL) {
                 ma_context_config contextConfig = ma_context_config_init();
                 contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
                 contextConfig.pLog = engineConfig.pLog;
@@ -87965,7 +87982,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
                 result = ma_device_init_ex(&contextConfig, &deviceConfig, pEngine->pDevice);
             } else {
-                result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
+                result = ma_device_init(&deviceConfig, pEngine->pDevice);
             }
 
             if (result != MA_SUCCESS) {

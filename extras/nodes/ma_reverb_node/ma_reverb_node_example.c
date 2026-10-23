@@ -54,7 +54,8 @@ int main(int argc, char** argv)
     deviceConfig.playback.channels  = DEVICE_CHANNELS;
     deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
     deviceConfig.dataCallback       = data_callback;
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         return result;
     }

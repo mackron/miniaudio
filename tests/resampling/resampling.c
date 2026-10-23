@@ -242,8 +242,7 @@ void resampler_listening_test(void)
     deviceConfig.dataCallback       = resampler_data_callback;
     deviceConfig.pUserData          = &callbackData;
     
-
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize device.");
         return;

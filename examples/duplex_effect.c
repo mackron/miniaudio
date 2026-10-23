@@ -64,7 +64,7 @@ int main(int argc, char** argv)
     deviceConfig.playback.format    = DEVICE_FORMAT;
     deviceConfig.playback.channels  = DEVICE_CHANNELS;
     deviceConfig.dataCallback       = data_callback;
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         return result;
     }

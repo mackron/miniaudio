@@ -46,7 +46,8 @@ int main(int argc, char** argv)
     deviceConfig.playback.format    = ma_format_s16;
     deviceConfig.playback.channels  = 2;
     deviceConfig.dataCallback       = data_callback;
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         return result;
     }

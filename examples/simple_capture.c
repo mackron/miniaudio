@@ -47,7 +47,7 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback     = data_callback;
     deviceConfig.pUserData        = &encoder;
 
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize capture device.\n");
         return -2;

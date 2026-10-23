@@ -55,7 +55,7 @@ int main()
 
     result = ma_device_init_ex(&contextConfig, &deviceConfig, &device);
     #else
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     #endif
     if (result != MA_SUCCESS) {
         return 1;

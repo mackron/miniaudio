@@ -227,7 +227,7 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback    = data_callback;
     deviceConfig.pUserData       = NULL;
 
-    result = ma_device_init(NULL, &deviceConfig, &device);
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize device.");
         return -1;

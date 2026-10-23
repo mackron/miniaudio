@@ -99,6 +99,7 @@ int main()
     }
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.pContext             = &context;
     deviceConfig.threadingMode        = MA_THREADING_MODE_SINGLE_THREADED;
     deviceConfig.playback.format      = ma_format_s16;
     deviceConfig.playback.channels    = 2;
@@ -107,7 +108,8 @@ int main()
     deviceConfig.noFixedSizedCallback = MA_TRUE;    /* With the period size between 2048 and 16384 we can be guaranteed a fixed sized callback. */
     deviceConfig.dataCallback         = data_callback;
     deviceConfig.pUserData            = NULL;
-    result = ma_device_init(&context, &deviceConfig, &device);
+
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("ma_device_init() failed.\n");
     }
