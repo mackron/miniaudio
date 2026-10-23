@@ -31421,25 +31421,47 @@ static void ma_device_source_name_callback(ma_pa_context* pPulseContext, const m
 static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
 {
     ma_pa_operation* pOP;
+    ma_result result;
 
+    MA_ZERO_OBJECT(pSinkInfo);
     pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
     if (pOP == NULL) {
         return MA_ERROR;
     }
 
-    return ma_wait_for_operation_and_unref__pulse(pContext, pContext->pulse.pMainLoop, pOP);
+    result = ma_wait_for_operation_and_unref__pulse(pContext, pContext->pulse.pMainLoop, pOP);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pSinkInfo->sample_spec.channels == 0) {
+        return MA_NO_DEVICE;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_context_get_source_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_source_info* pSourceInfo)
 {
     ma_pa_operation* pOP;
+    ma_result result;
 
+    MA_ZERO_OBJECT(pSourceInfo);
     pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
     if (pOP == NULL) {
         return MA_ERROR;
     }
 
-    return ma_wait_for_operation_and_unref__pulse(pContext, pContext->pulse.pMainLoop, pOP);
+    result = ma_wait_for_operation_and_unref__pulse(pContext, pContext->pulse.pMainLoop, pOP);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pSourceInfo->sample_spec.channels == 0) {
+        return MA_NO_DEVICE;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_context_get_default_device_index__pulse(ma_context* pContext, ma_device_type deviceType, ma_uint32* pIndex)
