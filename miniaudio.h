@@ -89434,9 +89434,13 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
     result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
-        if (pDataSourceVTable->onUninit) { pDataSourceVTable->onUninit(pNewDataSource); }
+        if (pDataSourceVTable->onUninit) { 
+            pDataSourceVTable->onUninit(pNewDataSource);
+        }
+
         ma_free(pNewDataSource, &pEngine->allocationCallbacks);
         MA_ZERO_OBJECT(pSound);
+        
         return result;
     }
 
