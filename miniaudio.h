@@ -70450,8 +70450,8 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
         return MA_NOT_IMPLEMENTED;
     }
 
-    if (frameIndex > pDataSourceBase->rangeEndInFrames) {
-        return MA_INVALID_OPERATION;    /* Trying to seek too far forward. */
+    if (frameIndex > pDataSourceBase->rangeEndInFrames - pDataSourceBase->rangeBegInFrames) {
+        return MA_INVALID_OPERATION;    /* The frame index is relative to the start of the range. */
     }
 
     MA_ASSERT(pDataSourceBase->pVTable != NULL);
