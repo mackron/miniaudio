@@ -71081,7 +71081,7 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
         return MA_INVALID_ARGS;
     }
 
-    MA_ZERO_MEMORY(pAudioBuffer, sizeof(*pAudioBuffer) - sizeof(pAudioBuffer->_pExtraData));   /* Safety. Don't overwrite the extra data. */
+    MA_ZERO_MEMORY(pAudioBuffer, (size_t)((ma_uint8*)pAudioBuffer->_pExtraData - (ma_uint8*)pAudioBuffer));   /* Exclude inline data and any trailing structure padding. */
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
