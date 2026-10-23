@@ -71204,17 +71204,11 @@ MA_API ma_result ma_audio_buffer_init_copy(ma_audio_buffer* pAudioBuffer, ma_aud
         return MA_INVALID_ARGS;
     }
 
-    config = ma_audio_buffer_config_init(pAudioBuffer->format, pAudioBuffer->channels, pAudioBuffer->sampleRate, pAudioBuffer->sizeInFrames, NULL, &pAudioBuffer->allocationCallbacks);
-    config.pAllocationCallbacks = &pAudioBuffer->allocationCallbacks;
+    config = ma_audio_buffer_config_init(pAudioBuffer->format, pAudioBuffer->channels, pAudioBuffer->sampleRate, pAudioBuffer->sizeInFrames, pAudioBuffer->pData, &pAudioBuffer->allocationCallbacks);
 
-    /*
-    For the buffer, if it's an internally managed we want to make sure the copy is also internally managed. If it's externally
-    managed we can make the copy also external.
-    */
-    if (pAudioBuffer->ownsData && pAudioBuffer->pData != &pAudioBuffer->_pExtraData[0]) {
-        config.pData = NULL;                /* Internally managed. Set the buffer to null to trigger the new ring buffer to also allocate it's own buffer. */
-    } else {
-        config.pData = pAudioBuffer->pData; /* Externally managed. Just reuse the buffer. */
+    /* Copy internally managed data so the new buffer remains valid after the original is freed. */
+    if (pAudioBuffer->ownsData || pAudioBuffer->pData == &pAudioBuffer->_pExtraData[0]) {
+        return ma_audio_buffer_init_and_copy_data(&config, pNewAudioBuffer);
     }
 
     return ma_audio_buffer_init(&config, pNewAudioBuffer);
