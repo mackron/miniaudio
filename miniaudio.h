@@ -12257,8 +12257,8 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
-MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
 #endif
+MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
 MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
@@ -89387,6 +89387,7 @@ MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pF
 
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
+#endif
 
 MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound)
 {
@@ -89449,7 +89450,6 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
     return MA_SUCCESS;
 }
-#endif
 
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound)
 {
