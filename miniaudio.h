@@ -6850,7 +6850,6 @@ typedef struct ma_audio_ring_buffer
 } ma_audio_ring_buffer;
 
 MA_API ma_result ma_audio_ring_buffer_init(const ma_audio_ring_buffer_config* pConfig, ma_audio_ring_buffer* pRingBuffer);
-MA_API ma_result ma_audio_ring_buffer_init_copy(ma_audio_ring_buffer* pRingBuffer, ma_audio_ring_buffer* pNewRingBuffer);
 MA_API void ma_audio_ring_buffer_uninit(ma_audio_ring_buffer* pRingBuffer);
 MA_API ma_uint32 ma_audio_ring_buffer_map_produce(ma_audio_ring_buffer* pRingBuffer, ma_uint32 frameCount, void** ppMappedBuffer);    /* Returns the number of frames actually mapped. */
 MA_API void ma_audio_ring_buffer_unmap_produce(ma_audio_ring_buffer* pRingBuffer, ma_uint32 frameCount);
@@ -69413,11 +69412,6 @@ static void ma_audio_ring_buffer__data_source_on_uninit(ma_data_source* pDataSou
     ma_audio_ring_buffer_uninit((ma_audio_ring_buffer*)pDataSource);
 }
 
-static ma_result ma_audio_ring_buffer__data_source_on_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource)
-{
-    return ma_audio_ring_buffer_init_copy((ma_audio_ring_buffer*)pDataSource, (ma_audio_ring_buffer*)pNewDataSource);
-}
-
 static ma_result ma_audio_ring_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFrames, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_audio_ring_buffer* pRingBuffer = (ma_audio_ring_buffer*)pDataSource;
@@ -69490,7 +69484,7 @@ static ma_data_source_vtable ma_gDataSourceVTable_AudioRingBuffer =
 {
     ma_audio_ring_buffer__data_source_on_sizeof,
     ma_audio_ring_buffer__data_source_on_uninit,
-    ma_audio_ring_buffer__data_source_on_copy,
+    NULL,   /* onCopy. Copying not supported. */
     ma_audio_ring_buffer__data_source_on_read,
     NULL,   /* No seeking in ring buffers. */
     ma_audio_ring_buffer__data_source_on_prop
@@ -69577,30 +69571,6 @@ MA_API ma_result ma_audio_ring_buffer_init(const ma_audio_ring_buffer_config* pC
     pRingBuffer->allocationCallbacks = ma_allocation_callbacks_init_copy(pConfig->pAllocationCallbacks);
 
     return MA_SUCCESS;
-}
-
-MA_API ma_result ma_audio_ring_buffer_init_copy(ma_audio_ring_buffer* pRingBuffer, ma_audio_ring_buffer* pNewRingBuffer)
-{
-    ma_audio_ring_buffer_config config;
-
-    if (pNewRingBuffer == NULL || pRingBuffer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    config = ma_audio_ring_buffer_config_init(pRingBuffer->format, pRingBuffer->channels, pRingBuffer->sampleRate, pRingBuffer->rb.capacity);
-    config.pAllocationCallbacks = &pRingBuffer->allocationCallbacks;
-
-    /*
-    For the buffer, if it's an internally managed we want to make sure the copy is also internally managed. If it's externally
-    managed we can make the copy also external.
-    */
-    if (pRingBuffer->isOwnerOfBuffer) {
-        config.pBuffer = NULL;                  /* Internally managed. Set the buffer to null to trigger the new ring buffer to also allocate it's own buffer. */
-    } else {
-        config.pBuffer = pRingBuffer->pBuffer;  /* Externally managed. Just reuse the buffer. */
-    }
-
-    return ma_audio_ring_buffer_init(&config, pNewRingBuffer);
 }
 
 MA_API void ma_audio_ring_buffer_uninit(ma_audio_ring_buffer* pRingBuffer)
