@@ -70885,6 +70885,10 @@ MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDa
         loopEndInFrames = (rangeEndInFrames - rangeBegInFrames);
     }
 
+    if (loopBegInFrames > rangeEndInFrames - rangeBegInFrames) {
+        return MA_INVALID_ARGS;    /* Clamping the end must not place it before the beginning. */
+    }
+
     {
         ma_pcm_range loopRange;
         loopRange.begInFrames = loopBegInFrames;
