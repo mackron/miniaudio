@@ -82022,19 +82022,37 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
 
         case ma_resource_manager_data_supply_type_decoded:
         {
-            *pFormat     = pDataBuffer->pNode->data.backend.decoded.format;
-            *pChannels   = pDataBuffer->pNode->data.backend.decoded.channels;
-            *pSampleRate = pDataBuffer->pNode->data.backend.decoded.sampleRate;
+            if (pFormat != NULL) {
+                *pFormat = pDataBuffer->pNode->data.backend.decoded.format;
+            }
+
+            if (pChannels != NULL) {
+                *pChannels = pDataBuffer->pNode->data.backend.decoded.channels;
+            }
+
+            if (pSampleRate != NULL) {
+                *pSampleRate = pDataBuffer->pNode->data.backend.decoded.sampleRate;
+            }
+
             ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decoded.channels);
             return MA_SUCCESS;
         };
 
         case ma_resource_manager_data_supply_type_decoded_paged:
         {
-            *pFormat     = pDataBuffer->pNode->data.backend.decodedPaged.data.format;
-            *pChannels   = pDataBuffer->pNode->data.backend.decodedPaged.data.channels;
-            *pSampleRate = pDataBuffer->pNode->data.backend.decodedPaged.sampleRate;
-            ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decoded.channels);
+            if (pFormat != NULL) {
+                *pFormat = pDataBuffer->pNode->data.backend.decodedPaged.data.format;
+            }
+
+            if (pChannels != NULL) {
+                *pChannels = pDataBuffer->pNode->data.backend.decodedPaged.data.channels;
+            }
+
+            if (pSampleRate != NULL) {
+                *pSampleRate = pDataBuffer->pNode->data.backend.decodedPaged.sampleRate;
+            }
+
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decodedPaged.data.channels);
             return MA_SUCCESS;
         };
 
