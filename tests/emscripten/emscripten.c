@@ -44,12 +44,8 @@ static void do_playback()
     ma_device_config deviceConfig;
     ma_waveform_config sineWaveConfig;
     ma_device_backend_config backend;
-    ma_context_config contextConfig;
 
     backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
-    contextConfig = ma_context_config_init();
-    contextConfig.pBackends = &backend;
-    contextConfig.backendCount = 1;
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.threadingMode      = threadingMode;
@@ -60,7 +56,10 @@ static void do_playback()
     deviceConfig.pUserData          = &sineWave;
     deviceConfig.pBackendConfigs    = &backend;
     deviceConfig.backendConfigCount = 1;
-    result = ma_device_init_ex(&contextConfig, &deviceConfig, &device);
+    deviceConfig.contextConfig.pBackends = &backend;
+    deviceConfig.contextConfig.backendCount = 1;
+
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to open playback device. %s.\n", ma_result_description(result));
         return;
@@ -92,12 +91,8 @@ static void do_duplex()
     ma_result result;
     ma_device_config deviceConfig;
     ma_device_backend_config backend;
-    ma_context_config contextConfig;
 
     backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
-    contextConfig = ma_context_config_init();
-    contextConfig.pBackends = &backend;
-    contextConfig.backendCount = 1;
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.threadingMode      = threadingMode;
@@ -111,7 +106,10 @@ static void do_duplex()
     deviceConfig.dataCallback       = data_callback_duplex;
     deviceConfig.pBackendConfigs    = &backend;
     deviceConfig.backendConfigCount = 1;
-    result = ma_device_init_ex(&contextConfig, &deviceConfig, &device);
+    deviceConfig.contextConfig.pBackends = &backend;
+    deviceConfig.contextConfig.backendCount = 1;
+
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         return;
     }
@@ -147,13 +145,9 @@ static void do_loopback()
     ma_result result;
     ma_device_config deviceConfig;
     ma_device_backend_config backend;
-    ma_context_config contextConfig;
     ma_audio_ring_buffer_config ringBufferConfig;
 
     backend = ma_device_backend_config_init(DEVICE_BACKEND, NULL);
-    contextConfig = ma_context_config_init();
-    contextConfig.pBackends = &backend;
-    contextConfig.backendCount = 1;
 
     deviceConfig = ma_device_config_init(ma_device_type_loopback);
     deviceConfig.threadingMode      = threadingMode;
@@ -163,7 +157,10 @@ static void do_loopback()
     deviceConfig.dataCallback       = data_callback_loopback_capture;
     deviceConfig.pBackendConfigs    = &backend;
     deviceConfig.backendConfigCount = 1;
-    result = ma_device_init_ex(&contextConfig, &deviceConfig, &device);
+    deviceConfig.contextConfig.pBackends = &backend;
+    deviceConfig.contextConfig.backendCount = 1;
+
+    result = ma_device_init(&deviceConfig, &device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize loopback device.\n");
         return;
@@ -177,7 +174,10 @@ static void do_loopback()
     deviceConfig.dataCallback       = data_callback_loopback_playback;
     deviceConfig.pBackendConfigs    = &backend;
     deviceConfig.backendConfigCount = 1;
-    result = ma_device_init_ex(&contextConfig, &deviceConfig, &loopbackPlaybackDevice);
+    deviceConfig.contextConfig.pBackends = &backend;
+    deviceConfig.contextConfig.backendCount = 1;
+
+    result = ma_device_init(&deviceConfig, &loopbackPlaybackDevice);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize loopback playback device.\n");
         return;

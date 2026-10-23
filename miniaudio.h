@@ -146,7 +146,6 @@ the callback:
 
     ```c
     ma_device_init()
-    ma_device_init_ex()
     ma_device_uninit()
     ma_device_start()
     ma_device_stop()
@@ -273,6 +272,19 @@ creating the context for you, which you don't want to do since you've already cr
 Internally the context is only tracked by its pointer which means you must not change the location
 of the `ma_context` object. If this is an issue, consider using `malloc()` to allocate memory for
 the context.
+
+When the device creates its own context, configure it through `ma_device_config.contextConfig`.
+For example, to set a backend-specific context option:
+
+    ```c
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.contextConfig.jack.pClientName = "My Application";
+
+    ma_device device;
+    ma_device_init(&config, &device);
+    ```
+
+This config is ignored when `config.pContext` is non-NULL.
 
 
 1.2. High Level API
@@ -504,8 +516,8 @@ by default with PlayAndRecord, set the following option before initializing the 
     contextConfig.coreaudio.sessionCategoryOptions |= ma_ios_session_category_option_default_to_speaker;
     ```
 
-Set `ma_device_config.pContext` to the address of this context, or pass the context config to
-`ma_device_init_ex()` for an internally managed context. When using multiple devices, share one
+Set `ma_device_config.pContext` to the address of this context, or copy the context config into
+`ma_device_config.contextConfig` for an internally managed context. When using multiple devices, share one
 context and choose a session category that supports all of them. Multiple contexts do not provide
 independent audio sessions: initializing one can change the shared session, and uninitializing one
 can deactivate it while another context still needs it.
@@ -8150,7 +8162,6 @@ You cannot stop and start the device from inside the callback or else you'll get
 callback. The following APIs cannot be called from inside the callback:
 
     ma_device_init()
-    ma_device_init_ex()
     ma_device_uninit()
     ma_device_start()
     ma_device_stop()
@@ -8262,9 +8273,41 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
 
 
 
+struct ma_context_config
+{
+    const ma_device_backend_config* pBackends;  /* Backends to try in priority order. NULL selects the default list. */
+    ma_uint32 backendCount;                     /* Number of entries in pBackends. Ignored when pBackends is NULL. */
+    ma_log* pLog;
+    ma_thread_priority threadPriority;
+    size_t threadStackSize;
+    void* pUserData;
+    ma_allocation_callbacks allocationCallbacks;
+
+    /* Stock backend configs. */
+    ma_context_config_wasapi     wasapi;
+    ma_context_config_dsound     dsound;
+    ma_context_config_winmm      winmm;
+    ma_context_config_coreaudio  coreaudio;
+    ma_context_config_pipewire   pipewire;
+    ma_context_config_pulseaudio pulseaudio;
+    ma_context_config_jack       jack;
+    ma_context_config_alsa       alsa;
+    ma_context_config_sndio      sndio;
+    ma_context_config_audio4     audio4;
+    ma_context_config_oss        oss;
+    ma_context_config_aaudio     aaudio;
+    ma_context_config_opensl     opensl;
+    ma_context_config_webaudio   webaudio;
+    ma_context_config_dreamcast  dreamcast;
+    ma_context_config_xaudio     xaudio;
+    ma_context_config_vita       vita;
+    ma_context_config_null       null_backend;
+};
+
 struct ma_device_config
 {
     ma_context* pContext;               /* Optional existing context. When NULL, the device creates and owns a context. An existing context must remain valid until the device is uninitialized. */
+    ma_context_config contextConfig;    /* Used only when the device creates its own context. */
     ma_device_type deviceType;
     ma_threading_mode threadingMode;
     ma_uint32 sampleRate;
@@ -8434,37 +8477,6 @@ struct ma_device_backend_vtable
     ma_result (* onDeviceStop             )(ma_device* pDevice);
     ma_result (* onDeviceStep             )(ma_device* pDevice, ma_blocking_mode blockingMode);
     void      (* onDeviceWakeup           )(ma_device* pDevice);
-};
-
-struct ma_context_config
-{
-    const ma_device_backend_config* pBackends;  /* Backends to try in priority order. NULL selects the default list. */
-    ma_uint32 backendCount;                     /* Number of entries in pBackends. Ignored when pBackends is NULL. */
-    ma_log* pLog;
-    ma_thread_priority threadPriority;
-    size_t threadStackSize;
-    void* pUserData;
-    ma_allocation_callbacks allocationCallbacks;
-    
-    /* Stock backend configs. */
-    ma_context_config_wasapi     wasapi;
-    ma_context_config_dsound     dsound;
-    ma_context_config_winmm      winmm;
-    ma_context_config_coreaudio  coreaudio;
-    ma_context_config_pipewire   pipewire;
-    ma_context_config_pulseaudio pulseaudio;
-    ma_context_config_jack       jack;
-    ma_context_config_alsa       alsa;
-    ma_context_config_sndio      sndio;
-    ma_context_config_audio4     audio4;
-    ma_context_config_oss        oss;
-    ma_context_config_aaudio     aaudio;
-    ma_context_config_opensl     opensl;
-    ma_context_config_webaudio   webaudio;
-    ma_context_config_dreamcast  dreamcast;
-    ma_context_config_xaudio     xaudio;
-    ma_context_config_vita       vita;
-    ma_context_config_null       null_backend;
 };
 
 struct ma_context
@@ -9168,7 +9180,6 @@ config.pUserData         = pMyUserData;
 See Also
 --------
 ma_device_init()
-ma_device_init_ex()
 */
 MA_API ma_device_config ma_device_config_init(ma_device_type deviceType);
 
@@ -9220,11 +9231,10 @@ Unsafe. It is not safe to call this inside any callback.
 
 Remarks
 -------
-Setting `pConfig->pContext` to NULL will result in miniaudio creating a default context internally and is equivalent to using a context initialized like so:
-
-    ```c
-    ma_context_init(NULL, &context);
-    ```
+Setting `pConfig->pContext` to NULL will result in miniaudio creating a context internally using `pConfig->contextConfig`.
+The device owns this context and uninitializes it when the device is uninitialized. Backends are tried in the order specified by
+`contextConfig.pBackends` and `contextConfig.backendCount`, or the default order when the backend list is NULL. Each backend must
+successfully initialize both the context and device before it is selected.
 
 For multiple devices, set `ma_device_config.pContext` to one shared context. You can also leave it NULL when initializing the first device and set it to
 that device's `pContext` for subsequent devices. The owning device must remain initialized until all devices that share its context are uninitialized.
@@ -9234,7 +9244,11 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     pContext
         An optional existing context. Defaults to NULL, in which case the device creates and owns its context. An existing context remains owned by the
-        caller and must remain valid until the device is uninitialized. Use ma_device_init_ex() to configure an internally created context.
+        caller and must remain valid until the device is uninitialized. Use contextConfig to configure an internally created context.
+
+    contextConfig
+        The configuration for an internally created context. Initialized to defaults by ma_device_config_init(). Ignored when pContext is non-NULL.
+        See ma_context_init() for the configuration options. Backend arrays must remain valid until device initialization returns.
 
     deviceType
         Must be `ma_device_type_playback`, `ma_device_type_capture`, `ma_device_type_duplex` of `ma_device_type_loopback`.
@@ -9502,63 +9516,6 @@ ma_context_enumerate_devices()
 */
 MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDevice);
 
-/*
-Initializes a device without a context, with extra parameters for controlling the configuration of the internal self-managed context.
-
-This is the same as `ma_device_init()`, with an additional `ma_context_config` argument for configuring
-an internally created context, including backend selection. If `pConfig->pContext` is non-NULL, that
-context is used and `pContextConfig` is ignored.
-
-
-Parameters
-----------
-pContextConfig (in, optional)
-    The context configuration. Can be NULL to use defaults.
-
-pConfig (in)
-    A pointer to the device configuration. Cannot be null. See remarks for details.
-
-pDevice (out)
-    A pointer to the device object being initialized.
-
-
-Return Value
-------------
-MA_SUCCESS if successful; any other error code otherwise.
-
-
-Thread Safety
--------------
-Unsafe. It is not safe to call this function simultaneously for different devices because some backends depend on and mutate global state. The same applies to
-calling this at the same time as `ma_device_uninit()`.
-
-
-Callback Safety
----------------
-Unsafe. It is not safe to call this inside any callback.
-
-
-Remarks
--------
-You only need to use this function if you want to configure the context differently to its defaults. You should never use this function if you want to manage
-your own context. For an existing context, set `pConfig->pContext` and call `ma_device_init()`.
-
-Backend selection uses `pContextConfig->pBackends` and `pContextConfig->backendCount`. If the config or
-backend list is NULL, the default list is used. Backends are tried in order until both context and
-device initialization succeed. If device initialization fails, the context is uninitialized before
-the next backend is tried.
-
-See the documentation for `ma_context_init()` for information on the different context configuration options.
-
-
-See Also
---------
-ma_device_init()
-ma_device_uninit()
-ma_device_config_init()
-ma_context_init()
-*/
-MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice);
 
 /*
 Uninitializes a device.
@@ -51800,6 +51757,7 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
 {
     ma_device_config config;
     MA_ZERO_OBJECT(&config);
+    config.contextConfig = ma_context_config_init();
     config.deviceType = deviceType;
     config.resampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate don't matter here. */
 
@@ -51881,6 +51839,68 @@ static const void* ma_device_config_find_backend_config(const ma_device_config* 
 }
 
 
+static ma_result ma_device_init_with_owned_context(const ma_device_config* pConfig, ma_device* pDevice)
+{
+    ma_result result;
+    ma_context* pContext;
+    ma_context_config contextConfig;
+    ma_device_config deviceConfig;
+    const ma_device_backend_config* pBackends;
+    ma_uint32 backendCount;
+    ma_uint32 iBackend;
+    ma_allocation_callbacks allocationCallbacks;
+    ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    deviceConfig = *pConfig;
+    contextConfig = pConfig->contextConfig;
+
+    allocationCallbacks = ma_allocation_callbacks_init_copy(&contextConfig.allocationCallbacks);
+
+    pContext = (ma_context*)ma_malloc(sizeof(*pContext), &allocationCallbacks);
+    if (pContext == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pBackends = contextConfig.pBackends;
+    backendCount = contextConfig.backendCount;
+    if (pBackends == NULL) {
+        pBackends = pStockBackends;
+        backendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
+    }
+
+    result = MA_NO_BACKEND;
+
+    for (iBackend = 0; iBackend < backendCount; iBackend += 1) {
+        /* Try each backend with both context and device initialization before moving to the next. */
+        contextConfig.pBackends = &pBackends[iBackend];
+        contextConfig.backendCount = 1;
+
+        result = ma_context_init(&contextConfig, pContext);
+        if (result == MA_SUCCESS) {
+            deviceConfig.pContext = pContext;
+
+            result = ma_device_init(&deviceConfig, pDevice);
+            if (result == MA_SUCCESS) {
+                break;  /* Success. */
+            } else {
+                ma_context_uninit(pContext);   /* Failure. */
+            }
+        }
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_free(pContext, &allocationCallbacks);
+        return result;
+    }
+
+    pDevice->isOwnerOfContext = MA_TRUE;
+    return result;
+}
+
 MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result;
@@ -51906,7 +51926,7 @@ MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDev
     /* The context can be null, in which case we self-manage it. */
     pContext = pConfig->pContext;
     if (pContext == NULL) {
-        return ma_device_init_ex(NULL, pConfig, pDevice);
+        return ma_device_init_with_owned_context(pConfig, pDevice);
     }
 
     /* We'll need the backend info to determine whether or not an audio thread can be created. */
@@ -52280,76 +52300,6 @@ MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDev
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_device_init_ex(const ma_context_config* pContextConfig, const ma_device_config* pConfig, ma_device* pDevice)
-{
-    ma_result result;
-    ma_context* pContext;
-    ma_context_config contextConfig;
-    ma_device_config deviceConfig;
-    const ma_device_backend_config* pBackends;
-    ma_uint32 backendCount;
-    ma_uint32 iBackend;
-    ma_allocation_callbacks allocationCallbacks;
-    ma_device_backend_config pStockBackends[MA_MAX_STOCK_DEVICE_BACKENDS];
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pConfig->pContext != NULL) {
-        return ma_device_init(pConfig, pDevice);
-    }
-
-    deviceConfig = *pConfig;
-
-    if (pContextConfig != NULL) {
-        contextConfig = *pContextConfig;
-    } else {
-        contextConfig = ma_context_config_init();
-    }
-
-    allocationCallbacks = ma_allocation_callbacks_init_copy(&contextConfig.allocationCallbacks);
-
-    pContext = (ma_context*)ma_malloc(sizeof(*pContext), &allocationCallbacks);
-    if (pContext == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    pBackends = contextConfig.pBackends;
-    backendCount = contextConfig.backendCount;
-    if (pBackends == NULL) {
-        pBackends = pStockBackends;
-        backendCount = ma_get_stock_device_backends(pStockBackends, ma_countof(pStockBackends));
-    }
-
-    result = MA_NO_BACKEND;
-
-    for (iBackend = 0; iBackend < backendCount; iBackend += 1) {
-        /* Try each backend with both context and device initialization before moving to the next. */
-        contextConfig.pBackends = &pBackends[iBackend];
-        contextConfig.backendCount = 1;
-
-        result = ma_context_init(&contextConfig, pContext);
-        if (result == MA_SUCCESS) {
-            deviceConfig.pContext = pContext;
-
-            result = ma_device_init(&deviceConfig, pDevice);
-            if (result == MA_SUCCESS) {
-                break;  /* Success. */
-            } else {
-                ma_context_uninit(pContext);   /* Failure. */
-            }
-        }
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_free(pContext, &allocationCallbacks);
-        return result;
-    }
-
-    pDevice->isOwnerOfContext = MA_TRUE;
-    return result;
-}
 
 MA_API void ma_device_uninit(ma_device* pDevice)
 {
@@ -87967,23 +87917,20 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             }
 
             if (engineConfig.deviceConfig.pContext == NULL) {
-                ma_context_config contextConfig = ma_context_config_init();
-                contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
-                contextConfig.pLog = engineConfig.pLog;
+                deviceConfig.contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
+                deviceConfig.contextConfig.pLog = engineConfig.pLog;
 
                 /* If the engine config does not specify a log, use the resource manager's if we have one. */
                 #ifndef MA_NO_RESOURCE_MANAGER
                 {
-                    if (contextConfig.pLog == NULL && engineConfig.pResourceManager != NULL) {
-                        contextConfig.pLog = ma_resource_manager_get_log(engineConfig.pResourceManager);
+                    if (deviceConfig.contextConfig.pLog == NULL && engineConfig.pResourceManager != NULL) {
+                        deviceConfig.contextConfig.pLog = ma_resource_manager_get_log(engineConfig.pResourceManager);
                     }
                 }
                 #endif
-
-                result = ma_device_init_ex(&contextConfig, &deviceConfig, pEngine->pDevice);
-            } else {
-                result = ma_device_init(&deviceConfig, pEngine->pDevice);
             }
+
+            result = ma_device_init(&deviceConfig, pEngine->pDevice);
 
             if (result != MA_SUCCESS) {
                 ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
