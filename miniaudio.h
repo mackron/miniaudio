@@ -1178,8 +1178,21 @@ You can implement a custom data source by implementing the functions in `ma_data
                 // pData: ma_pcm_range*
 
                 ma_pcm_range* pRange = (ma_pcm_range*)pData;
+                ma_uint64 absoluteCursor;
+
+                absoluteCursor = pCustomDataSource->rangeBegInFrames + pCustomDataSource->cursor;
+                if (absoluteCursor < pRange->begInFrames) {
+                    absoluteCursor = pRange->begInFrames;
+                }
+                if (absoluteCursor > pRange->endInFrames) {
+                    absoluteCursor = pRange->endInFrames;
+                }
+
                 pCustomDataSource->rangeBegInFrames = pRange->begInFrames;
                 pCustomDataSource->rangeEndInFrames = pRange->endInFrames;
+                pCustomDataSource->cursor = absoluteCursor - pRange->begInFrames;
+                pCustomDataSource->loopBegInFrames = 0;
+                pCustomDataSource->loopEndInFrames = ~((ma_uint64)0);
 
                 return MA_SUCCESS;
             }
@@ -1286,6 +1299,11 @@ base object (`ma_data_source_base`):
 Note that `ma_data_source_base_init()` and `ma_data_source_base_uninit()` are never called directly
 outside of the custom data source. It's up to the custom data source itself to call these within
 their own init/uninit functions.
+
+When `onProp` handles `MA_DATA_SOURCE_SET_RANGE`, it must reset loop points to `[0, end)`, using
+`~((ma_uint64)0)` for the end. If it has a cursor, preserve its absolute position and clamp it to
+the new range. The generic layer performs these steps only when the callback returns
+`MA_NOT_IMPLEMENTED`. An asynchronous implementation must copy the range values before returning.
 
 
 
@@ -70723,6 +70741,19 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
         return MA_INVALID_ARGS; /* The end of the range must come after the beginning. */
     }
 
+    /* A backend that handles ranges also owns cursor adjustment and the loop-point reset. */
+    {
+        ma_pcm_range range;
+        
+        range.begInFrames = rangeBegInFrames;
+        range.endInFrames = rangeEndInFrames;
+
+        result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_SET_RANGE, &range);
+        if (result != MA_NOT_IMPLEMENTED) {
+            return result;
+        }
+    }
+
     ma_data_source_get_range_in_pcm_frames(pDataSource, &oldRangeBegInFrames, &oldRangeEndInFrames);
 
     /*
@@ -70743,27 +70774,8 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
         absoluteCursor = 0;
     }
 
-    /*
-    First try letting the backend deal with the range. If the backend doesn't want to deal with, we'll
-    do it ourselves here.
-    */
-    {
-        ma_pcm_range range;
-        range.begInFrames = rangeBegInFrames;
-        range.endInFrames = rangeEndInFrames;
-
-        result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_SET_RANGE, &range);
-        if (result == MA_NOT_IMPLEMENTED) {
-            /* The backend doesn't want to deal with the range. We'll do it here. */
-            pDataSourceBase->rangeBegInFrames = rangeBegInFrames;
-            pDataSourceBase->rangeEndInFrames = rangeEndInFrames;
-
-            /* Normalize the result to MA_SUCCESS just in case we update the code in the future to check the result code. */
-            result = MA_SUCCESS;
-        } else if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
+    pDataSourceBase->rangeBegInFrames = rangeBegInFrames;
+    pDataSourceBase->rangeEndInFrames = rangeEndInFrames;
 
     /*
     It's possible for the range to have moved outside of the loop points. We'll just define this function

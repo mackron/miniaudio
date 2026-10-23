@@ -326,13 +326,25 @@ static ma_result ma_test_data_source_prop(ma_data_source* pDataSource, int prop,
         case MA_DATA_SOURCE_SET_RANGE:
         {
             ma_pcm_range* pRange = (ma_pcm_range*)pData;
+            ma_uint64 absoluteCursor;
 
             if (pRange->begInFrames > pTestDataSource->length || pRange->endInFrames > pTestDataSource->length) {
                 return MA_INVALID_ARGS;
             }
 
+            absoluteCursor = pTestDataSource->rangeBegInFrames + pTestDataSource->cursor;
+            if (absoluteCursor < pRange->begInFrames) {
+                absoluteCursor = pRange->begInFrames;
+            }
+            if (absoluteCursor > pRange->endInFrames) {
+                absoluteCursor = pRange->endInFrames;
+            }
+
             pTestDataSource->rangeBegInFrames = pRange->begInFrames;
             pTestDataSource->rangeEndInFrames = pRange->endInFrames;
+            pTestDataSource->cursor = absoluteCursor - pRange->begInFrames;
+            pTestDataSource->loopBegInFrames = 0;
+            pTestDataSource->loopEndInFrames = ~((ma_uint64)0);
 
             return MA_SUCCESS;
         }
