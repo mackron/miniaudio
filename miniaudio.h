@@ -79013,7 +79013,7 @@ static ma_result ma_noise__data_source_on_seek(ma_data_source* pDataSource, ma_u
 
 static ma_result ma_noise__data_source_on_prop(ma_data_source* pDataSource, int prop, void* pData)
 {
-    ma_waveform* pNoise = (ma_waveform*)pDataSource;
+    ma_noise* pNoise = (ma_noise*)pDataSource;
 
     switch (prop)
     {
