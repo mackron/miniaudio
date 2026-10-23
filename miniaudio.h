@@ -70676,8 +70676,8 @@ MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool
     }
 
     result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_SET_LOOPING, &isLooping);
-    if (result == MA_SUCCESS) {
-        return MA_SUCCESS;
+    if (result != MA_NOT_IMPLEMENTED) {
+        return result;
     }
 
     /* Getting here means the backend is not self-managing the looping state so we'll do it ourselves. */
