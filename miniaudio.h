@@ -37854,6 +37854,44 @@ static ma_device_state_coreaudio* ma_device_get_backend_state__coreaudio(ma_devi
 }
 
 
+static void ma_log_post_osstatus__coreaudio(ma_log* pLog, const char* pOperation, ma_device_type deviceType, OSStatus status)
+{
+    ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[Core Audio] %s %s failed: OSStatus=%d (0x%08x)", (deviceType == ma_device_type_capture) ? "Capture" : "Playback", pOperation, (int)status, (unsigned int)status);
+}
+
+static void ma_log_post_format__coreaudio(ma_log* pLog, const char* pDescription, ma_device_type deviceType, const AudioStreamBasicDescription* pFormat)
+{
+    ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "[Core Audio] %s %s: formatID=0x%08x, flags=0x%08x, sampleRate=%.0f, channels=%u, bitsPerChannel=%u, bytesPerFrame=%u", (deviceType == ma_device_type_capture) ? "Capture" : "Playback", pDescription, (unsigned int)pFormat->mFormatID, (unsigned int)pFormat->mFormatFlags, pFormat->mSampleRate, (unsigned int)pFormat->mChannelsPerFrame, (unsigned int)pFormat->mBitsPerChannel, (unsigned int)pFormat->mBytesPerFrame);
+}
+
+#if defined(MA_APPLE_MOBILE)
+static void ma_log_post_nserror__coreaudio(ma_log* pLog, ma_uint32 level, const char* pOperation, NSError* pError)
+{
+    if (pError != nil) {
+        ma_log_postf(pLog, level, "[Core Audio] %s failed: domain=%s, code=%ld, description=%s", pOperation, [[pError domain] UTF8String], (long)[pError code], [[pError localizedDescription] UTF8String]);
+    } else {
+        ma_log_postf(pLog, level, "[Core Audio] %s failed without an NSError.", pOperation);
+    }
+}
+
+static void ma_log_post_audio_session__coreaudio(ma_log* pLog)
+{
+    AVAudioSession* pSession = [AVAudioSession sharedInstance];
+    AVAudioSessionRouteDescription* pRoute = [pSession currentRoute];
+
+    ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "[Core Audio] Session: category=%s, options=0x%lx, mode=%s, sampleRate=%.0f, inputChannels=%u, outputChannels=%u, IOBufferDuration=%.6f", [pSession.category UTF8String], (unsigned long)pSession.categoryOptions, [pSession.mode UTF8String], pSession.sampleRate, (unsigned int)pSession.inputNumberOfChannels, (unsigned int)pSession.outputNumberOfChannels, pSession.IOBufferDuration);
+    
+    for (AVAudioSessionPortDescription* pPort in pRoute.inputs) {
+        ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "[Core Audio] Session input: name=%s, type=%s", [pPort.portName UTF8String], [pPort.portType UTF8String]);
+    }
+
+    for (AVAudioSessionPortDescription* pPort in pRoute.outputs) {
+        ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "[Core Audio] Session output: name=%s, type=%s", [pPort.portName UTF8String], [pPort.portType UTF8String]);
+    }
+}
+#endif
+
+
 static ma_result ma_result_from_OSStatus(OSStatus status)
 {
     switch (status)
@@ -39233,24 +39271,42 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
         @autoreleasepool {
             AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
             AVAudioSessionCategoryOptions options = pContextConfigCoreAudio->sessionCategoryOptions;
+            NSError* pError = nil;
 
             MA_ASSERT(pAudioSession != NULL);
 
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] Configuring session: requestedCategory=%d, requestedOptions=0x%x, noAudioSessionActivate=%u", (int)pContextConfigCoreAudio->sessionCategory, (unsigned int)options, (unsigned int)pContextConfigCoreAudio->noAudioSessionActivate);
+
             /* Session policy applies to all audio in the application, independent of device type. */
             if (pContextConfigCoreAudio->sessionCategory != ma_ios_session_category_none) {
-                if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pContextConfigCoreAudio->sessionCategory) withOptions:options error:nil]) {
+                NSString* pCategory = ma_to_AVAudioSessionCategory(pContextConfigCoreAudio->sessionCategory);
+
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] Setting session category: %s, options=0x%lx", [pCategory UTF8String], (unsigned long)options);
+                
+                if (![pAudioSession setCategory:pCategory withOptions:options error:&pError]) {
+                    ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "AVAudioSession setCategory", pError);
+                    ma_log_post_audio_session__coreaudio(ma_context_get_log(pContext));
                     ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
                     return MA_INVALID_OPERATION;    /* Failed to set session category. */
                 }
+
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] AVAudioSession setCategory succeeded.");
             }
 
             if (!pContextConfigCoreAudio->noAudioSessionActivate) {
-                if (![pAudioSession setActive:true error:nil]) {
-                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "Failed to activate audio session.");
+                pError = nil;
+
+                if (![pAudioSession setActive:true error:&pError]) {
+                    ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "AVAudioSession setActive(true)", pError);
+                    ma_log_post_audio_session__coreaudio(ma_context_get_log(pContext));
                     ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
                     return MA_FAILED_TO_INIT_BACKEND;
                 }
+
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] AVAudioSession setActive(true) succeeded.");
             }
+
+            ma_log_post_audio_session__coreaudio(ma_context_get_log(pContext));
         }
     }
     #endif
@@ -39360,6 +39416,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
 
         pContextStateCoreAudio->component = pContextStateCoreAudio->AudioComponentFindNext(NULL, &desc);
         if (pContextStateCoreAudio->component == NULL) {
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[Core Audio] AudioComponentFindNext failed: type=0x%08x, subtype=0x%08x, manufacturer=0x%08x", (unsigned int)desc.componentType, (unsigned int)desc.componentSubType, (unsigned int)desc.componentManufacturer);
         #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hAudioUnit);
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreAudio);
@@ -39368,6 +39425,8 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
             ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_FAILED_TO_INIT_BACKEND;
         }
+
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] AudioComponentFindNext succeeded: subtype=0x%08x", (unsigned int)desc.componentSubType);
     }
 
     #if !defined(MA_APPLE_MOBILE)
@@ -39398,9 +39457,12 @@ static void ma_context_uninit__coreaudio(ma_context* pContext)
     ma_context_state_coreaudio* pContextStateCoreAudio = ma_context_get_backend_state__coreaudio(pContext);
 
 #if defined(MA_APPLE_MOBILE)
-    if (!pContextStateCoreAudio->noAudioSessionDeactivate) {
-        if (![[AVAudioSession sharedInstance] setActive:false error:nil]) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "Failed to deactivate audio session.");
+    @autoreleasepool {
+        if (!pContextStateCoreAudio->noAudioSessionDeactivate) {
+            NSError* pError = nil;
+            if (![[AVAudioSession sharedInstance] setActive:false error:&pError]) {
+                ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "AVAudioSession setActive(false)", pError);
+            }
         }
     }
 #endif
@@ -40212,9 +40274,13 @@ static ma_result ma_device_activate_audio_session__coreaudio(ma_device* pDevice)
             NSError* pError = nil;
 
             if (![[AVAudioSession sharedInstance] setActive:true error:&pError]) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[Core Audio] Failed to activate audio session: %s", [[pError localizedDescription] UTF8String]);
+                ma_log_post_nserror__coreaudio(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "AVAudioSession setActive(true) during device start", pError);
+                ma_log_post_audio_session__coreaudio(ma_device_get_log(pDevice));
                 return MA_DEVICE_NOT_STARTED;
             }
+            
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] AVAudioSession setActive(true) during device start succeeded.");
+            ma_log_post_audio_session__coreaudio(ma_device_get_log(pDevice));
         }
     }
 
@@ -40451,6 +40517,8 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(deviceType == ma_device_type_playback || deviceType == ma_device_type_capture);
 
+    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] Initializing %s unit: requestedFormat=%s, requestedChannels=%u, requestedSampleRate=%u, requestedPeriodFrames=%u, requestedPeriodMilliseconds=%u", (deviceType == ma_device_type_capture) ? "capture" : "playback", ma_get_format_name(pData->formatIn), (unsigned int)pData->channelsIn, (unsigned int)pData->sampleRateIn, (unsigned int)pData->periodSizeInFramesIn, (unsigned int)pData->periodSizeInMillisecondsIn);
+
 #if defined(MA_APPLE_DESKTOP)
     pData->deviceObjectID = 0;
 #endif
@@ -40480,6 +40548,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     /* Audio unit. */
     status = pContextStateCoreAudio->AudioComponentInstanceNew(pContextStateCoreAudio->component, &pData->audioUnit);
     if (status != noErr) {
+        ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioComponentInstanceNew", deviceType, status);
         return ma_result_from_OSStatus(status);
     }
 
@@ -40492,6 +40561,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
 
     status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, MA_COREAUDIO_OUTPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
     if (status != noErr) {
+        ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(EnableIO, Output)", deviceType, status);
         result = ma_result_from_OSStatus(status);
         goto on_error;
     }
@@ -40499,6 +40569,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     enableIOFlag = (enableIOFlag == 0) ? 1 : 0;
     status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, MA_COREAUDIO_INPUT_BUS, &enableIOFlag, sizeof(enableIOFlag));
     if (status != noErr) {
+        ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(EnableIO, Input)", deviceType, status);
         result = ma_result_from_OSStatus(status);
         goto on_error;
     }
@@ -40508,6 +40579,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
 #if defined(MA_APPLE_DESKTOP)
     status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &deviceObjectID, sizeof(deviceObjectID));
     if (status != noErr) {
+        ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(CurrentDevice)", deviceType, status);
         result = ma_result_from_OSStatus(status);
         goto on_error;
     }
@@ -40522,7 +40594,12 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             NSArray *pInputs = [[[AVAudioSession sharedInstance] currentRoute] inputs];
             for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
                 if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
-                    [[AVAudioSession sharedInstance] setPreferredInput:pPortDesc error:nil];
+                    NSError* pError = nil;
+
+                    if (![[AVAudioSession sharedInstance] setPreferredInput:pPortDesc error:&pError]) {
+                        ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPreferredInput", pError);
+                    }
+
                     found = MA_TRUE;
                     break;
                 }
@@ -40559,10 +40636,14 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         } else {
             status = pContextStateCoreAudio->AudioUnitGetProperty(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, MA_COREAUDIO_INPUT_BUS, &origFormat, &origFormatSize);
         }
+
         if (status != noErr) {
+            ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitGetProperty(StreamFormat)", deviceType, status);
             result = ma_result_from_OSStatus(status);
             goto on_error;
         }
+
+        ma_log_post_format__coreaudio(ma_context_get_log(pContext), "original format", deviceType, &origFormat);
 
     #if defined(MA_APPLE_DESKTOP)
         result = ma_find_best_format__coreaudio(pContext, deviceObjectID, deviceType, pData->formatIn, pData->channelsIn, pData->sampleRateIn, &origFormat, &bestFormat);
@@ -40642,9 +40723,15 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         */
         @autoreleasepool {
             AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+            NSError* pError = nil;
+
             MA_ASSERT(pAudioSession != NULL);
 
-            [pAudioSession setPreferredSampleRate:(double)pData->sampleRateIn error:nil];
+            if (![pAudioSession setPreferredSampleRate:(double)pData->sampleRateIn error:&pError]) {
+                ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPreferredSampleRate", pError);
+            }
+
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] Session sample rate: requested=%u, actual=%.0f", (unsigned int)pData->sampleRateIn, pAudioSession.sampleRate);
             bestFormat.mSampleRate = pAudioSession.sampleRate;
 
             /*
@@ -40671,9 +40758,11 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             #endif
         }
 
-        
+        ma_log_post_format__coreaudio(ma_context_get_log(pContext), "setting format", deviceType, &bestFormat);
+
         status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
+            ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(StreamFormat)", deviceType, status);
             result = ma_result_from_OSStatus(status);
             goto on_error;
         }
@@ -40750,9 +40839,19 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     */
     @autoreleasepool {
         AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+        NSError* pError = nil;
+        double requestedDuration;
+
         MA_ASSERT(pAudioSession != NULL);
 
-        [pAudioSession setPreferredIOBufferDuration:((float)actualPeriodSizeInFrames / pAudioSession.sampleRate) error:nil];
+        requestedDuration = (float)actualPeriodSizeInFrames / pAudioSession.sampleRate;
+        if (![pAudioSession setPreferredIOBufferDuration:requestedDuration error:&pError]) {
+            ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPreferredIOBufferDuration", pError);
+        }
+
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] Session IO buffer duration: requested=%.6f, actual=%.6f", requestedDuration, pAudioSession.IOBufferDuration);
+        ma_log_post_audio_session__coreaudio(ma_context_get_log(pContext));
+
         actualPeriodSizeInFrames = ma_next_power_of_2((ma_uint32)(pAudioSession.IOBufferDuration * pAudioSession.sampleRate));
     }
 #endif
@@ -40768,6 +40867,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     */
     status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &actualPeriodSizeInFrames, sizeof(actualPeriodSizeInFrames));
     if (status != noErr) {
+        ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(MaximumFramesPerSlice)", deviceType, status);
         result = ma_result_from_OSStatus(status);
         goto on_error;
     }
@@ -40792,23 +40892,31 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     callbackInfo.inputProcRefCon = pDevice_DoNotReference;
     if (deviceType == ma_device_type_playback) {
         callbackInfo.inputProc = ma_on_output__coreaudio;
+
         status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, 0, &callbackInfo, sizeof(callbackInfo));
         if (status != noErr) {
+            ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(SetRenderCallback)", deviceType, status);
             result = ma_result_from_OSStatus(status);
             goto on_error;
         }
     } else {
         callbackInfo.inputProc = ma_on_input__coreaudio;
+
         status = pContextStateCoreAudio->AudioUnitSetProperty(pData->audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &callbackInfo, sizeof(callbackInfo));
         if (status != noErr) {
+            ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitSetProperty(SetInputCallback)", deviceType, status);
             result = ma_result_from_OSStatus(status);
             goto on_error;
         }
     }
 
     /* Initialize the audio unit. */
+    ma_log_post_format__coreaudio(ma_context_get_log(pContext), "initializing with format", deviceType, &bestFormat);
+    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] AudioUnitInitialize: maximumFramesPerSlice=%u", (unsigned int)actualPeriodSizeInFrames);
+
     status = pContextStateCoreAudio->AudioUnitInitialize(pData->audioUnit);
     if (status != noErr) {
+        ma_log_post_osstatus__coreaudio(ma_context_get_log(pContext), "AudioUnitInitialize", deviceType, status);
         result = ma_result_from_OSStatus(status);
         goto on_error;
     }
@@ -40827,6 +40935,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     return MA_SUCCESS;
 
 on_error:
+    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[Core Audio] %s unit initialization failed: %s (%d)", (deviceType == ma_device_type_capture) ? "Capture" : "Playback", ma_result_description(result), (int)result);
     ma_device_uninit_internal__coreaudio(pContext, &pData->audioUnit, &pData->pAudioBufferList);
     return result;
 }
@@ -41042,6 +41151,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
 
     result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateCoreAudio->async);
     if (result != MA_SUCCESS) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[Core Audio] Failed to initialize async buffers: %s (%d)", ma_result_description(result), (int)result);
         goto on_error;
     }
 
@@ -41212,15 +41322,21 @@ static ma_result ma_device_start_internal__coreaudio(ma_device* pDevice, ma_bool
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitCapture);
         if (status != noErr) {
+            ma_log_post_osstatus__coreaudio(ma_device_get_log(pDevice), "AudioOutputUnitStart", ma_device_type_capture, status);
             goto on_error;
         }
+        
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Capture AudioOutputUnitStart succeeded.");
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         status = pContextStateCoreAudio->AudioOutputUnitStart(pDeviceStateCoreAudio->audioUnitPlayback);
         if (status != noErr) {
+            ma_log_post_osstatus__coreaudio(ma_device_get_log(pDevice), "AudioOutputUnitStart", ma_device_type_playback, status);
             goto on_error;
         }
+
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Playback AudioOutputUnitStart succeeded.");
     }
 
     pDeviceStateCoreAudio->areAudioUnitsStopped = MA_FALSE;
