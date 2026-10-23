@@ -7253,11 +7253,6 @@ struct ma_job
                 ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
                 ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
                 ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
-                ma_uint64 rangeBegInPCMFrames;
-                ma_uint64 rangeEndInPCMFrames;
-                ma_uint64 loopPointBegInPCMFrames;
-                ma_uint64 loopPointEndInPCMFrames;
-                ma_uint32 isLooping;
             } loadDataBuffer;
             struct
             {
@@ -11284,7 +11279,7 @@ typedef struct
         {
             const void* pData;
             ma_uint64 totalFrameCount;
-            ma_uint64 decodedFrameCount;
+            MA_ATOMIC(8, ma_uint64) decodedFrameCount;
             ma_format format;
             ma_uint32 channels;
             ma_uint32 sampleRate;
@@ -11292,7 +11287,7 @@ typedef struct
         struct
         {
             ma_paged_audio_buffer_data data;
-            ma_uint64 decodedFrameCount;
+            MA_ATOMIC(8, ma_uint64) decodedFrameCount;
             ma_uint32 sampleRate;
         } decodedPaged;
     } backend;
@@ -11320,8 +11315,11 @@ struct ma_resource_manager_data_buffer
     ma_uint32 flags;                                /* The flags that were passed used to initialize the buffer. */
     MA_ATOMIC(4, ma_uint32) executionCounter;       /* For allocating execution orders for jobs. */
     MA_ATOMIC(4, ma_uint32) executionPointer;       /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    ma_pcm_range range;                             /* Requested range. Only accessed by the public API. */
+    ma_pcm_range loopPoint;                         /* Requested loop points, relative to range.begInFrames. Only accessed by the public API. */
     ma_uint64 seekTargetInPCMFrames;                /* Only updated by the public API. Never written nor read from the job thread. */
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
+    ma_bool32 isConnectorStateDirty;                /* Apply requested settings before using the published connector. Only accessed by the public API. */
     MA_ATOMIC(4, ma_result) result;                 /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
     MA_ATOMIC(4, ma_bool32) isLooping;              /* Can be read and written by different threads at the same time. Must be used atomically. */
     ma_atomic_bool32 isConnectorInitialized;        /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
@@ -70242,8 +70240,12 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
                 }
             }
 
-            if (frameCount > (rangeEnd - absoluteCursor) && rangeEnd != ~((ma_uint64)0)) {
-                frameCount = (rangeEnd - absoluteCursor);
+            if (rangeEnd != ~((ma_uint64)0)) {
+                if (absoluteCursor >= rangeEnd) {
+                    frameCount = 0;
+                } else if (frameCount > rangeEnd - absoluteCursor) {
+                    frameCount = rangeEnd - absoluteCursor;
+                }
             }
 
             /*
@@ -70585,6 +70587,7 @@ MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSo
 
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength)
 {
+    ma_result result;
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_uint64 rangeBegInFrames;
     ma_uint64 rangeEndInFrames;
@@ -70612,10 +70615,20 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
     }
 
     /*
-    Getting here means a range is not defined so we'll need to get the data source itself to tell
-    us the length.
+    The range has no explicit end. Query the full source length, then remove the range's start offset.
     */
-    return ma_data_source_prop(pDataSource, MA_DATA_SOURCE_GET_LENGTH, pLength);
+    result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_GET_LENGTH, pLength);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (*pLength > rangeBegInFrames) {
+        *pLength -= rangeBegInFrames;
+    } else {
+        *pLength = 0;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSource, float* pCursor)
@@ -80540,12 +80553,11 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
     };
 }
 
-static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, const ma_resource_manager_data_source_config* pConfig, ma_async_notification* pInitNotification, ma_fence* pInitFence)
+static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pInitNotification, ma_fence* pInitFence)
 {
     ma_result result;
 
     MA_ASSERT(pDataBuffer != NULL);
-    MA_ASSERT(pConfig     != NULL);
     MA_ASSERT(ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE);
 
     /* The underlying data buffer must be initialized before we'll be able to know how to initialize the backend. */
@@ -80595,30 +80607,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     the format/channels/rate of the data source.
     */
     if (result == MA_SUCCESS) {
-        /*
-        The resource manager supports the ability to set the range and loop settings via a config at
-        initialization time. This results in an case where the ranges could be set explicitly via
-        ma_data_source_set_*() before we get to this point here. If this happens, we'll end up
-        hitting a case where we just override those settings which results in what feels like a bug.
-
-        To address this we only change the relevant properties if they're not equal to defaults. If
-        they're equal to defaults there's no need to change them anyway. If they're *not* set to the
-        default values, we can assume the user has set the range and loop settings via the config. If
-        they're doing their own calls to ma_data_source_set_*() in addition to setting them via the
-        config, that's entirely on the caller and any synchronization issue becomes their problem.
-        */
-        if (pConfig->rangeBegInPCMFrames != MA_DATA_SOURCE_DEFAULT_RANGE_BEG || pConfig->rangeEndInPCMFrames != MA_DATA_SOURCE_DEFAULT_RANGE_END) {
-            ma_data_source_set_range_in_pcm_frames(pDataBuffer, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
-        }
-
-        if (pConfig->loopPointBegInPCMFrames != MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG || pConfig->loopPointEndInPCMFrames != MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END) {
-            ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
-        }
-
-        if ((pConfig->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0) {
-            ma_data_source_set_looping(pDataBuffer, MA_TRUE);
-        }
-
+        /* Publish the connector without accessing settings owned by the public API. */
         ma_atomic_bool32_set(&pDataBuffer->isConnectorInitialized, MA_TRUE);
 
         if (pInitNotification != NULL) {
@@ -80767,12 +80756,12 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
         ma_silence_pcm_frames(pData, totalFrameCount, pDecoder->outputFormat, pDecoder->outputChannels);
 
         /* Data has been allocated and the data supply can now be initialized. */
-        pDataBufferNode->data.backend.decoded.pData             = pData;
-        pDataBufferNode->data.backend.decoded.totalFrameCount   = totalFrameCount;
-        pDataBufferNode->data.backend.decoded.format            = pDecoder->outputFormat;
-        pDataBufferNode->data.backend.decoded.channels          = pDecoder->outputChannels;
-        pDataBufferNode->data.backend.decoded.sampleRate        = pDecoder->outputSampleRate;
-        pDataBufferNode->data.backend.decoded.decodedFrameCount = 0;
+        pDataBufferNode->data.backend.decoded.pData           = pData;
+        pDataBufferNode->data.backend.decoded.totalFrameCount = totalFrameCount;
+        pDataBufferNode->data.backend.decoded.format          = pDecoder->outputFormat;
+        pDataBufferNode->data.backend.decoded.channels        = pDecoder->outputChannels;
+        pDataBufferNode->data.backend.decoded.sampleRate      = pDecoder->outputSampleRate;
+        ma_atomic_exchange_64(&pDataBufferNode->data.backend.decoded.decodedFrameCount, 0);
         ma_resource_manager_data_buffer_node_set_data_supply_type(pDataBufferNode, ma_resource_manager_data_supply_type_decoded);  /* <-- Must be set last. */
     } else {
         /*
@@ -80787,8 +80776,8 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
             return result;
         }
 
-        pDataBufferNode->data.backend.decodedPaged.sampleRate        = pDecoder->outputSampleRate;
-        pDataBufferNode->data.backend.decodedPaged.decodedFrameCount = 0;
+        pDataBufferNode->data.backend.decodedPaged.sampleRate = pDecoder->outputSampleRate;
+        ma_atomic_exchange_64(&pDataBufferNode->data.backend.decodedPaged.decodedFrameCount, 0);
         ma_resource_manager_data_buffer_node_set_data_supply_type(pDataBufferNode, ma_resource_manager_data_supply_type_decoded_paged);  /* <-- Must be set last. */
     }
 
@@ -80824,7 +80813,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
         {
             /* The destination buffer is an offset to the existing buffer. Don't read more than we originally retrieved when we first initialized the decoder. */
             void* pDst;
-            ma_uint64 framesRemaining = pDataBufferNode->data.backend.decoded.totalFrameCount - pDataBufferNode->data.backend.decoded.decodedFrameCount;
+            ma_uint64 framesRemaining = pDataBufferNode->data.backend.decoded.totalFrameCount - ma_atomic_load_64(&pDataBufferNode->data.backend.decoded.decodedFrameCount);
             if (framesToTryReading > framesRemaining) {
                 framesToTryReading = framesRemaining;
             }
@@ -80832,13 +80821,13 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
             if (framesToTryReading > 0) {
                 pDst = ma_offset_ptr(
                     pDataBufferNode->data.backend.decoded.pData,
-                    pDataBufferNode->data.backend.decoded.decodedFrameCount * ma_get_bytes_per_frame(pDataBufferNode->data.backend.decoded.format, pDataBufferNode->data.backend.decoded.channels)
+                    ma_atomic_load_64(&pDataBufferNode->data.backend.decoded.decodedFrameCount) * ma_get_bytes_per_frame(pDataBufferNode->data.backend.decoded.format, pDataBufferNode->data.backend.decoded.channels)
                 );
                 MA_ASSERT(pDst != NULL);
 
                 result = ma_decoder_read_pcm_frames(pDecoder, pDst, framesToTryReading, &framesRead);
                 if (framesRead > 0) {
-                    pDataBufferNode->data.backend.decoded.decodedFrameCount += framesRead;
+                    ma_atomic_fetch_add_64(&pDataBufferNode->data.backend.decoded.decodedFrameCount, framesRead);
                 }
             } else {
                 framesRead = 0;
@@ -80861,7 +80850,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
 
                 result = ma_paged_audio_buffer_data_append_page(&pDataBufferNode->data.backend.decodedPaged.data, pPage);
                 if (result == MA_SUCCESS) {
-                    pDataBufferNode->data.backend.decodedPaged.decodedFrameCount += framesRead;
+                    ma_atomic_fetch_add_64(&pDataBufferNode->data.backend.decodedPaged.decodedFrameCount, framesRead);
                 } else {
                     /* Failed to append the page. Just abort and set the status to MA_AT_END. */
                     ma_paged_audio_buffer_data_free_page(&pDataBufferNode->data.backend.decodedPaged.data, pPage, &pResourceManager->config.allocationCallbacks);
@@ -81336,6 +81325,101 @@ static ma_result ma_resource_manager_data_buffer_cb__seek_to_pcm_frame(ma_data_s
     return ma_resource_manager_data_buffer_seek_to_pcm_frame((ma_resource_manager_data_buffer*)pDataSource, frameIndex);
 }
 
+static ma_bool32 ma_resource_manager_data_buffer_can_loop(ma_resource_manager_data_buffer* pDataBuffer)
+{
+    ma_uint64 decodedFrameCount;
+    ma_uint64 loopEnd;
+    ma_resource_manager_data_supply_type supplyType;
+
+    if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_SUCCESS) {
+        return MA_TRUE;
+    }
+
+    supplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode);
+    if (supplyType == ma_resource_manager_data_supply_type_encoded) {
+        return MA_TRUE;
+    }
+
+    loopEnd = pDataBuffer->range.endInFrames;
+    if (pDataBuffer->loopPoint.endInFrames != ~((ma_uint64)0)) {
+        loopEnd = ma_min(loopEnd, pDataBuffer->range.begInFrames + pDataBuffer->loopPoint.endInFrames);
+    }
+
+    if (supplyType == ma_resource_manager_data_supply_type_decoded) {
+        decodedFrameCount = ma_atomic_load_64(&pDataBuffer->pNode->data.backend.decoded.decodedFrameCount);
+        loopEnd = ma_min(loopEnd, pDataBuffer->pNode->data.backend.decoded.totalFrameCount);
+    } else if (supplyType == ma_resource_manager_data_supply_type_decoded_paged) {
+        decodedFrameCount = ma_atomic_load_64(&pDataBuffer->pNode->data.backend.decodedPaged.decodedFrameCount);
+    } else {
+        return MA_FALSE;
+    }
+
+    return loopEnd <= decodedFrameCount;
+}
+
+/* Only the public API may call this. The worker stops accessing the connector before publishing it. */
+static ma_result ma_resource_manager_data_buffer_apply_pending_state(ma_resource_manager_data_buffer* pDataBuffer)
+{
+    ma_data_source* pConnector;
+    ma_result result;
+
+    pConnector = ma_resource_manager_data_buffer_get_connector(pDataBuffer);
+    if (pConnector == NULL) {
+        return MA_BUSY;
+    }
+
+    if (pDataBuffer->isConnectorStateDirty) {
+        result = ma_data_source_set_range_in_pcm_frames(pConnector, pDataBuffer->range.begInFrames, pDataBuffer->range.endInFrames);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_data_source_set_loop_point_in_pcm_frames(pConnector, pDataBuffer->loopPoint.begInFrames, pDataBuffer->loopPoint.endInFrames);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pDataBuffer->isConnectorStateDirty = MA_FALSE;
+    }
+
+    /* A partially decoded connector must not loop at the temporary end of its data. */
+    result = ma_data_source_set_looping(pConnector, ma_atomic_load_32(&pDataBuffer->isLooping) && ma_resource_manager_data_buffer_can_loop(pDataBuffer));
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pDataBuffer->seekToCursorOnNextRead) {
+        result = ma_data_source_seek_to_pcm_frame(pConnector, pDataBuffer->seekTargetInPCMFrames);
+        if (result != MA_SUCCESS) {
+            if (result == MA_BAD_SEEK) {
+                if ((ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_decoded_paged) && ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                    return MA_BUSY;  /* The requested frame has not been decoded yet. Retain the seek. */
+                }
+            }
+
+            pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
+            return result;
+        }
+
+        pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_resource_manager_data_buffer_get_length_internal(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength)
+{
+    ma_data_source* pConnector;
+
+    pConnector = ma_resource_manager_data_buffer_get_connector(pDataBuffer);
+    if (pConnector == NULL) {
+        return MA_BUSY;
+    }
+
+    /* GET_LENGTH returns the full source length. The public data source API applies the range. */
+    return ma_data_source_prop(pConnector, MA_DATA_SOURCE_GET_LENGTH, pLength);
+}
+
 static ma_result ma_resource_manager_data_buffer_cb__prop(ma_data_source* pDataSource, int prop, void* pData)
 {
     ma_resource_manager_data_buffer* pDataBuffer = (ma_resource_manager_data_buffer*)pDataSource;
@@ -81361,24 +81445,73 @@ static ma_result ma_resource_manager_data_buffer_cb__prop(ma_data_source* pDataS
 
         case MA_DATA_SOURCE_GET_LENGTH:
         {
-            return ma_resource_manager_data_buffer_get_length_in_pcm_frames(pDataBuffer, (ma_uint64*)pData);
+            return ma_resource_manager_data_buffer_get_length_internal(pDataBuffer, (ma_uint64*)pData);
         }
 
         case MA_DATA_SOURCE_SET_LOOPING:
         {
-            ma_bool32 isLooping = *((ma_bool32*)pData);
-
-            ma_atomic_exchange_32(&pDataBuffer->isLooping, isLooping);
-
-            /* The looping state needs to be set on the connector as well or else looping won't work when we read audio data. */
-            ma_data_source_set_looping(ma_resource_manager_data_buffer_get_connector(pDataBuffer), isLooping);
-
+            ma_atomic_exchange_32(&pDataBuffer->isLooping, *((ma_bool32*)pData));
             return MA_SUCCESS;
         }
 
         case MA_DATA_SOURCE_GET_LOOPING:
         {
             *((ma_bool32*)pData) = ma_atomic_load_32(&pDataBuffer->isLooping);
+            return MA_SUCCESS;
+        }
+
+        case MA_DATA_SOURCE_SET_RANGE:
+        {
+            ma_pcm_range* pRange = (ma_pcm_range*)pData;
+            ma_uint64 cursor;
+            ma_result result;
+
+            result = ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(pDataBuffer, &cursor);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            cursor += pDataBuffer->range.begInFrames;
+            if (cursor < pRange->begInFrames) {
+                cursor = pRange->begInFrames;
+            }
+            if (cursor > pRange->endInFrames) {
+                cursor = pRange->endInFrames;
+            }
+
+            pDataBuffer->range = *pRange;
+            pDataBuffer->loopPoint.begInFrames = 0;
+            pDataBuffer->loopPoint.endInFrames = ~((ma_uint64)0);
+            pDataBuffer->seekTargetInPCMFrames = cursor - pRange->begInFrames;
+            pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
+            pDataBuffer->isConnectorStateDirty = MA_TRUE;
+
+            return MA_SUCCESS;
+        }
+
+        case MA_DATA_SOURCE_GET_RANGE:
+        {
+            *((ma_pcm_range*)pData) = pDataBuffer->range;
+            return MA_SUCCESS;
+        }
+
+        case MA_DATA_SOURCE_SET_LOOP_POINT:
+        {
+            ma_pcm_range* pRange = (ma_pcm_range*)pData;
+
+            if (pRange->endInFrames < pRange->begInFrames) {
+                return MA_INVALID_ARGS;
+            }
+
+            pDataBuffer->loopPoint = *pRange;
+            pDataBuffer->isConnectorStateDirty = MA_TRUE;
+
+            return MA_SUCCESS;
+        }
+
+        case MA_DATA_SOURCE_GET_LOOP_POINT:
+        {
+            *((ma_pcm_range*)pData) = pDataBuffer->loopPoint;
             return MA_SUCCESS;
         }
 
@@ -81427,6 +81560,16 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         MA_ZERO_OBJECT(&notifications);
     }
 
+    if (pConfig->rangeEndInPCMFrames < pConfig->rangeBegInPCMFrames) {
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->initialSeekPointInPCMFrames > pConfig->rangeEndInPCMFrames - pConfig->rangeBegInPCMFrames) {
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+        return MA_INVALID_ARGS;
+    }
+
     /* For safety, always remove the ASYNC flag if threading is disabled on the resource manager. */
     flags = pConfig->flags;
     if (ma_resource_manager_is_threading_enabled(pResourceManager) == MA_FALSE) {
@@ -81471,10 +81614,31 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         pDataBuffer->flags  = flags;
         pDataBuffer->result = MA_BUSY;  /* Always default to MA_BUSY for safety. It'll be overwritten when loading completes or an error occurs. */
 
+        pDataBuffer->range.begInFrames = MA_DATA_SOURCE_DEFAULT_RANGE_BEG;
+        pDataBuffer->range.endInFrames = MA_DATA_SOURCE_DEFAULT_RANGE_END;
+        pDataBuffer->loopPoint.begInFrames = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG;
+        pDataBuffer->loopPoint.endInFrames = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END;
+        pDataBuffer->isConnectorStateDirty = MA_TRUE;
+        pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
+        ma_atomic_exchange_32(&pDataBuffer->isLooping, (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0);
+
+        result = ma_data_source_set_range_in_pcm_frames(pDataBuffer, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
+        if (result == MA_SUCCESS) {
+            result = ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
+        }
+
+        if (result != MA_SUCCESS) {
+            ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode, NULL, NULL);
+            ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+            goto done;
+        }
+
+        pDataBuffer->seekTargetInPCMFrames = pConfig->initialSeekPointInPCMFrames;
+
         /* If we're loading asynchronously we need to post a job to the job queue to initialize the connector. */
         if (async == MA_FALSE || ma_resource_manager_data_buffer_node_result(pDataBufferNode) == MA_SUCCESS) {
             /* Loading synchronously or the data has already been fully loaded. We can just initialize the connector from here without a job. */
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pConfig, NULL, NULL);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL, NULL);
             ma_atomic_exchange_i32(&pDataBuffer->result, result);
 
             ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
@@ -81505,11 +81669,6 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             job.data.resourceManager.loadDataBuffer.pDoneNotification       = notifications.done.pNotification;
             job.data.resourceManager.loadDataBuffer.pInitFence              = notifications.init.pFence;
             job.data.resourceManager.loadDataBuffer.pDoneFence              = notifications.done.pFence;
-            job.data.resourceManager.loadDataBuffer.rangeBegInPCMFrames     = pConfig->rangeBegInPCMFrames;
-            job.data.resourceManager.loadDataBuffer.rangeEndInPCMFrames     = pConfig->rangeEndInPCMFrames;
-            job.data.resourceManager.loadDataBuffer.loopPointBegInPCMFrames = pConfig->loopPointBegInPCMFrames;
-            job.data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames = pConfig->loopPointEndInPCMFrames;
-            job.data.resourceManager.loadDataBuffer.isLooping               = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
 
             /* If we need to wait for initialization to complete we can just process the job in place. */
             if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
@@ -81561,12 +81720,6 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         }
     }
 done:
-    if (result == MA_SUCCESS) {
-        if (pConfig->initialSeekPointInPCMFrames > 0) {
-            ma_resource_manager_data_buffer_seek_to_pcm_frame(pDataBuffer, pConfig->initialSeekPointInPCMFrames);
-        }
-    }
-
     ma_resource_manager_pipeline_notifications_release_all_fences(&notifications);
 
     return result;
@@ -81612,7 +81765,15 @@ MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager_d
     MA_ASSERT(pDataBuffer->pNode != NULL);  /* <-- If you've triggered this, you've passed in an invalid existing data buffer. */
 
     config = ma_resource_manager_data_source_config_init();
-    config.flags = pDataBuffer->flags;
+    config.flags = pDataBuffer->flags & ~MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    if (ma_resource_manager_data_buffer_is_looping(pDataBuffer)) {
+        config.flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
+
+    config.rangeBegInPCMFrames = pDataBuffer->range.begInFrames;
+    config.rangeEndInPCMFrames = pDataBuffer->range.endInFrames;
+    config.loopPointBegInPCMFrames = pDataBuffer->loopPoint.begInFrames;
+    config.loopPointEndInPCMFrames = pDataBuffer->loopPoint.endInFrames;
 
     return ma_resource_manager_data_buffer_init_ex_internal(pDataBuffer->pResourceManager, &config, pDataBuffer->pNode->hashedName32, pNewDataBuffer);
 }
@@ -81704,6 +81865,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     ma_result result = MA_SUCCESS;
     ma_uint64 framesRead = 0;
     ma_bool32 isDecodedBufferBusy = MA_FALSE;
+    ma_bool32 isAtRangeEnd = MA_FALSE;
 
     /* Safety. */
     if (pFramesRead != NULL) {
@@ -81720,28 +81882,9 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     */
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
-    /* If the node is not initialized we need to abort with a busy code. */
-    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
-        return MA_BUSY; /* Still loading. */
-    }
-
-    /*
-    If we've got a seek scheduled we'll want to do that before reading. However, for paged buffers, there's
-    a chance that the sound hasn't yet been decoded up to the seek point will result in the seek failing. If
-    this happens, we need to keep the seek scheduled and return MA_BUSY.
-    */
-    if (pDataBuffer->seekToCursorOnNextRead) {
-        pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
-
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->seekTargetInPCMFrames);
-        if (result != MA_SUCCESS) {
-            if (result == MA_BAD_SEEK && ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_decoded_paged) {
-                pDataBuffer->seekToCursorOnNextRead = MA_TRUE;  /* Keep the seek scheduled. We just haven't loaded enough data yet to do the seek properly. */
-                return MA_BUSY;
-            }
-
-            return result;
-        }
+    result = ma_resource_manager_data_buffer_apply_pending_state(pDataBuffer);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     /*
@@ -81752,6 +81895,9 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         ma_uint64 availableFrames;
 
         isDecodedBufferBusy = (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY);
+        if (ma_atomic_load_32(&pDataBuffer->isLooping) && ma_resource_manager_data_buffer_can_loop(pDataBuffer)) {
+            isDecodedBufferBusy = MA_FALSE;
+        }
 
         if (ma_resource_manager_data_buffer_get_available_frames(pDataBuffer, &availableFrames) == MA_SUCCESS) {
             /* Don't try reading more than the available frame count if the data buffer node is still loading. */
@@ -81786,12 +81932,23 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead);
     }
 
+    if (pDataBuffer->range.endInFrames != ~((ma_uint64)0)) {
+        ma_uint64 cursor;
+
+        if (ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(pDataBuffer, &cursor) == MA_SUCCESS) {
+            isAtRangeEnd = cursor >= pDataBuffer->range.endInFrames - pDataBuffer->range.begInFrames;
+            if (isAtRangeEnd) {
+                isDecodedBufferBusy = MA_FALSE;
+            }
+        }
+    }
+
     /*
     If we returned MA_AT_END, but the node is still loading, we don't want to return that code or else the caller will interpret the sound
     as at the end and terminate decoding.
     */
     if (result == MA_AT_END) {
-        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+        if (!isAtRangeEnd && ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
             result = MA_BUSY;
         }
     }
@@ -81813,27 +81970,20 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex)
 {
-    ma_result result;
+    if (pDataBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
-    /* If we haven't yet got a connector we need to abort. */
-    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
-        pDataBuffer->seekTargetInPCMFrames = frameIndex;
-        pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
-        return MA_BUSY; /* Still loading. */
+    if (frameIndex > pDataBuffer->range.endInFrames - pDataBuffer->range.begInFrames) {
+        return MA_INVALID_OPERATION;
     }
 
-    result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameIndex);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    pDataBuffer->seekTargetInPCMFrames = frameIndex;
+    pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
 
-    pDataBuffer->seekTargetInPCMFrames = ~(ma_uint64)0; /* <-- For identification purposes. */
-    pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
-
-    return MA_SUCCESS;
+    return ma_resource_manager_data_buffer_apply_pending_state(pDataBuffer);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
@@ -81845,6 +81995,10 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
     {
         case ma_resource_manager_data_supply_type_encoded:
         {
+            if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
+                return MA_BUSY;
+            }
+
             ma_data_source_get_data_format(&pDataBuffer->connector.decoder, pFormat, pChannels, pSampleRate);
             ma_data_source_get_channel_map(&pDataBuffer->connector.decoder, pChannelMap, channelMapCap);
             return MA_SUCCESS;
@@ -81883,58 +82037,31 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pCursor)
 {
+    ma_data_source* pConnector;
+
     if (pDataBuffer == NULL || pCursor == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* We cannot be using the data source after it's been uninitialized. */
+    *pCursor = 0;
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
-    *pCursor = 0;
-
-    switch (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode))
-    {
-        case ma_resource_manager_data_supply_type_encoded:
-        {
-            return ma_decoder_get_cursor_in_pcm_frames(&pDataBuffer->connector.decoder, pCursor);
-        };
-
-        case ma_resource_manager_data_supply_type_decoded:
-        {
-            return ma_audio_buffer_get_cursor_in_pcm_frames(&pDataBuffer->connector.buffer, pCursor);
-        };
-
-        case ma_resource_manager_data_supply_type_decoded_paged:
-        {
-            return ma_paged_audio_buffer_get_cursor_in_pcm_frames(&pDataBuffer->connector.pagedBuffer, pCursor);
-        };
-
-        case ma_resource_manager_data_supply_type_unknown:
-        {
-            return MA_BUSY;
-        };
-
-        default:
-        {
-            return MA_INVALID_ARGS;
-        }
+    if (pDataBuffer->seekToCursorOnNextRead) {
+        *pCursor = pDataBuffer->seekTargetInPCMFrames;
+        return MA_SUCCESS;
     }
+
+    pConnector = ma_resource_manager_data_buffer_get_connector(pDataBuffer);
+    if (pConnector == NULL) {
+        return MA_BUSY;
+    }
+
+    return ma_data_source_get_cursor_in_pcm_frames(pConnector, pCursor);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength)
 {
-    if (pDataBuffer == NULL || pLength == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
-
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
-        return MA_BUSY; /* Still loading. */
-    }
-
-    return ma_data_source_get_length_in_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pLength);
+    return ma_data_source_get_length_in_pcm_frames(pDataBuffer, pLength);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer)
@@ -81958,57 +82085,77 @@ MA_API ma_bool32 ma_resource_manager_data_buffer_is_looping(const ma_resource_ma
 
 MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames)
 {
+    ma_result result;
+    ma_uint64 cursor;
+    ma_uint64 decodedFrameCount;
+    ma_uint64 rangeEnd;
+
     if (pAvailableFrames == NULL) {
         return MA_INVALID_ARGS;
     }
 
     *pAvailableFrames = 0;
-
     if (pDataBuffer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
-        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-            return MA_BUSY;
-        } else {
-            return MA_INVALID_OPERATION;    /* No connector. */
-        }
+    result = ma_resource_manager_data_buffer_apply_pending_state(pDataBuffer);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
+    result = ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(pDataBuffer, &cursor);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    cursor += pDataBuffer->range.begInFrames;
     switch (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode))
     {
         case ma_resource_manager_data_supply_type_encoded:
         {
-            return ma_decoder_get_available_frames(&pDataBuffer->connector.decoder, pAvailableFrames);
-        };
+            result = ma_decoder_get_available_frames(&pDataBuffer->connector.decoder, pAvailableFrames);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        } break;
 
         case ma_resource_manager_data_supply_type_decoded:
         {
-            return ma_audio_buffer_get_available_frames(&pDataBuffer->connector.buffer, pAvailableFrames);
-        };
+            if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                decodedFrameCount = ma_atomic_load_64(&pDataBuffer->pNode->data.backend.decoded.decodedFrameCount);
+            } else {
+                decodedFrameCount = pDataBuffer->pNode->data.backend.decoded.totalFrameCount;
+            }
+
+            if (decodedFrameCount > cursor) {
+                *pAvailableFrames = decodedFrameCount - cursor;
+            }
+        } break;
 
         case ma_resource_manager_data_supply_type_decoded_paged:
         {
-            ma_uint64 cursor;
-            ma_paged_audio_buffer_get_cursor_in_pcm_frames(&pDataBuffer->connector.pagedBuffer, &cursor);
-
-            if (pDataBuffer->pNode->data.backend.decodedPaged.decodedFrameCount > cursor) {
-                *pAvailableFrames = pDataBuffer->pNode->data.backend.decodedPaged.decodedFrameCount - cursor;
-            } else {
-                *pAvailableFrames = 0;
+            decodedFrameCount = ma_atomic_load_64(&pDataBuffer->pNode->data.backend.decodedPaged.decodedFrameCount);
+            if (decodedFrameCount > cursor) {
+                *pAvailableFrames = decodedFrameCount - cursor;
             }
+        } break;
 
-            return MA_SUCCESS;
-        };
-
-        case ma_resource_manager_data_supply_type_unknown:
-        default:
-        {
-            /* Unknown supply type. Should never hit this. */
-            return MA_INVALID_ARGS;
-        }
+        default: return MA_INVALID_ARGS;
     }
+
+    rangeEnd = pDataBuffer->range.endInFrames;
+    if (ma_atomic_load_32(&pDataBuffer->isLooping) && pDataBuffer->loopPoint.endInFrames != ~((ma_uint64)0)) {
+        rangeEnd = ma_min(rangeEnd, pDataBuffer->range.begInFrames + pDataBuffer->loopPoint.endInFrames);
+    }
+
+    if (cursor >= rangeEnd) {
+        *pAvailableFrames = 0;
+    } else if (*pAvailableFrames > rangeEnd - cursor) {
+        *pAvailableFrames = rangeEnd - cursor;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resource_manager_register_file(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags)
@@ -82033,6 +82180,7 @@ static ma_result ma_resource_manager_register_decoded_data_internal(ma_resource_
     data.type                            = ma_resource_manager_data_supply_type_decoded;
     data.backend.decoded.pData           = pData;
     data.backend.decoded.totalFrameCount = frameCount;
+    ma_atomic_exchange_64(&data.backend.decoded.decodedFrameCount, frameCount);
     data.backend.decoded.format          = format;
     data.backend.decoded.channels        = channels;
     data.backend.decoded.sampleRate      = sampleRate;
@@ -83378,18 +83526,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
 
         if (dataSupplyType != ma_resource_manager_data_supply_type_unknown) {
             /* We can now initialize the connector. If this fails, we need to abort. It's very rare for this to fail. */
-            ma_resource_manager_data_source_config dataSourceConfig;    /* For setting initial looping state and range. */
-            dataSourceConfig = ma_resource_manager_data_source_config_init();
-            dataSourceConfig.rangeBegInPCMFrames     = pJob->data.resourceManager.loadDataBuffer.rangeBegInPCMFrames;
-            dataSourceConfig.rangeEndInPCMFrames     = pJob->data.resourceManager.loadDataBuffer.rangeEndInPCMFrames;
-            dataSourceConfig.loopPointBegInPCMFrames = pJob->data.resourceManager.loadDataBuffer.loopPointBegInPCMFrames;
-            dataSourceConfig.loopPointEndInPCMFrames = pJob->data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames;
-
-            if (pJob->data.resourceManager.loadDataBuffer.isLooping) {
-                dataSourceConfig.flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
-            }
-
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, &dataSourceConfig, pJob->data.resourceManager.loadDataBuffer.pInitNotification, pJob->data.resourceManager.loadDataBuffer.pInitFence);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->data.resourceManager.loadDataBuffer.pInitNotification, pJob->data.resourceManager.loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %s.", ma_result_description(result));
                 goto done;
