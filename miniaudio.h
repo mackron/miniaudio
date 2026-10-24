@@ -31424,6 +31424,7 @@ static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, ma_ptr pM
     ma_result result;
 
     MA_ZERO_OBJECT(pSinkInfo);
+
     pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
     if (pOP == NULL) {
         return MA_ERROR;
@@ -31447,6 +31448,7 @@ static ma_result ma_context_get_source_info__pulse(ma_context* pContext, ma_ptr 
     ma_result result;
 
     MA_ZERO_OBJECT(pSourceInfo);
+    
     pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
     if (pOP == NULL) {
         return MA_ERROR;
