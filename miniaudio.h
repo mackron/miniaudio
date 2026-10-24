@@ -33718,7 +33718,7 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
                 ma_audio_ring_buffer_read_pcm_frames(&pStreamState->rb, pBuffer->buffer->datas[0].data, frameCount, &framesRead);
                 if (framesRead < frameCount) {
                     /* Underflow. Fill the remaining output with silence. */
-                    MA_ZERO_MEMORY(ma_offset_ptr(pBuffer->buffer->datas[0].data, framesRead * bytesPerFrame), (frameCount - framesRead) * bytesPerFrame);
+                    ma_silence_pcm_frames(ma_offset_ptr(pBuffer->buffer->datas[0].data, framesRead * bytesPerFrame), frameCount - framesRead, pStreamState->format, pStreamState->channels);
                 }
             }
 
