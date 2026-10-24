@@ -32269,7 +32269,8 @@ typedef struct
     ma_channel channelMap[MA_MAX_CHANNELS];
     ma_uint32 bufferSizeInFrames;
     ma_uint32 bufferCount;
-    ma_uint32 rbSizeInFrames;
+    ma_uint32 rbSizeInFrames; /* Current processing size. The ring allocation can be larger. */
+    ma_uint32 framesProcessedInIteration;
     ma_audio_ring_buffer rb;            /* Only used in single-threaded mode. Acts as an intermediary buffer for step(). For playback, PipeWire will read from this ring buffer. For capture, it'll write to it. */
     ma_device_descriptor* pDescriptor;  /* This is only used for setting up internal format. It's needed here because it looks like the only way to get the internal format is via a stupid callback. Will be set to NULL after initialization of the PipeWire stream. */
 } ma_pipewire_stream_state;
@@ -33645,6 +33646,9 @@ static ma_result ma_device_iterate__pipewire(ma_device_state_pipewire* pDeviceSt
         return MA_ERROR;
     }
 
+    pDeviceStatePipeWire->playback.framesProcessedInIteration = 0;
+    pDeviceStatePipeWire->capture.framesProcessedInIteration = 0;
+
     result = pDeviceStatePipeWire->pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, timeout);
     if (result < 0 && result != -EINTR) {
         ma_device_set_error__pipewire(pDeviceStatePipeWire, "Event loop failed.");
@@ -33780,6 +33784,41 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         pStreamState->initStatus |= MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT;
     }
 }
+
+static ma_result ma_stream_grow_ring_buffer__pipewire(ma_pipewire_stream_state* pStreamState, ma_uint32 sizeInFrames)
+{
+    ma_audio_ring_buffer oldRingBuffer;
+    ma_audio_ring_buffer_config config;
+    ma_result result;
+    void* pFrames;
+    ma_uint32 framesToCopy;
+
+    if (sizeInFrames <= ma_ring_buffer_capacity(&pStreamState->rb.rb)) {
+        return MA_SUCCESS;
+    }
+
+    /* Retain the old allocation until the replacement is ready. */
+    oldRingBuffer = pStreamState->rb;
+
+    config = ma_audio_ring_buffer_config_init(pStreamState->format, pStreamState->channels, pStreamState->sampleRate, sizeInFrames);
+    config.pAllocationCallbacks = &oldRingBuffer.allocationCallbacks;
+
+    result = ma_audio_ring_buffer_init(&config, &pStreamState->rb);
+    if (result != MA_SUCCESS) {
+        pStreamState->rb = oldRingBuffer;
+        return result;
+    }
+
+    framesToCopy = ma_audio_ring_buffer_map_consume(&oldRingBuffer, 0xFFFFFFFF, &pFrames);
+    if (framesToCopy > 0) {
+        ma_audio_ring_buffer_write_pcm_frames(&pStreamState->rb, pFrames, framesToCopy, NULL);
+    }
+
+    ma_audio_ring_buffer_uninit(&oldRingBuffer);
+
+    return MA_SUCCESS;
+}
+
 
 static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type deviceType)
 {
@@ -33919,6 +33958,26 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
         }
 
         frameCount = ma_min(pBuffer->buffer->datas[0].chunk->size, pBuffer->buffer->datas[0].maxsize - dataOffset) / bytesPerFrame;
+    }
+
+    /* PipeWire can increase its processing size after initialization. */
+    if (frameCount > 0 && !pDeviceStatePipeWire->recovery.isRecovering && ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_uint32 requiredSizeInFrames;
+
+        /* One loop iteration can process several buffers before step() can refill or drain the ring. */
+        pStreamState->framesProcessedInIteration += frameCount;
+        requiredSizeInFrames = pStreamState->framesProcessedInIteration;
+        if (deviceType == ma_device_type_capture) {
+            requiredSizeInFrames = ma_max(requiredSizeInFrames, frameCount + ma_ring_buffer_length(&pStreamState->rb.rb));
+        }
+
+        if (ma_stream_grow_ring_buffer__pipewire(pStreamState, requiredSizeInFrames) != MA_SUCCESS) {
+            pBuffer->buffer->datas[0].chunk->offset = 0;
+            pBuffer->buffer->datas[0].chunk->size = 0;
+            pContextStatePipeWire->pw_stream_queue_buffer(pStreamState->pStream, pBuffer);
+            ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to grow stream ring buffer.");
+            return;
+        }
     }
 
     if (frameCount > 0) {
@@ -34742,7 +34801,22 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
             }
             
             if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-                framesAvailable = ma_audio_ring_buffer_map_produce(&pDeviceStatePipeWire->playback.rb, 0xFFFFFFFF, &pMappedBuffer);
+                ma_uint32 framesToProduce;
+                ma_uint32 framesQueued;
+
+                if (pDeviceStatePipeWire->playback.framesProcessedInIteration > 0) {
+                    pDeviceStatePipeWire->playback.rbSizeInFrames = pDeviceStatePipeWire->playback.framesProcessedInIteration;
+                    hasProcessedData = MA_TRUE;
+                }
+
+                /* Keep one processing cycle queued even when the ring retains a larger allocation. */
+                framesQueued = ma_ring_buffer_length(&pDeviceStatePipeWire->playback.rb.rb);
+                framesToProduce = 0;
+                if (framesQueued < pDeviceStatePipeWire->playback.rbSizeInFrames) {
+                    framesToProduce = pDeviceStatePipeWire->playback.rbSizeInFrames - framesQueued;
+                }
+
+                framesAvailable = ma_audio_ring_buffer_map_produce(&pDeviceStatePipeWire->playback.rb, framesToProduce, &pMappedBuffer);
                 if (framesAvailable > 0) {
                     hasProcessedData = MA_TRUE;
                 }
