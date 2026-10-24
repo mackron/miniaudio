@@ -31278,6 +31278,7 @@ PipeWire Backend
 #define MA_PW_KEY_MEDIA_ROLE                PW_KEY_MEDIA_ROLE
 #define MA_PW_KEY_MEDIA_CLASS               PW_KEY_MEDIA_CLASS
 #define MA_PW_KEY_NODE_LATENCY              PW_KEY_NODE_LATENCY
+#define MA_PW_KEY_NODE_ALWAYS_PROCESS       PW_KEY_NODE_ALWAYS_PROCESS
 #define MA_PW_KEY_TARGET_OBJECT             PW_KEY_TARGET_OBJECT
 #define MA_PW_KEY_METADATA_NAME             PW_KEY_METADATA_NAME
 
@@ -31749,6 +31750,7 @@ struct ma_spa_fraction
 #define MA_PW_KEY_MEDIA_ROLE            "media.role"
 #define MA_PW_KEY_MEDIA_CLASS           "media.class"
 #define MA_PW_KEY_NODE_LATENCY          "node.latency"
+#define MA_PW_KEY_NODE_ALWAYS_PROCESS   "node.always-process"
 #define MA_PW_KEY_TARGET_OBJECT         "target.object"
 #define MA_PW_KEY_METADATA_NAME         "metadata.name"
 
@@ -33842,9 +33844,10 @@ static ma_result ma_device_init_begin_internal__pipewire(ma_device* pDevice, ma_
     pStreamState->bufferSizeInFrames = pDescriptor->periodSizeInFrames;
 
     pProperties = pContextStatePipeWire->pw_properties_new(
-        MA_PW_KEY_MEDIA_TYPE,     "Audio",
-        MA_PW_KEY_MEDIA_CATEGORY, (deviceType == ma_device_type_playback) ? "Playback" : "Capture",
-        MA_PW_KEY_MEDIA_ROLE,     (pDeviceConfigPipeWire->pMediaRole != NULL) ? pDeviceConfigPipeWire->pMediaRole : "Game",
+        MA_PW_KEY_MEDIA_TYPE,          "Audio",
+        MA_PW_KEY_MEDIA_CATEGORY,      (deviceType == ma_device_type_playback) ? "Playback" : "Capture",
+        MA_PW_KEY_MEDIA_ROLE,          (pDeviceConfigPipeWire->pMediaRole != NULL) ? pDeviceConfigPipeWire->pMediaRole : "Game",
+        MA_PW_KEY_NODE_ALWAYS_PROCESS, "true", /* Keep processing when no device is linked. */
         /* MA_PW_KEY_NODE_LATENCY is set during format negotiation because it depends on knowledge of the sample rate. */
         NULL);
 
