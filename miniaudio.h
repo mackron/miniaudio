@@ -33221,10 +33221,10 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
         return;
     }
 
-    /* If the string contains Audio/Sink or Audio/Source we can assume it's an enumerable node. */
+    /* Enumerate playback and capture endpoints, including virtual sources. */
     /*  */ if (strcmp(pMediaClass, "Audio/Sink") == 0) {
         ma_registry_event_global_add_enumeration_by_type__pipewire(pEnumData, id, permissions, type, version, props, ma_device_type_playback);
-    } else if (strcmp(pMediaClass, "Audio/Source") == 0) {
+    } else if (strcmp(pMediaClass, "Audio/Source") == 0 || strcmp(pMediaClass, "Audio/Source/Virtual") == 0) {
         ma_registry_event_global_add_enumeration_by_type__pipewire(pEnumData, id, permissions, type, version, props, ma_device_type_capture);
     } else {
         return; /* Not an audio node we care about. */
