@@ -54287,7 +54287,16 @@ MA_API ma_result ma_device_state_silence_step(ma_device_state_silence* pSilenceD
             return MA_SUCCESS;
         }
 
-        ma_sleep(1);
+        /* ma_sleep() is not available on Emscripten. This doesn't matter because we won't be using the silence state with the Web Audio backend anyway. */
+        #if !defined(MA_EMSCRIPTEN)
+        {
+            ma_sleep(1);
+        }
+        #else
+        {
+            return MA_SUCCESS;
+        }
+        #endif
     }
 }
 /* END ma_device_state_silence.c */
