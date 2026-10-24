@@ -32138,7 +32138,7 @@ static MA_INLINE ma_int32 ma_spa_pod_get_int_value(const struct ma_spa_pod* pod)
 
     switch (pod->type)
     {
-        case MA_SPA_TYPE_Id:
+        case MA_SPA_TYPE_Int:
         {
             const struct ma_spa_pod_int* pPodInt = (const struct ma_spa_pod_int*)pod;
             return pPodInt->value;
