@@ -81458,7 +81458,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
     ma_bool8 foundChunk_data = MA_FALSE;
     ma_bool8 isAIFCFormType = MA_FALSE;
     ma_uint64 aiffFrameCount = 0;
-    ma_int64 fileSize;
+    ma_int64 fileSize = 0;
     ma_bool32 hasKnownFileSize = MA_FALSE;
     cursor = 0;
     sequential = (flags & MA_DR_WAV_SEQUENTIAL) != 0;
@@ -87626,7 +87626,7 @@ static ma_bool32 ma_dr_flac__decode_samples_with_residual__rice__neon_64(ma_dr_f
     int32x4_t riceParam128;
     int64x1_t shift64;
     uint32x4_t one128;
-    int64x2_t prediction128 = { 0 };
+    int64x2_t prediction128;
     uint32x4_t zeroCountPart128;
     uint32x4_t riceParamPart128;
     const ma_uint32 t[2] = {0x00000000, 0xFFFFFFFF};
@@ -87699,7 +87699,7 @@ static ma_bool32 ma_dr_flac__decode_samples_with_residual__rice__neon_64(ma_dr_f
         riceParamPart128 = veorq_u32(vshrq_n_u32(riceParamPart128, 1), vaddq_u32(ma_dr_flac__vnotq_u32(vandq_u32(riceParamPart128, one128)), one128));
         for (i = 0; i < 4; i += 1) {
             int64x1_t prediction64;
-            prediction128 = veorq_s64(prediction128, prediction128);
+            prediction128 = vdupq_n_s64(0);
             switch (order)
             {
             case 12:
@@ -89122,7 +89122,7 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
                         pSeekpoint->pcmFrameCount   = ma_dr_flac__be2host_16(pSeekpoint->pcmFrameCount);
                     }
                     metadata.pRawData = pRawData;
-                    metadata.rawDataSize = rawDataSize;
+                    metadata.rawDataSize = (ma_uint32)rawDataSize;
                     metadata.data.seektable.seekpointCount = seekpointCount;
                     metadata.data.seektable.pSeekpoints = (const ma_dr_flac_seekpoint*)pRawData;
                     onMeta(pUserDataMD, &metadata);
