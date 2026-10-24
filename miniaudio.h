@@ -33798,7 +33798,6 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     connectResult = pContextStatePipeWire->pw_stream_connect(pStreamState->pStream, (deviceType == ma_device_type_playback) ? MA_SPA_DIRECTION_OUTPUT : MA_SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
     if (connectResult < 0) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream.");
-        pContextStatePipeWire->pw_stream_destroy(pStreamState->pStream);
         return MA_ERROR;
     }
 
@@ -33817,7 +33816,6 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
             elapsedMS += 1;
             if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
-                pContextStatePipeWire->pw_stream_destroy(pStreamState->pStream);
                 return MA_ERROR;
             }
         }
@@ -33840,7 +33838,6 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
             elapsedMS += 1;
             if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
-                pContextStatePipeWire->pw_stream_destroy(pStreamState->pStream);
                 return MA_ERROR;
             }
         }
@@ -33936,33 +33933,52 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     result = MA_DEVICE_TYPE_NOT_SUPPORTED;
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         result = ma_device_init_internal__pipewire(pDevice, pContextStatePipeWire, pDeviceStatePipeWire, pDeviceConfigPipeWire, ma_device_type_capture, pDescriptorCapture);
+        if (result != MA_SUCCESS) {
+            goto on_error;
+        }
     }
+
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         result = ma_device_init_internal__pipewire(pDevice, pContextStatePipeWire, pDeviceStatePipeWire, pDeviceConfigPipeWire, ma_device_type_playback, pDescriptorPlayback);
     }
 
     if (result != MA_SUCCESS) {
-        pContextStatePipeWire->pw_core_disconnect(pCore);
-        pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
-        pContextStatePipeWire->pw_loop_destroy(pLoop);
-        ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
-        return result;
+        goto on_error;
     }
 
     /* We need an event for waking up the loop. */
     pDeviceStatePipeWire->pWakeup = pContextStatePipeWire->pw_loop_add_event(pLoop, (ma_spa_source_event_func_t)ma_device_on_wakeup__pipewire, pDeviceStatePipeWire);   /* Cast should be fine here. It's complaining about the difference between ma_uint64 and uint64_t. */
     if (pDeviceStatePipeWire->pWakeup == NULL) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire loop wakeup event.");
-        pContextStatePipeWire->pw_core_disconnect(pCore);
-        pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
-        pContextStatePipeWire->pw_loop_destroy(pLoop);
-        ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
-        return MA_ERROR;
+        result = MA_ERROR;
+        goto on_error;
     }
 
     *ppDeviceState = pDeviceStatePipeWire;
 
     return MA_SUCCESS;
+
+on_error:
+    if (pDeviceStatePipeWire->capture.pStream != NULL) {
+        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->capture.pStream);
+    }
+
+    if (pDeviceStatePipeWire->playback.pStream != NULL) {
+        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->playback.pStream);
+    }
+
+    pContextStatePipeWire->pw_loop_leave(pLoop);
+    pContextStatePipeWire->pw_core_disconnect(pCore);
+    pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
+    pContextStatePipeWire->pw_loop_destroy(pLoop);
+
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->capture.rb);
+        ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->playback.rb);
+    }
+
+    ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
+    return result;
 }
 
 static void ma_device_uninit__pipewire(ma_device* pDevice)
