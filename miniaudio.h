@@ -32167,7 +32167,6 @@ typedef void                      (* ma_pw_init_proc                    )(int* a
 typedef void                      (* ma_pw_deinit_proc                  )(void);
 typedef struct ma_pw_loop*        (* ma_pw_loop_new_proc                )(const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_loop_destroy_proc            )(struct ma_pw_loop* loop);
-typedef int                       (* ma_pw_loop_set_name_proc           )(struct ma_pw_loop* loop, const char* name);
 typedef void                      (* ma_pw_loop_enter_proc              )(struct ma_pw_loop* loop);
 typedef void                      (* ma_pw_loop_leave_proc              )(struct ma_pw_loop* loop);
 typedef int                       (* ma_pw_loop_iterate_proc            )(struct ma_pw_loop* loop, int timeout);
@@ -32214,7 +32213,6 @@ typedef struct
     ma_pw_deinit_proc                   pw_deinit;
     ma_pw_loop_new_proc                 pw_loop_new;
     ma_pw_loop_destroy_proc             pw_loop_destroy;
-    ma_pw_loop_set_name_proc            pw_loop_set_name;
     ma_pw_loop_enter_proc               pw_loop_enter;
     ma_pw_loop_leave_proc               pw_loop_leave;
     ma_pw_loop_iterate_proc             pw_loop_iterate;
@@ -32641,7 +32639,6 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     MA_PIPEWIRE_SYM(pw_deinit)
     MA_PIPEWIRE_SYM(pw_loop_new)
     MA_PIPEWIRE_SYM(pw_loop_destroy)
-    MA_PIPEWIRE_SYM(pw_loop_set_name)
     MA_PIPEWIRE_SYM(pw_loop_enter)
     MA_PIPEWIRE_SYM(pw_loop_leave)
     MA_PIPEWIRE_SYM(pw_loop_iterate)
