@@ -7530,7 +7530,6 @@ MA_API ma_context_config_pipewire ma_context_config_pipewire_init(void);
 
 typedef struct
 {
-    const char* pThreadName;    /* If NULL, defaults to "miniaudio-pipewire". */
     const char* pStreamName;    /* If NULL, defaults to "miniaudio" */
     const char* pMediaRole;     /* If NULL, defaults to "Game". */
 } ma_device_config_pipewire;
