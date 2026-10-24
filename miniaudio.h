@@ -33950,7 +33950,12 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     MA_ASSERT(pBuffer->buffer->datas[0].data != NULL);
 
     if (deviceType == ma_device_type_playback) {
-        frameCount = (ma_uint32)ma_min(pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);
+        if (pBuffer->requested > 0) {
+            frameCount = (ma_uint32)ma_min(pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);
+        } else {
+            frameCount = pBuffer->buffer->datas[0].maxsize / bytesPerFrame;
+        }
+
         /*frameCount = (ma_uint32)(pBuffer->buffer->datas[0].maxsize / bytesPerFrame);*/
     } else {
         if (pBuffer->buffer->datas[0].maxsize > 0) {
