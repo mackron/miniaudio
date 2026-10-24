@@ -32718,6 +32718,7 @@ typedef struct
     int seqSettings;
     int seqEnumeration;
     ma_uint32 syncFlags;
+    ma_result result;
     ma_uint32 clockRate;    /* "clock.rate" from the "settings" metadata. */
     const ma_allocation_callbacks* pAllocationCallbacks;
     struct
@@ -32735,14 +32736,31 @@ static void ma_on_core_done__pipewire(void* pUserData, ma_uint32 id, int seq)
 {
     ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)pUserData;
 
-    (void)id;
-    (void)seq;
+    if (id != MA_PW_ID_CORE) {
+        return;
+    }
 
-    /*printf("Core Done: ID=%u, Seq=%d\n", id, seq);*/
     if (pEnumData->seqEnumeration == seq) {
         pEnumData->syncFlags |= MA_PW_CORE_SYNC_FLAG_ENUM_DONE;
     } else if (pEnumData->seqDefaults == seq) {
         pEnumData->syncFlags |= MA_PW_CORE_SYNC_FLAG_DEFAULTS_DONE;
+    } else if (pEnumData->seqSettings == seq) {
+        pEnumData->syncFlags |= MA_PW_CORE_SYNC_FLAG_SETTINGS_DONE;
+    }
+}
+
+static void ma_on_core_error_enumeration__pipewire(void* pUserData, ma_uint32 id, int seq, int result, const char* pMessage)
+{
+    ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)pUserData;
+
+    (void)id;
+    (void)seq;
+
+    if (result < 0) {
+        pEnumData->result = MA_ERROR;
+        if (pMessage != NULL) {
+            ma_log_postf(pEnumData->pContextStatePipeWire->pLog, MA_LOG_LEVEL_ERROR, "[PipeWire] Device enumeration failed: %s", pMessage);
+        }
     }
 }
 
@@ -32752,7 +32770,7 @@ static const struct ma_pw_core_events ma_gCoreEventsPipeWire =
     NULL,
     ma_on_core_done__pipewire,
     NULL,
-    NULL,
+    ma_on_core_error_enumeration__pipewire,
     NULL,
     NULL,
     NULL,
@@ -32769,6 +32787,10 @@ static void ma_enumerate_devices_data_pipewire_init(ma_enumerate_devices_data_pi
     pEnumData->pCore = pCore;
     pEnumData->pRegistry = pRegistry;
     pEnumData->pAllocationCallbacks  = pAllocationCallbacks;
+    pEnumData->seqEnumeration = -1;
+    pEnumData->seqDefaults = -1;
+    pEnumData->seqSettings = -1;
+    pEnumData->result = MA_SUCCESS;
 }
 
 static void ma_enumerate_devices_data_pipewire_uninit(ma_enumerate_devices_data_pipewire* pEnumData)
@@ -33205,7 +33227,7 @@ static void ma_registry_event_global_add_enumeration_by_type__pipewire(ma_enumer
 
 
     /* Finally we can add the device into to our internal list. */
-    ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, id, &deviceInfo);
+    pEnumData->result = ma_enumerate_devices_data_pipewire_add(pEnumData, deviceType, id, &deviceInfo);
 
     /*printf("Registry Global Added By Type: ID=%u, Type=%s, DeviceType=%d, NiceName=%s\n", id, type, deviceType, pNiceName);*/
 }
@@ -33216,7 +33238,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
     const char* pMediaClass;
 
     /* Ignore all future iterations if we have aborted. */
-    if (pEnumData->isAborted) {
+    if (pEnumData->isAborted || pEnumData->result != MA_SUCCESS) {
         return;
     }
 
@@ -33233,12 +33255,20 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
                     MA_ZERO_OBJECT(&pEnumData->metadataListenerDefault);
     
                     /* Not using pw_metadata_add_listener() because it appears to be an inline function and thus not exported by libpipewire. */
-                    ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataDefault)->cb.funcs)->add_listener(pEnumData->pMetadataDefault, &pEnumData->metadataListenerDefault, &ma_gMetadataEventsPipeWire_Default, pEnumData);
+                    if (((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataDefault)->cb.funcs)->add_listener(pEnumData->pMetadataDefault, &pEnumData->metadataListenerDefault, &ma_gMetadataEventsPipeWire_Default, pEnumData) < 0) {
+                        pEnumData->result = MA_ERROR;
+                        return;
+                    }
     
                     /*spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);*/
                     /*pEnumData->pContextStatePipeWire->pw_metadata_add_listener(pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, NULL);*/
 
                     pEnumData->seqDefaults = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                    if (pEnumData->seqDefaults < 0) {
+                        pEnumData->result = MA_ERROR;
+                    }
+                } else {
+                    pEnumData->result = MA_ERROR;
                 }
             }
 
@@ -33247,9 +33277,17 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
                 pEnumData->pMetadataSettings = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
                 if (pEnumData->pMetadataSettings != NULL) {
                     MA_ZERO_OBJECT(&pEnumData->metadataListenerSettings);
-                    ((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataSettings)->cb.funcs)->add_listener(pEnumData->pMetadataSettings, &pEnumData->metadataListenerSettings, &ma_gMetadataEventsPipeWire_Settings, pEnumData);
+                    if (((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataSettings)->cb.funcs)->add_listener(pEnumData->pMetadataSettings, &pEnumData->metadataListenerSettings, &ma_gMetadataEventsPipeWire_Settings, pEnumData) < 0) {
+                        pEnumData->result = MA_ERROR;
+                        return;
+                    }
 
                     pEnumData->seqSettings = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                    if (pEnumData->seqSettings < 0) {
+                        pEnumData->result = MA_ERROR;
+                    }
+                } else {
+                    pEnumData->result = MA_ERROR;
                 }
             }
         }
@@ -33293,10 +33331,17 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     struct ma_pw_loop* pLoop;
     struct ma_pw_context* pPipeWireContext;
     struct ma_pw_core* pCore;
-    struct ma_pw_registry* pRegistry;
+    struct ma_pw_registry* pRegistry = NULL;
     struct ma_spa_hook coreListener;
     struct ma_spa_hook registeryListener;
     ma_enumerate_devices_data_pipewire enumData;
+    ma_timer timer;
+    ma_result result;
+    ma_uint32 requiredSyncFlags;
+    double timeoutInSeconds;
+    double timeRemainingInSeconds;
+    int iterateTimeoutInMilliseconds;
+    int iterateResult;
 
     MA_ASSERT(pContextStatePipeWire != NULL);
     MA_ASSERT(callback != NULL);
@@ -33319,20 +33364,26 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
         return MA_ERROR;
     }
 
-    pContextStatePipeWire->pw_core_add_listener(pCore, &coreListener, &ma_gCoreEventsPipeWire, &enumData);
+    ma_enumerate_devices_data_pipewire_init(&enumData, pContextStatePipeWire, pLoop, pCore, NULL, ma_context_get_allocation_callbacks(pContext));
+    timeoutInSeconds = 2;
+    ma_timer_init(&timer);
+    result = MA_ERROR;
+
+    if (pContextStatePipeWire->pw_core_add_listener(pCore, &coreListener, &ma_gCoreEventsPipeWire, &enumData) < 0) {
+        goto on_exit;
+    }
 
     pRegistry = pContextStatePipeWire->pw_core_get_registry(pCore, MA_PW_VERSION_REGISTRY, 0);
     if (pRegistry == NULL) {
-        pContextStatePipeWire->pw_core_disconnect(pCore);
-        pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
-        pContextStatePipeWire->pw_loop_destroy(pLoop);
-        return MA_ERROR;
+        goto on_exit;
     }
 
-    ma_enumerate_devices_data_pipewire_init(&enumData, pContextStatePipeWire, pLoop, pCore, pRegistry, ma_context_get_allocation_callbacks(pContext));
+    enumData.pRegistry = pRegistry;
 
     MA_ZERO_OBJECT(&registeryListener);
-    pContextStatePipeWire->pw_registry_add_listener(pRegistry, &registeryListener, &ma_gRegistryEventsPipeWire_Enumeration, &enumData);
+    if (pContextStatePipeWire->pw_registry_add_listener(pRegistry, &registeryListener, &ma_gRegistryEventsPipeWire_Enumeration, &enumData) < 0) {
+        goto on_exit;
+    }
 
     /*
     The pw_core_sync() function is extremely confusing. The documentation says this:
@@ -33346,26 +33397,49 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     doing something wrong here.
     */
     enumData.seqEnumeration = pContextStatePipeWire->pw_core_sync(pCore, MA_PW_ID_CORE, 0);
+    if (enumData.seqEnumeration < 0) {
+        goto on_exit;
+    }
+
     for (;;) {
-        pContextStatePipeWire->pw_loop_iterate(pLoop, -1);
+        if (enumData.result != MA_SUCCESS) {
+            result = enumData.result;
+            goto on_exit;
+        }
 
-        if ((enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_ENUM_DONE) != 0) {
-            if (enumData.seqDefaults == 0) {
-                break;  /* We don't have a "default" metadata. */
-            }
-            if ((enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_DEFAULTS_DONE) != 0) {
-                break;
-            }
+        requiredSyncFlags = MA_PW_CORE_SYNC_FLAG_ENUM_DONE;
 
-            if (enumData.seqSettings == 0) {
-                break;  /* We don't have a "settings" metadata. */
-            }
-            if ((enumData.syncFlags & MA_PW_CORE_SYNC_FLAG_SETTINGS_DONE) != 0) {
-                break;
-            }
+        if (enumData.pMetadataDefault != NULL) {
+            requiredSyncFlags |= MA_PW_CORE_SYNC_FLAG_DEFAULTS_DONE;
+        }
+
+        if (enumData.pMetadataSettings != NULL) {
+            requiredSyncFlags |= MA_PW_CORE_SYNC_FLAG_SETTINGS_DONE;
+        }
+
+        if ((enumData.syncFlags & requiredSyncFlags) == requiredSyncFlags) {
+            break;
+        }
+
+        timeRemainingInSeconds = timeoutInSeconds - ma_timer_get_time_in_seconds(&timer);
+        if (timeRemainingInSeconds <= 0) {
+            result = MA_TIMEOUT;
+            goto on_exit;
+        }
+
+        iterateTimeoutInMilliseconds = (int)ma_min(timeRemainingInSeconds * 1000, 100);
+        if (iterateTimeoutInMilliseconds < 1) {
+            iterateTimeoutInMilliseconds = 1;
+        }
+
+        iterateResult = pContextStatePipeWire->pw_loop_iterate(pLoop, iterateTimeoutInMilliseconds);
+        if (iterateResult < 0 && iterateResult != -EINTR) {
+            result = MA_ERROR;
+            goto on_exit;
         }
     }
 
+    result = MA_SUCCESS;
 
     /* Here is where we iterate over each device and fire the callback. */
     {
@@ -33432,13 +33506,17 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     }
 
 
+on_exit:
     ma_enumerate_devices_data_pipewire_uninit(&enumData);
-    pContextStatePipeWire->pw_proxy_destroy((struct ma_pw_proxy*)pRegistry);
+    if (pRegistry != NULL) {
+        pContextStatePipeWire->pw_proxy_destroy((struct ma_pw_proxy*)pRegistry);
+    }
+
     pContextStatePipeWire->pw_core_disconnect(pCore);
     pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
     pContextStatePipeWire->pw_loop_destroy(pLoop);
 
-    return MA_SUCCESS;
+    return result;
 }
 
 
