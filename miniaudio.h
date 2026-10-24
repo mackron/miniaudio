@@ -32829,11 +32829,20 @@ static ma_result ma_enumerate_devices_data_pipewire_add(ma_enumerate_devices_dat
 static int ma_on_metadata_property_default__pipewire(void* data, ma_uint32 subject, const char* key, const char* type, const char* value)
 {
     ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)data;
+    ma_device_id* pDefaultDeviceID;
+    const char* pStart;
+    const char* pEnd;
+    size_t len;
 
-    (void)subject;
     (void)type;
 
+    if (subject != MA_PW_ID_CORE) {
+        return 0;
+    }
+
     if (key == NULL) {
+        pEnumData->playback.defaultDeviceID.custom.s[0] = '\0';
+        pEnumData->capture.defaultDeviceID.custom.s[0] = '\0';
         return 0;
     }
 
@@ -32842,34 +32851,49 @@ static int ma_on_metadata_property_default__pipewire(void* data, ma_uint32 subje
     simple enough, except that the value is actually JSON... Why is the default device stored as a JSON string? Who does this? We're just
     going to use a simplified parser that finds the first ":\"" and takes everything until the next "\"".
     */
-    if (strcmp(key, "default.audio.sink") == 0 || strcmp(key, "default.audio.source") == 0) {
-        const char* pValue = value;
-        const char* pStart;
-        const char* pEnd;
-        ma_device_id* pDefaultDeviceID;
-
-        if (strcmp(key, "default.audio.sink") == 0) {
-            pDefaultDeviceID = &pEnumData->playback.defaultDeviceID;
-        } else {
-            pDefaultDeviceID = &pEnumData->capture.defaultDeviceID;
-        }
-
-        pStart = strstr(pValue, ":\"");
-        if (pStart != NULL) {
-            pStart += 2;    /* Move past the :". */
-            pEnd = strchr(pStart, '\"');
-            if (pEnd != NULL) {
-                size_t len = (size_t)(pEnd - pStart);
-                if (len >= sizeof(pDefaultDeviceID->custom.s)) {
-                    len  = sizeof(pDefaultDeviceID->custom.s) - 1;
-                }
-
-                ma_strncpy_s(pDefaultDeviceID->custom.s, sizeof(pDefaultDeviceID->custom.s), pStart, len);
-            }
-        }
+    if (strcmp(key, "default.audio.sink") == 0) {
+        pDefaultDeviceID = &pEnumData->playback.defaultDeviceID;
+    } else if (strcmp(key, "default.audio.source") == 0) {
+        pDefaultDeviceID = &pEnumData->capture.defaultDeviceID;
+    } else {
+        return 0;
     }
 
-    /*printf("Metadata Property: Subject=%u, Key=%s, Type=%s, Value=%s\n", subject, key, type, value);*/
+    pDefaultDeviceID->custom.s[0] = '\0';
+    if (value == NULL) {
+        return 0;
+    }
+
+    pStart = strstr(value, "\"name\"");
+    if (pStart == NULL) {
+        return 0;
+    }
+
+    pStart += sizeof("\"name\"") - 1;
+    pStart += strspn(pStart, " \t\r\n");
+    if (*pStart != ':') {
+        return 0;
+    }
+
+    pStart += 1;
+    pStart += strspn(pStart, " \t\r\n");
+    if (*pStart != '\"') {
+        return 0;
+    }
+
+    pStart += 1;
+    pEnd = strchr(pStart, '\"');
+    if (pEnd == NULL) {
+        return 0;
+    }
+
+    len = (size_t)(pEnd - pStart);
+    if (len >= sizeof(pDefaultDeviceID->custom.s)) {
+        len = sizeof(pDefaultDeviceID->custom.s) - 1;
+    }
+
+    ma_strncpy_s(pDefaultDeviceID->custom.s, sizeof(pDefaultDeviceID->custom.s), pStart, len);
+    
     return 0;
 }
 
@@ -32884,16 +32908,22 @@ static int ma_on_metadata_property_settings__pipewire(void* data, ma_uint32 subj
 {
     ma_enumerate_devices_data_pipewire* pEnumData = (ma_enumerate_devices_data_pipewire*)data;
 
-    (void)pEnumData;
-    (void)subject;
     (void)type;
 
+    if (subject != MA_PW_ID_CORE) {
+        return 0;
+    }
+
     if (key == NULL) {
+        pEnumData->clockRate = 0;
         return 0;
     }
 
     if (strcmp(key, "clock.rate") == 0) {
-        pEnumData->clockRate = (ma_uint32)atoi(value);
+        pEnumData->clockRate = 0;
+        if (value != NULL) {
+            pEnumData->clockRate = (ma_uint32)atoi(value);
+        }
     }
 
     /*printf("Metadata Property: Subject=%u, Key=%s, Type=%s, Value=%s\n", subject, key, type, value);*/
