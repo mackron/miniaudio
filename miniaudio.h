@@ -10548,6 +10548,40 @@ is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate);
 
 
+/* BEG ma_device_state_silence.h */
+/*
+Backend helper for timed silent capture and discarded playback. The descriptors must contain resolved
+internal formats, channel counts, sample rates and nonzero period sizes in frames. Enabled directions
+must match the device passed to step(). Playback and capture can use different rates and period sizes.
+
+Call reset() when entering silent processing. Calls must be serialized with real backend callbacks and
+with other operations on this state. A blocking step waits until audio is processed or the device stops.
+A nonblocking step returns immediately. Each step processes at most one period per enabled direction.
+*/
+typedef struct ma_device_state_silence
+{
+    ma_device_type deviceType;
+    ma_timer timer;
+    struct
+    {
+        ma_uint64 cursor;
+        ma_uint32 sampleRate;
+        ma_uint32 periodSizeInFrames;
+        void* pBuffer;
+    } playback, capture;
+    struct
+    {
+        void* pBuffer;  /* One allocation for both directions. */
+    } internal;
+} ma_device_state_silence;
+
+MA_API ma_result ma_device_state_silence_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_silence* pSilenceDeviceState);
+MA_API void ma_device_state_silence_uninit(ma_device_state_silence* pSilenceDeviceState, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_device_state_silence_reset(ma_device_state_silence* pSilenceDeviceState);
+MA_API ma_result ma_device_state_silence_step(ma_device_state_silence* pSilenceDeviceState, ma_device* pDevice, ma_blocking_mode blockingMode);
+/* END ma_device_state_silence.h */
+
+
 /* BEG ma_device_state_async.h */
 typedef struct ma_device_state_async
 {
@@ -21786,10 +21820,7 @@ typedef struct ma_context_state_null
 
 typedef struct ma_device_state_null
 {
-    ma_timer timer;
-    ma_uint64 cursor;           /* When the actual time catches up to the cursor it means the next chunk of audio can be processed. If the actual time gets to the cursor + the period size, it's an xrun. */
-    void* pDataPlayback;        /* Only used as the destination for audio data in step(). Will not actually be used for anything. */
-    void* pDataCapture;         /* Permanently filled with silence. */
+    ma_device_state_silence silence;
 } ma_device_state_null;
 
 
@@ -21918,9 +21949,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
     ma_context_state_null* pContextStateNull = ma_context_get_backend_state__null(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_uint32 periodSizeInFrames;
-    size_t dataBufferSizePlayback = 0;
-    size_t dataBufferSizeCapture = 0;
-    size_t deviceStateSize;
+    ma_result result;
 
     (void)pContextStateNull;
 
@@ -21945,27 +21974,22 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
     /* This updates the descriptors with actual values. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_normalize_descriptor__null(pDescriptorCapture, periodSizeInFrames);
-        dataBufferSizeCapture = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels);
     }
+
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_normalize_descriptor__null(pDescriptorPlayback, periodSizeInFrames);
-        dataBufferSizePlayback = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
     }
 
-
-    deviceStateSize = sizeof(*pDeviceStateNull);
-    deviceStateSize += ma_align_64(dataBufferSizePlayback);
-    deviceStateSize += ma_align_64(dataBufferSizeCapture);
-
-    pDeviceStateNull = (ma_device_state_null*)ma_calloc(deviceStateSize, ma_device_get_allocation_callbacks(pDevice));
+    pDeviceStateNull = (ma_device_state_null*)ma_calloc(sizeof(*pDeviceStateNull), ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateNull == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    pDeviceStateNull->pDataPlayback = ma_offset_ptr(pDeviceStateNull, sizeof(*pDeviceStateNull));
-    pDeviceStateNull->pDataCapture  = ma_offset_ptr(pDeviceStateNull->pDataPlayback, ma_align_64(dataBufferSizePlayback));
-
-    ma_timer_init(&pDeviceStateNull->timer);
+    result = ma_device_state_silence_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateNull->silence);
+    if (result != MA_SUCCESS) {
+        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
+        return result;
+    }
 
     *ppDeviceState = pDeviceStateNull;
 
@@ -21978,6 +22002,7 @@ static void ma_device_uninit__null(ma_device* pDevice)
 
     MA_ASSERT(pDeviceStateNull != NULL);
 
+    ma_device_state_silence_uninit(&pDeviceStateNull->silence, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
 }
 
@@ -21986,8 +22011,8 @@ static ma_result ma_device_start__null(ma_device* pDevice)
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
 
     MA_ASSERT(pDeviceStateNull != NULL);
-    (void)pDeviceStateNull;
 
+    ma_device_state_silence_reset(&pDeviceStateNull->silence);
     return MA_SUCCESS;
 }
 
@@ -22001,81 +22026,11 @@ static ma_result ma_device_stop__null(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_device_get_period_size_in_frames__null(ma_device* pDevice)
-{
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        return pDevice->capture.internalPeriodSizeInFrames;
-    } else {
-        return pDevice->playback.internalPeriodSizeInFrames;
-    }
-}
-
-static ma_uint32 ma_device_get_available_frames__null(ma_device* pDevice)
-{
-    ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
-    ma_uint64 nowInFrames;
-    ma_uint32 periodSizeInFrames;
-    double nowInSeconds;
-
-    periodSizeInFrames = ma_device_get_period_size_in_frames__null(pDevice);
-
-    nowInSeconds = ma_timer_get_time_in_seconds(&pDeviceStateNull->timer);
-    nowInFrames = (ma_uint64)(nowInSeconds * pDevice->sampleRate);
-    if (nowInFrames < pDeviceStateNull->cursor) {
-        /* The time has not caught up to the cursor. Nothing can be processed. */
-        return 0;
-    } else {
-        /*
-        The time has caught up to the cursor. One way or another, the available frames is equal to
-        the period size. We need to make sure we check for an xrun, in which case the cursor needs
-        to be calibrated with the actual time.
-        */
-        if (nowInFrames > pDeviceStateNull->cursor + periodSizeInFrames) {
-            /* xrun. Normalize the cursor. */
-            pDeviceStateNull->cursor = nowInFrames;
-        }
-
-        return periodSizeInFrames;
-    }
-}
-
-
 static ma_result ma_device_step__null(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_null* pDeviceStateNull = ma_device_get_backend_state__null(pDevice);
-    ma_uint32 framesAvailable;
-    ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    for (;;) {
-        if (!ma_device_is_started(pDevice)) {
-            return MA_DEVICE_NOT_STARTED;
-        }
-
-        framesAvailable = ma_device_get_available_frames__null(pDevice);
-        if (framesAvailable > 0) {
-            /* For capture we need to submit silence. For playback we just read and discard. */
-            if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-                ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateNull->pDataCapture, framesAvailable);
-            }
-            if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-                ma_device_handle_backend_data_callback(pDevice, pDeviceStateNull->pDataPlayback, NULL, framesAvailable);
-            }
-
-            /* The cursor needs to be advanced by the number of frames we just processed. */
-            pDeviceStateNull->cursor += framesAvailable;
-        }
-
-        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
-            break;
-        }
-
-        /* Getting here means we're in blocking mode. Relax the CPU a bit and keep waiting for data. */
-        ma_sleep(1);
-    }
-
-    return MA_SUCCESS;
+    return ma_device_state_silence_step(&pDeviceStateNull->silence, pDevice, blockingMode);
 }
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_Null =
@@ -53389,6 +53344,202 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
         return pDescriptor->periodSizeInFrames;
     }
 }
+
+
+/* BEG ma_device_state_silence.c */
+MA_API ma_result ma_device_state_silence_init(ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_state_silence* pSilenceDeviceState)
+{
+    ma_uint64 bufferSizeInBytesPlayback = 0;
+    ma_uint64 bufferSizeInBytesCapture = 0;
+    ma_uint32 bytesPerFrame;
+
+    if (pSilenceDeviceState == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSilenceDeviceState);
+
+    if (deviceType != ma_device_type_playback && deviceType != ma_device_type_capture && deviceType != ma_device_type_duplex && deviceType != ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
+        if (!ma_device_descriptor_is_valid(pDescriptorCapture) || pDescriptorCapture->periodSizeInFrames == 0) {
+            return MA_INVALID_ARGS;
+        }
+
+        if (pDescriptorCapture->format < ma_format_u8 || pDescriptorCapture->format > ma_format_f32) {
+            return MA_INVALID_ARGS;
+        }
+
+        bytesPerFrame = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels);
+
+        bufferSizeInBytesCapture = (ma_uint64)pDescriptorCapture->periodSizeInFrames * bytesPerFrame;
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        if (!ma_device_descriptor_is_valid(pDescriptorPlayback) || pDescriptorPlayback->periodSizeInFrames == 0) {
+            return MA_INVALID_ARGS;
+        }
+
+        if (pDescriptorPlayback->format < ma_format_u8 || pDescriptorPlayback->format > ma_format_f32) {
+            return MA_INVALID_ARGS;
+        }
+
+        bytesPerFrame = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
+
+        bufferSizeInBytesPlayback = (ma_uint64)pDescriptorPlayback->periodSizeInFrames * bytesPerFrame;
+    }
+
+    /* Align both buffers to 64 bits without overflowing size_t on 32-bit builds. */
+    if (bufferSizeInBytesCapture > MA_SIZE_MAX - 7 || bufferSizeInBytesPlayback > MA_SIZE_MAX - 7) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    bufferSizeInBytesCapture  = ma_align_64(bufferSizeInBytesCapture);
+    bufferSizeInBytesPlayback = ma_align_64(bufferSizeInBytesPlayback);
+
+    if (bufferSizeInBytesCapture > MA_SIZE_MAX - bufferSizeInBytesPlayback) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pSilenceDeviceState->internal.pBuffer = ma_malloc((size_t)(bufferSizeInBytesCapture + bufferSizeInBytesPlayback), pAllocationCallbacks);
+    if (pSilenceDeviceState->internal.pBuffer == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pSilenceDeviceState->deviceType = deviceType;
+
+    if (bufferSizeInBytesCapture > 0) {
+        pSilenceDeviceState->capture.sampleRate = pDescriptorCapture->sampleRate;
+        pSilenceDeviceState->capture.periodSizeInFrames = pDescriptorCapture->periodSizeInFrames;
+        pSilenceDeviceState->capture.pBuffer = pSilenceDeviceState->internal.pBuffer;
+        ma_silence_pcm_frames(pSilenceDeviceState->capture.pBuffer, pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->format, pDescriptorCapture->channels);
+    }
+
+    if (bufferSizeInBytesPlayback > 0) {
+        pSilenceDeviceState->playback.sampleRate = pDescriptorPlayback->sampleRate;
+        pSilenceDeviceState->playback.periodSizeInFrames = pDescriptorPlayback->periodSizeInFrames;
+        pSilenceDeviceState->playback.pBuffer = ma_offset_ptr(pSilenceDeviceState->internal.pBuffer, (size_t)bufferSizeInBytesCapture);
+    }
+
+    ma_device_state_silence_reset(pSilenceDeviceState);
+    return MA_SUCCESS;
+}
+
+MA_API void ma_device_state_silence_uninit(ma_device_state_silence* pSilenceDeviceState, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pSilenceDeviceState == NULL) {
+        return;
+    }
+
+    ma_free(pSilenceDeviceState->internal.pBuffer, pAllocationCallbacks);
+    MA_ZERO_OBJECT(pSilenceDeviceState);
+}
+
+MA_API void ma_device_state_silence_reset(ma_device_state_silence* pSilenceDeviceState)
+{
+    if (pSilenceDeviceState == NULL) {
+        return;
+    }
+
+    pSilenceDeviceState->playback.cursor = 0;
+    pSilenceDeviceState->capture.cursor = 0;
+    ma_timer_init(&pSilenceDeviceState->timer);
+}
+
+static ma_uint32 ma_device_state_silence_get_available_frames(ma_device_state_silence* pSilenceDeviceState, ma_device_type deviceType, double nowInSeconds)
+{
+    ma_uint64 nowInFrames;
+    ma_uint64* pCursor;
+    ma_uint32 sampleRate;
+    ma_uint32 periodSizeInFrames;
+
+    if (deviceType == ma_device_type_capture) {
+        sampleRate = pSilenceDeviceState->capture.sampleRate;
+        periodSizeInFrames = pSilenceDeviceState->capture.periodSizeInFrames;
+        pCursor = &pSilenceDeviceState->capture.cursor;
+    } else {
+        sampleRate = pSilenceDeviceState->playback.sampleRate;
+        periodSizeInFrames = pSilenceDeviceState->playback.periodSizeInFrames;
+        pCursor = &pSilenceDeviceState->playback.cursor;
+    }
+
+    nowInFrames = (ma_uint64)(nowInSeconds * sampleRate);
+    if (nowInFrames < *pCursor) {
+        return 0;
+    }
+
+    /* Discard missed periods rather than issuing a burst of callbacks after a delay. */
+    if (nowInFrames - *pCursor > periodSizeInFrames) {
+        *pCursor = nowInFrames;
+    }
+
+    return periodSizeInFrames;
+}
+
+MA_API ma_result ma_device_state_silence_step(ma_device_state_silence* pSilenceDeviceState, ma_device* pDevice, ma_blocking_mode blockingMode)
+{
+    ma_result result;
+    ma_uint32 framesAvailable;
+    ma_bool32 hasProcessedData;
+    double nowInSeconds;
+
+    if (pSilenceDeviceState == NULL || pDevice == NULL || pSilenceDeviceState->internal.pBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pSilenceDeviceState->deviceType != ma_device_get_type(pDevice)) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        hasProcessedData = MA_FALSE;
+        nowInSeconds = ma_timer_get_time_in_seconds(&pSilenceDeviceState->timer);
+
+        /* Submit capture silence before playback so duplex input is available to the application. */
+        if (pSilenceDeviceState->capture.periodSizeInFrames > 0) {
+            framesAvailable = ma_device_state_silence_get_available_frames(pSilenceDeviceState, ma_device_type_capture, nowInSeconds);
+            if (framesAvailable > 0) {
+                result = ma_device_handle_backend_data_callback(pDevice, NULL, pSilenceDeviceState->capture.pBuffer, framesAvailable);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+
+                pSilenceDeviceState->capture.cursor += framesAvailable;
+                hasProcessedData = MA_TRUE;
+            }
+        }
+
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        if (pSilenceDeviceState->playback.periodSizeInFrames > 0) {
+            framesAvailable = ma_device_state_silence_get_available_frames(pSilenceDeviceState, ma_device_type_playback, nowInSeconds);
+            if (framesAvailable > 0) {
+                result = ma_device_handle_backend_data_callback(pDevice, pSilenceDeviceState->playback.pBuffer, NULL, framesAvailable);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+
+                pSilenceDeviceState->playback.cursor += framesAvailable;
+                hasProcessedData = MA_TRUE;
+            }
+        }
+
+        if (hasProcessedData || blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            return MA_SUCCESS;
+        }
+
+        ma_sleep(1);
+    }
+}
+/* END ma_device_state_silence.c */
 
 
 /* BEG ma_device_state_async.c */
