@@ -32012,6 +32012,15 @@ struct ma_spa_pod_audio_info_raw
     struct ma_spa_pod_prop_int extra[2];    /* Channels and sample rate. Both are optional. */
 };
 
+struct ma_spa_pod_audio_info_raw_with_channel_map
+{
+    struct ma_spa_pod_audio_info_raw info;
+    ma_uint32 key;
+    ma_uint32 flags;
+    struct ma_spa_pod_array positions;
+    ma_uint32 positionData[MA_MAX_CHANNELS + 1]; /* One extra element for 64-bit padding. */
+};
+
 static MA_INLINE struct ma_spa_pod_audio_info_raw ma_spa_pod_audio_info_raw_init(enum ma_spa_audio_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     struct ma_spa_pod_audio_info_raw pod;
@@ -32247,6 +32256,19 @@ typedef struct
     ma_bool32 hasError;          /* Accessed only from the thread that iterates the device loop. */
     ma_bool32 isUninitializing;
     ma_device_state_silence silence;
+    struct
+    {
+        ma_bool32 isRecovering;
+        ma_timer timer;
+        double nextAttemptTimeInSeconds;
+        double deadlineInSeconds;
+        char* pStreamName;
+        char* pMediaRole;
+        ma_device_descriptor playback;
+        ma_device_descriptor capture;
+        ma_device_id playbackID;
+        ma_device_id captureID;
+    } recovery;
     struct spa_source* pWakeup; /* This is for waking up the loop which we need to do after each data processing callback and the miniaudio wakeup callback. */
     ma_pipewire_stream_state playback;
     ma_pipewire_stream_state capture;
@@ -32310,6 +32332,43 @@ static ma_format ma_format_from_pipewire(enum ma_spa_audio_format format)
     }
 
     return ma_format_unknown;
+}
+
+static ma_uint32 ma_channel_to_pipewire(ma_channel channel)
+{
+    static const ma_uint32 channels[] =
+    {
+        MA_SPA_AUDIO_CHANNEL_UNKNOWN,
+        MA_SPA_AUDIO_CHANNEL_MONO,
+        MA_SPA_AUDIO_CHANNEL_FL,
+        MA_SPA_AUDIO_CHANNEL_FR,
+        MA_SPA_AUDIO_CHANNEL_FC,
+        MA_SPA_AUDIO_CHANNEL_LFE,
+        MA_SPA_AUDIO_CHANNEL_RL,
+        MA_SPA_AUDIO_CHANNEL_RR,
+        MA_SPA_AUDIO_CHANNEL_FLC,
+        MA_SPA_AUDIO_CHANNEL_FRC,
+        MA_SPA_AUDIO_CHANNEL_RC,
+        MA_SPA_AUDIO_CHANNEL_SL,
+        MA_SPA_AUDIO_CHANNEL_SR,
+        MA_SPA_AUDIO_CHANNEL_TC,
+        MA_SPA_AUDIO_CHANNEL_TFL,
+        MA_SPA_AUDIO_CHANNEL_TFC,
+        MA_SPA_AUDIO_CHANNEL_TFR,
+        MA_SPA_AUDIO_CHANNEL_TRL,
+        MA_SPA_AUDIO_CHANNEL_TRC,
+        MA_SPA_AUDIO_CHANNEL_TRR
+    };
+
+    if (channel < ma_countof(channels)) {
+        return channels[channel];
+    }
+
+    if (channel >= MA_CHANNEL_AUX_0 && channel <= MA_CHANNEL_AUX_31) {
+        return MA_SPA_AUDIO_CHANNEL_AUX0 + (channel - MA_CHANNEL_AUX_0);
+    }
+
+    return MA_SPA_AUDIO_CHANNEL_UNKNOWN;
 }
 
 static ma_channel ma_channel_from_pipewire(ma_uint32 channel)
@@ -33360,7 +33419,7 @@ static void ma_device_set_error__pipewire(ma_device_state_pipewire* pDeviceState
     pDeviceStatePipeWire->hasError = MA_TRUE;
 
     /* Real processing callbacks are now disabled. Start the silent clock at the time of failure. */
-    if (pDeviceStatePipeWire->silence.internal.pBuffer != NULL) {
+    if (!pDeviceStatePipeWire->recovery.isRecovering && pDeviceStatePipeWire->silence.internal.pBuffer != NULL) {
         ma_device_state_silence_reset(&pDeviceStatePipeWire->silence);
     }
 
@@ -33368,7 +33427,9 @@ static void ma_device_set_error__pipewire(ma_device_state_pipewire* pDeviceState
         pMessage = "Device connection failed.";
     }
 
-    ma_log_postf(ma_device_get_log(pDeviceStatePipeWire->pDevice), MA_LOG_LEVEL_ERROR, "[PipeWire] %s", pMessage);
+    if (!pDeviceStatePipeWire->recovery.isRecovering) {
+        ma_log_postf(ma_device_get_log(pDeviceStatePipeWire->pDevice), MA_LOG_LEVEL_ERROR, "[PipeWire] %s", pMessage);
+    }
 }
 
 static void ma_device_on_core_error__pipewire(void* pUserData, ma_uint32 id, int seq, int result, const char* pMessage)
@@ -33607,7 +33668,10 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
             ma_audio_ring_buffer_config ringBufferConfig = ma_audio_ring_buffer_config_init(pStreamState->format, pStreamState->channels, pStreamState->sampleRate, pStreamState->rbSizeInFrames);
             ringBufferConfig.pAllocationCallbacks = ma_device_get_allocation_callbacks(pDeviceStatePipeWire->pDevice);
 
-            ma_audio_ring_buffer_init(&ringBufferConfig, &pStreamState->rb);
+            if (ma_audio_ring_buffer_init(&ringBufferConfig, &pStreamState->rb) != MA_SUCCESS) {
+                ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to allocate stream ring buffer.");
+                return;
+            }
         }
 
         pStreamState->initStatus |= MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY;
@@ -33634,7 +33698,11 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     MA_ASSERT(pBuffer->buffer->datas[0].data != NULL);
 
     if (frameCount > 0) {
-        if (deviceType == ma_device_type_playback) {
+        if (pDeviceStatePipeWire->recovery.isRecovering) {
+            if (deviceType == ma_device_type_playback) {
+                ma_silence_pcm_frames(pBuffer->buffer->datas[0].data, frameCount, pStreamState->format, pStreamState->channels);
+            }
+        } else if (deviceType == ma_device_type_playback) {
             if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
                 ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, pBuffer->buffer->datas[0].data, NULL, frameCount);
             } else {
@@ -33742,14 +33810,16 @@ static const struct ma_pw_stream_events ma_gStreamEventsPipeWire_Capture =
     NULL, /* trigger_done  */
 };
 
-static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_context_state_pipewire* pContextStatePipeWire, ma_device_state_pipewire* pDeviceStatePipeWire, const ma_device_config_pipewire* pDeviceConfigPipeWire, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
+static ma_result ma_device_init_begin_internal__pipewire(ma_device* pDevice, ma_context_state_pipewire* pContextStatePipeWire, ma_device_state_pipewire* pDeviceStatePipeWire, const ma_device_config_pipewire* pDeviceConfigPipeWire, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
 {
     ma_pipewire_stream_state* pStreamState;
     struct ma_pw_properties* pProperties;
     const struct ma_pw_stream_events* pStreamEvents;
     enum ma_spa_audio_format formatPA;
     ma_uint32 channels;
+    ma_uint32 iChannel;
     struct ma_spa_pod_audio_info_raw podAudioInfo;
+    struct ma_spa_pod_audio_info_raw_with_channel_map podAudioInfoWithChannelMap;
     const struct ma_spa_pod* pConnectionParameters[1];
     enum ma_pw_stream_flags streamFlags;
     int connectResult;
@@ -33784,7 +33854,10 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
 
     pStreamState->pStream = pContextStatePipeWire->pw_stream_new(pDeviceStatePipeWire->pCore, (pDeviceConfigPipeWire->pStreamName != NULL) ? pDeviceConfigPipeWire->pStreamName : "miniaudio", pProperties);
     if (pStreamState->pStream == NULL) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire stream.");
+        if (!pDeviceStatePipeWire->recovery.isRecovering) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire stream.");
+        }
+
         return MA_ERROR;
     }
 
@@ -33810,12 +33883,30 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     is explicitly listed in the channel map, we'll request the "native" channel count.
     */
     channels = pDescriptor->channels;
-    if (channels == 1 && (pDescriptor->channelMap[0] == MA_CHANNEL_NONE || pDescriptor->channelMap[0] == MA_CHANNEL_MONO)) {
+    if (!pDeviceStatePipeWire->recovery.isRecovering && channels == 1 && (pDescriptor->channelMap[0] == MA_CHANNEL_NONE || pDescriptor->channelMap[0] == MA_CHANNEL_MONO)) {
         channels = 0;
     }
 
     podAudioInfo = ma_spa_pod_audio_info_raw_init(formatPA, channels, pDescriptor->sampleRate);
     pConnectionParameters[0] = (struct ma_spa_pod*)&podAudioInfo;
+
+    if (pDeviceStatePipeWire->recovery.isRecovering) {
+        /* Both channel count and sample rate are resolved, so all fields in info are present. */
+        MA_ZERO_OBJECT(&podAudioInfoWithChannelMap);
+        podAudioInfoWithChannelMap.info = podAudioInfo;
+        podAudioInfoWithChannelMap.key = MA_SPA_FORMAT_AUDIO_position;
+        podAudioInfoWithChannelMap.positions.pod.type = MA_SPA_TYPE_Array;
+        podAudioInfoWithChannelMap.positions.pod.size = sizeof(struct ma_spa_pod_array_body) + channels * sizeof(ma_uint32);
+        podAudioInfoWithChannelMap.positions.body.child.type = MA_SPA_TYPE_Id;
+        podAudioInfoWithChannelMap.positions.body.child.size = sizeof(ma_uint32);
+
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            podAudioInfoWithChannelMap.positionData[iChannel] = ma_channel_to_pipewire(pDescriptor->channelMap[iChannel]);
+        }
+
+        podAudioInfoWithChannelMap.info.object.pod.size += sizeof(ma_uint32) * 2 + (ma_uint32)ma_align_64(sizeof(struct ma_spa_pod_array) + channels * sizeof(ma_uint32));
+        pConnectionParameters[0] = (struct ma_spa_pod*)&podAudioInfoWithChannelMap;
+    }
     
 
     /*
@@ -33829,61 +33920,68 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
 
     connectResult = pContextStatePipeWire->pw_stream_connect(pStreamState->pStream, (deviceType == ma_device_type_playback) ? MA_SPA_DIRECTION_OUTPUT : MA_SPA_DIRECTION_INPUT, MA_PW_ID_ANY, streamFlags, pConnectionParameters, ma_countof(pConnectionParameters));
     if (connectResult < 0) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream.");
+        if (!pDeviceStatePipeWire->recovery.isRecovering) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to connect PipeWire stream.");
+        }
+
         return MA_ERROR;
     }
 
-    /*
-    We need to keep iterating until we have finalized our internal format. Note that when there is no
-    microphone connected the process callback will never get fired which will result in this loop getting
-    stuck, so we'll use a timeout here.
-    */
-    {
-        ma_uint32 timeoutMS = 2000;
-        ma_uint32 elapsedMS = 0;
+    return MA_SUCCESS;
+}
 
-        while ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT) == 0) {
-            if (ma_device_iterate__pipewire(pDeviceStatePipeWire, 1) != MA_SUCCESS) {
-                return MA_ERROR;
-            }
+static ma_result ma_device_wait_for_stream_init__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire, ma_pipewire_stream_state* pStreamState, ma_uint32 statusFlags)
+{
+    ma_uint32 timeoutMS = 2000;
+    ma_uint32 elapsedMS = 0;
 
-            elapsedMS += 1;
-            if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
-                return MA_ERROR;
-            }
+    while ((pStreamState->initStatus & statusFlags) != statusFlags) {
+        if (ma_device_iterate__pipewire(pDeviceStatePipeWire, 1) != MA_SUCCESS) {
+            return MA_ERROR;
+        }
+
+        elapsedMS += 1;
+        if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
+            ma_log_postf(ma_device_get_log(pDeviceStatePipeWire->pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
+            return MA_ERROR;
         }
     }
 
-    /* We should have our format at this point, but we will not know the exact period size yet until we've done the first processing callback. */
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_init_finish_internal__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
+{
+    ma_pipewire_stream_state* pStreamState;
+    ma_uint32 requiredStatus;
+
+    if (deviceType == ma_device_type_playback) {
+        pStreamState = &pDeviceStatePipeWire->playback;
+    } else if (deviceType == ma_device_type_capture) {
+        pStreamState = &pDeviceStatePipeWire->capture;
+    } else {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDeviceStatePipeWire->hasError || (pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0) {
+        return MA_ERROR;
+    }
+
+    requiredStatus = MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT | MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY;
+    if ((pStreamState->initStatus & requiredStatus) != requiredStatus) {
+        return MA_BUSY;
+    }
+
     pDescriptor->format     = pStreamState->format;
     pDescriptor->channels   = pStreamState->channels;
     pDescriptor->sampleRate = pStreamState->sampleRate;
     ma_channel_map_copy_or_default(pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pStreamState->channelMap, pStreamState->channels);
 
-    /* Now we need to wait until we know our period size. */
-    {
-        ma_uint32 timeoutMS = 2000;
-        ma_uint32 elapsedMS = 0;
-
-        while ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY) == 0) {
-            if (ma_device_iterate__pipewire(pDeviceStatePipeWire, 1) != MA_SUCCESS) {
-                return MA_ERROR;
-            }
-
-            elapsedMS += 1;
-            if (elapsedMS >= timeoutMS || ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_ERROR) != 0)) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to initialize capture device. Possibly no microphone connected.");
-                return MA_ERROR;
-            }
-        }
-    }
-
     pDescriptor->periodSizeInFrames = pStreamState->rbSizeInFrames;
     pDescriptor->periodCount        = 1;
 
     /* Devices are in a stopped state by default in miniaudio. */
-    if (pContextStatePipeWire->pw_stream_set_active(pStreamState->pStream, MA_FALSE) < 0) {
+    if (pDeviceStatePipeWire->pContextStatePipeWire->pw_stream_set_active(pStreamState->pStream, MA_FALSE) < 0) {
         ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to deactivate stream after initialization.");
         return MA_ERROR;
     }
@@ -33893,11 +33991,241 @@ static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_contex
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_init_internal__pipewire(ma_device* pDevice, ma_context_state_pipewire* pContextStatePipeWire, ma_device_state_pipewire* pDeviceStatePipeWire, const ma_device_config_pipewire* pDeviceConfigPipeWire, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
+{
+    ma_result result;
+    ma_pipewire_stream_state* pStreamState;
+
+    result = ma_device_init_begin_internal__pipewire(pDevice, pContextStatePipeWire, pDeviceStatePipeWire, pDeviceConfigPipeWire, deviceType, pDescriptor);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (deviceType == ma_device_type_playback) {
+        pStreamState = &pDeviceStatePipeWire->playback;
+    } else {
+        pStreamState = &pDeviceStatePipeWire->capture;
+    }
+
+    /* Keep separate timeout limits for format negotiation and the first processing callback. */
+    result = ma_device_wait_for_stream_init__pipewire(pDeviceStatePipeWire, pStreamState, MA_PIPEWIRE_INIT_STATUS_HAS_FORMAT);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_device_wait_for_stream_init__pipewire(pDeviceStatePipeWire, pStreamState, MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_device_init_finish_internal__pipewire(pDeviceStatePipeWire, deviceType, pDescriptor);
+}
+
 static void ma_device_on_wakeup__pipewire(void* pUserData, ma_uint64 count)
 {
     /* Nothing to do here. This is only used for waking up the loop. */
     (void)pUserData;
     (void)count;
+}
+
+static void ma_device_init_recovery_descriptors__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture)
+{
+    if (pDeviceStatePipeWire->deviceType == ma_device_type_playback || pDeviceStatePipeWire->deviceType == ma_device_type_duplex) {
+        pDeviceStatePipeWire->recovery.playback = *pDescriptorPlayback;
+        if (pDescriptorPlayback->pDeviceID != NULL) {
+            pDeviceStatePipeWire->recovery.playbackID = *pDescriptorPlayback->pDeviceID;
+            pDeviceStatePipeWire->recovery.playback.pDeviceID = &pDeviceStatePipeWire->recovery.playbackID;
+        }
+    }
+
+    if (pDeviceStatePipeWire->deviceType == ma_device_type_capture || pDeviceStatePipeWire->deviceType == ma_device_type_duplex) {
+        pDeviceStatePipeWire->recovery.capture = *pDescriptorCapture;
+        if (pDescriptorCapture->pDeviceID != NULL) {
+            pDeviceStatePipeWire->recovery.captureID = *pDescriptorCapture->pDeviceID;
+            pDeviceStatePipeWire->recovery.capture.pDeviceID = &pDeviceStatePipeWire->recovery.captureID;
+        }
+    }
+}
+
+static void ma_device_uninit_connection__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire)
+{
+    ma_context_state_pipewire* pContextStatePipeWire;
+    ma_bool32 wasUninitializing;
+
+    pContextStatePipeWire = pDeviceStatePipeWire->pContextStatePipeWire;
+    wasUninitializing = pDeviceStatePipeWire->isUninitializing;
+    pDeviceStatePipeWire->isUninitializing = MA_TRUE;
+    pDeviceStatePipeWire->hasError = MA_TRUE;
+
+    if (pDeviceStatePipeWire->capture.pStream != NULL) {
+        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->capture.pStream);
+    }
+
+    if (pDeviceStatePipeWire->playback.pStream != NULL) {
+        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->playback.pStream);
+    }
+
+    if (pDeviceStatePipeWire->pCore != NULL) {
+        pContextStatePipeWire->pw_core_disconnect(pDeviceStatePipeWire->pCore);
+        pDeviceStatePipeWire->pCore = NULL;
+    }
+
+    if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->capture.rb);
+        ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->playback.rb);
+    }
+
+    MA_ZERO_OBJECT(&pDeviceStatePipeWire->capture);
+    MA_ZERO_OBJECT(&pDeviceStatePipeWire->playback);
+    MA_ZERO_OBJECT(&pDeviceStatePipeWire->coreListener);
+    pDeviceStatePipeWire->isUninitializing = wasUninitializing;
+}
+
+static ma_result ma_device_finish_recovery_stream__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire, ma_device_type deviceType, const ma_device_descriptor* pDescriptor)
+{
+    ma_device_descriptor descriptor;
+    ma_result result;
+
+    descriptor = *pDescriptor;
+    
+    result = ma_device_init_finish_internal__pipewire(pDeviceStatePipeWire, deviceType, &descriptor);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (descriptor.format != pDescriptor->format || descriptor.channels != pDescriptor->channels || descriptor.sampleRate != pDescriptor->sampleRate) {
+        return MA_ERROR;
+    }
+
+    if (!ma_channel_map_is_equal(descriptor.channelMap, pDescriptor->channelMap, descriptor.channels)) {
+        return MA_ERROR;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_activate__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire)
+{
+    ma_context_state_pipewire* pContextStatePipeWire = pDeviceStatePipeWire->pContextStatePipeWire;
+
+    if (pDeviceStatePipeWire->capture.pStream != NULL) {
+        if (pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->capture.pStream, MA_TRUE) < 0) {
+            ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to activate capture stream.");
+            return MA_ERROR;
+        }
+    }
+
+    if (pDeviceStatePipeWire->playback.pStream != NULL) {
+        if (pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->playback.pStream, MA_TRUE) < 0) {
+            ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to activate playback stream.");
+            return MA_ERROR;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_device_recover__pipewire(ma_device_state_pipewire* pDeviceStatePipeWire)
+{
+    ma_context_state_pipewire* pContextStatePipeWire;
+    ma_device_config_pipewire config;
+    ma_result result;
+    ma_bool32 isReady;
+    double nowInSeconds;
+
+    if (!ma_device_is_started(pDeviceStatePipeWire->pDevice)) {
+        return;
+    }
+
+    pContextStatePipeWire = pDeviceStatePipeWire->pContextStatePipeWire;
+
+    if (!pDeviceStatePipeWire->recovery.isRecovering) {
+        pDeviceStatePipeWire->recovery.isRecovering = MA_TRUE;
+        ma_timer_init(&pDeviceStatePipeWire->recovery.timer);
+        pDeviceStatePipeWire->recovery.nextAttemptTimeInSeconds = 1;
+        ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
+    }
+
+    nowInSeconds = ma_timer_get_time_in_seconds(&pDeviceStatePipeWire->recovery.timer);
+
+    if (pDeviceStatePipeWire->pCore == NULL) {
+        if (nowInSeconds < pDeviceStatePipeWire->recovery.nextAttemptTimeInSeconds) {
+            return;
+        }
+
+        pDeviceStatePipeWire->pCore = pContextStatePipeWire->pw_context_connect(pDeviceStatePipeWire->pContext, NULL, 0);
+        if (pDeviceStatePipeWire->pCore == NULL) {
+            goto on_error;
+        }
+
+        pDeviceStatePipeWire->hasError = MA_FALSE;
+        pDeviceStatePipeWire->recovery.deadlineInSeconds = nowInSeconds + 2;
+
+        if (pContextStatePipeWire->pw_core_add_listener(pDeviceStatePipeWire->pCore, &pDeviceStatePipeWire->coreListener, &ma_gDeviceCoreEventsPipeWire, pDeviceStatePipeWire) < 0) {
+            goto on_error;
+        }
+
+        config = ma_device_config_pipewire_init();
+        config.pStreamName = pDeviceStatePipeWire->recovery.pStreamName;
+        config.pMediaRole  = pDeviceStatePipeWire->recovery.pMediaRole;
+
+        if (pDeviceStatePipeWire->deviceType != ma_device_type_playback) {
+            result = ma_device_init_begin_internal__pipewire(pDeviceStatePipeWire->pDevice, pContextStatePipeWire, pDeviceStatePipeWire, &config, ma_device_type_capture, &pDeviceStatePipeWire->recovery.capture);
+            if (result != MA_SUCCESS) {
+                goto on_error;
+            }
+        }
+
+        if (pDeviceStatePipeWire->deviceType != ma_device_type_capture) {
+            result = ma_device_init_begin_internal__pipewire(pDeviceStatePipeWire->pDevice, pContextStatePipeWire, pDeviceStatePipeWire, &config, ma_device_type_playback, &pDeviceStatePipeWire->recovery.playback);
+            if (result != MA_SUCCESS) {
+                goto on_error;
+            }
+        }
+    }
+
+    /* Dispatch connection events without waiting for the server or interrupting the silent clock. */
+    if (ma_device_iterate__pipewire(pDeviceStatePipeWire, 0) != MA_SUCCESS) {
+        goto on_error;
+    }
+
+    isReady = MA_TRUE;
+
+    if (pDeviceStatePipeWire->capture.pStream != NULL && (pDeviceStatePipeWire->capture.initStatus & MA_PIPEWIRE_INIT_STATUS_INITIALIZED) == 0) {
+        result = ma_device_finish_recovery_stream__pipewire(pDeviceStatePipeWire, ma_device_type_capture, &pDeviceStatePipeWire->recovery.capture);
+        if (result == MA_BUSY) {
+            isReady = MA_FALSE;
+        } else if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+    }
+
+    if (pDeviceStatePipeWire->playback.pStream != NULL && (pDeviceStatePipeWire->playback.initStatus & MA_PIPEWIRE_INIT_STATUS_INITIALIZED) == 0) {
+        result = ma_device_finish_recovery_stream__pipewire(pDeviceStatePipeWire, ma_device_type_playback, &pDeviceStatePipeWire->recovery.playback);
+        if (result == MA_BUSY) {
+            isReady = MA_FALSE;
+        } else if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+    }
+
+    if (isReady) {
+        if (ma_device_activate__pipewire(pDeviceStatePipeWire) != MA_SUCCESS) {
+            goto on_error;
+        }
+
+        pDeviceStatePipeWire->recovery.isRecovering = MA_FALSE;
+        ma_log_postf(ma_device_get_log(pDeviceStatePipeWire->pDevice), MA_LOG_LEVEL_INFO, "[PipeWire] Connection restored.");
+        return;
+    }
+
+    if (nowInSeconds < pDeviceStatePipeWire->recovery.deadlineInSeconds) {
+        return;
+    }
+
+on_error:
+    ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
+    pDeviceStatePipeWire->recovery.nextAttemptTimeInSeconds = nowInSeconds + 1;
 }
 
 static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -33911,6 +34239,9 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     const ma_device_config_pipewire* pDeviceConfigPipeWire;
     ma_device_config_pipewire defaultDeviceConfigPipeWire;
     ma_device_type deviceType;
+    size_t streamNameSize = 0;
+    size_t mediaRoleSize = 0;
+    size_t allocationSize;
 
     pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
     MA_ASSERT(pContextStatePipeWire != NULL);
@@ -33928,6 +34259,19 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     if (deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
+
+    /* Store retained strings after the main state so they share its allocation and lifetime. */
+    if (pDeviceConfigPipeWire->pStreamName != NULL) {
+        streamNameSize = strlen(pDeviceConfigPipeWire->pStreamName) + 1;
+    }
+
+    if (pDeviceConfigPipeWire->pMediaRole != NULL) {
+        mediaRoleSize = strlen(pDeviceConfigPipeWire->pMediaRole) + 1;
+    }
+
+    allocationSize  = sizeof(*pDeviceStatePipeWire);
+    allocationSize += streamNameSize;
+    allocationSize += mediaRoleSize;
 
     pLoop = pContextStatePipeWire->pw_loop_new(NULL);
     if (pLoop == NULL) {
@@ -33950,8 +34294,7 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
         return MA_ERROR;
     }
 
-    /* We can now allocate our per-device PipeWire-specific data. */
-    pDeviceStatePipeWire = (ma_device_state_pipewire*)ma_calloc(sizeof(*pDeviceStatePipeWire), ma_device_get_allocation_callbacks(pDevice));
+    pDeviceStatePipeWire = (ma_device_state_pipewire*)ma_calloc(allocationSize, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStatePipeWire == NULL) {
         pContextStatePipeWire->pw_core_disconnect(pCore);
         pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
@@ -33965,6 +34308,16 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     pDeviceStatePipeWire->pLoop      = pLoop;
     pDeviceStatePipeWire->pContext   = pPipeWireContext;
     pDeviceStatePipeWire->pCore      = pCore;
+
+    if (streamNameSize > 0) {
+        pDeviceStatePipeWire->recovery.pStreamName = (char*)ma_offset_ptr(pDeviceStatePipeWire, sizeof(*pDeviceStatePipeWire));
+        MA_COPY_MEMORY(pDeviceStatePipeWire->recovery.pStreamName, pDeviceConfigPipeWire->pStreamName, streamNameSize);
+    }
+
+    if (mediaRoleSize > 0) {
+        pDeviceStatePipeWire->recovery.pMediaRole = (char*)ma_offset_ptr(pDeviceStatePipeWire, sizeof(*pDeviceStatePipeWire) + streamNameSize);
+        MA_COPY_MEMORY(pDeviceStatePipeWire->recovery.pMediaRole, pDeviceConfigPipeWire->pMediaRole, mediaRoleSize);
+    }
 
     /* Enter the main loop before we start iterating. */
     pContextStatePipeWire->pw_loop_enter(pLoop);
@@ -33990,6 +34343,8 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
         goto on_error;
     }
 
+    ma_device_init_recovery_descriptors__pipewire(pDeviceStatePipeWire, pDescriptorPlayback, pDescriptorCapture);
+
     /* Prepare fallback buffers now so a connection failure does not require an allocation. */
     result = ma_device_state_silence_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStatePipeWire->silence);
     if (result != MA_SUCCESS) {
@@ -34010,24 +34365,10 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
 
 on_error:
     pDeviceStatePipeWire->isUninitializing = MA_TRUE;
-
-    if (pDeviceStatePipeWire->capture.pStream != NULL) {
-        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->capture.pStream);
-    }
-
-    if (pDeviceStatePipeWire->playback.pStream != NULL) {
-        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->playback.pStream);
-    }
-
+    ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
     pContextStatePipeWire->pw_loop_leave(pLoop);
-    pContextStatePipeWire->pw_core_disconnect(pCore);
     pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
     pContextStatePipeWire->pw_loop_destroy(pLoop);
-
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->capture.rb);
-        ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->playback.rb);
-    }
 
     ma_device_state_silence_uninit(&pDeviceStatePipeWire->silence, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
@@ -34038,35 +34379,14 @@ static void ma_device_uninit__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
-    ma_device_type deviceType = ma_device_get_type(pDevice);
 
     pDeviceStatePipeWire->isUninitializing = MA_TRUE;
-
-    if (pDeviceStatePipeWire->capture.pStream != NULL) {
-        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->capture.pStream);
-        pDeviceStatePipeWire->capture.pStream = NULL;
-    }
-
-    if (pDeviceStatePipeWire->playback.pStream != NULL) {
-        pContextStatePipeWire->pw_stream_destroy(pDeviceStatePipeWire->playback.pStream);
-        pDeviceStatePipeWire->playback.pStream = NULL;
-    }
+    ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
 
     /* This will be called from the same thread that called ma_device_init__pipewire() and is therefore an appropriate place to leave the main loop. */
     pContextStatePipeWire->pw_loop_leave(pDeviceStatePipeWire->pLoop);
-
-    pContextStatePipeWire->pw_core_disconnect(pDeviceStatePipeWire->pCore);
     pContextStatePipeWire->pw_context_destroy(pDeviceStatePipeWire->pContext);
     pContextStatePipeWire->pw_loop_destroy(pDeviceStatePipeWire->pLoop);
-
-    if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->capture.rb);
-        }
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->playback.rb);
-        }
-    }
 
     ma_device_state_silence_uninit(&pDeviceStatePipeWire->silence, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
@@ -34076,7 +34396,11 @@ static void ma_device_uninit__pipewire(ma_device* pDevice)
 static ma_result ma_device_start__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
-    ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+
+    if (pDeviceStatePipeWire->recovery.isRecovering) {
+        ma_device_state_silence_reset(&pDeviceStatePipeWire->silence);
+        return MA_SUCCESS;
+    }
 
     /* Process pending events before starting. A disconnected device starts with silent processing. */
     if (ma_device_iterate__pipewire(pDeviceStatePipeWire, 0) != MA_SUCCESS) {
@@ -34084,19 +34408,7 @@ static ma_result ma_device_start__pipewire(ma_device* pDevice)
         return MA_SUCCESS;
     }
 
-    if (pDeviceStatePipeWire->capture.pStream != NULL) {
-        if (pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->capture.pStream, MA_TRUE) < 0) {
-            ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to activate capture stream.");
-            return MA_SUCCESS;
-        }
-    }
-
-    if (pDeviceStatePipeWire->playback.pStream != NULL) {
-        if (pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->playback.pStream, MA_TRUE) < 0) {
-            ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to activate playback stream.");
-            return MA_SUCCESS;
-        }
-    }
+    ma_device_activate__pipewire(pDeviceStatePipeWire);
 
     return MA_SUCCESS;
 }
@@ -34105,6 +34417,12 @@ static ma_result ma_device_stop__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+
+    if (pDeviceStatePipeWire->recovery.isRecovering) {
+        ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
+        pDeviceStatePipeWire->recovery.nextAttemptTimeInSeconds = ma_timer_get_time_in_seconds(&pDeviceStatePipeWire->recovery.timer) + 1;
+        return MA_SUCCESS;
+    }
 
     if (pDeviceStatePipeWire->hasError) {
         return MA_SUCCESS;
@@ -34136,8 +34454,14 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
 
     /* We will keep looping until we've processed some data. This should keep our stepping in time with data processing. */
     for (;;) {
-        if (ma_device_iterate__pipewire(pDeviceStatePipeWire, timeout) != MA_SUCCESS) {
-            return ma_device_state_silence_step(&pDeviceStatePipeWire->silence, pDevice, blockingMode);
+        if (pDeviceStatePipeWire->recovery.isRecovering || ma_device_iterate__pipewire(pDeviceStatePipeWire, timeout) != MA_SUCCESS) {
+            ma_device_recover__pipewire(pDeviceStatePipeWire);
+
+            if (pDeviceStatePipeWire->recovery.isRecovering || pDeviceStatePipeWire->hasError) {
+                return ma_device_state_silence_step(&pDeviceStatePipeWire->silence, pDevice, blockingMode);
+            }
+
+            return MA_SUCCESS;
         }
 
         if (!ma_device_is_started(pDevice)) {
