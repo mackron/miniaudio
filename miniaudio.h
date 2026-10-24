@@ -33612,6 +33612,7 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     struct ma_pw_buffer* pBuffer;
     ma_uint32 bytesPerFrame;
     ma_uint32 frameCount;
+    ma_uint32 dataOffset = 0;
 
     if (deviceType == ma_device_type_playback) {
         pStreamState = &pDeviceStatePipeWire->playback;
@@ -33688,16 +33689,20 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
         return;
     }
 
+    MA_ASSERT(pBuffer->buffer != NULL);
+    MA_ASSERT(pBuffer->buffer->n_datas > 0);
+    MA_ASSERT(pBuffer->buffer->datas[0].data != NULL);
+
     if (deviceType == ma_device_type_playback) {
         frameCount = (ma_uint32)ma_min(pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);
         /*frameCount = (ma_uint32)(pBuffer->buffer->datas[0].maxsize / bytesPerFrame);*/
     } else {
-        frameCount = (ma_uint32)(pBuffer->buffer->datas[0].chunk->size / bytesPerFrame);
-    }
+        if (pBuffer->buffer->datas[0].maxsize > 0) {
+            dataOffset = pBuffer->buffer->datas[0].chunk->offset % pBuffer->buffer->datas[0].maxsize;
+        }
 
-    MA_ASSERT(pBuffer->buffer != NULL);
-    MA_ASSERT(pBuffer->buffer->n_datas > 0);
-    MA_ASSERT(pBuffer->buffer->datas[0].data != NULL);
+        frameCount = ma_min(pBuffer->buffer->datas[0].chunk->size, pBuffer->buffer->datas[0].maxsize - dataOffset) / bytesPerFrame;
+    }
 
     if (frameCount > 0) {
         if (pDeviceStatePipeWire->recovery.isRecovering) {
@@ -33719,12 +33724,14 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
 
             /*printf("(Playback) Processing %d frames... %d %d\n", (int)frameCount, (int)pBuffer->requested, pBuffer->buffer->datas[0].maxsize / bytesPerFrame);*/
         } else {
+            const void* pFrames = ma_offset_ptr(pBuffer->buffer->datas[0].data, dataOffset);
+
             if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
-                ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, NULL, pBuffer->buffer->datas[0].data, frameCount);
+                ma_device_handle_backend_data_callback(pDeviceStatePipeWire->pDevice, NULL, pFrames, frameCount);
             } else {
                 ma_uint32 framesWritten;
 
-                ma_audio_ring_buffer_write_pcm_frames(&pStreamState->rb, pBuffer->buffer->datas[0].data, frameCount, &framesWritten);
+                ma_audio_ring_buffer_write_pcm_frames(&pStreamState->rb, pFrames, frameCount, &framesWritten);
                 if (framesWritten < frameCount) {
                     /* Overflow. This will glitch. */
                 }
