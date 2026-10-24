@@ -7520,7 +7520,9 @@ MA_API ma_device_backend_vtable* ma_coreaudio_get_vtable(void);
 /* BEG miniaudio_pipewire.h */
 typedef struct
 {
-    int _unused;
+    const char* pApplicationName;     /* Application name shown in audio control tools. NULL leaves the PipeWire default. */
+    const char* pApplicationID;       /* Application ID, such as "org.example.MyApp". NULL leaves the PipeWire default. */
+    const char* pApplicationIconName; /* XDG icon name. NULL leaves the PipeWire default. */
 } ma_context_config_pipewire;
 
 MA_API ma_context_config_pipewire ma_context_config_pipewire_init(void);
@@ -8729,6 +8731,16 @@ can then be set directly on the structure. Below are the members of the `ma_cont
     allocationCallbacks
         Structure containing custom allocation callbacks. Leaving this at defaults will cause it to use MA_MALLOC, MA_REALLOC and MA_FREE. These allocation
         callbacks will be used for anything tied to the context, including devices.
+
+    pipewire.pApplicationName
+        PipeWire only. Sets the application name shown in audio control tools. Also used for stream node names and descriptions.
+        Defaults to NULL, which leaves the PipeWire application-name default and uses the stream name for node names and descriptions.
+
+    pipewire.pApplicationID
+        PipeWire only. Sets the application identifier, such as "org.example.MyApp". Defaults to NULL, which leaves the PipeWire default.
+
+    pipewire.pApplicationIconName
+        PipeWire only. Sets the XDG application icon name. This is an icon name, not a file path. Defaults to NULL, which leaves the PipeWire default.
 
     pulseaudio.pApplicationName
         PulseAudio only. The application name to use when initializing the PulseAudio context with `pa_context_new()`.
@@ -31273,6 +31285,12 @@ PipeWire Backend
 #define MA_SPA_AUDIO_CHANNEL_AUX63          SPA_AUDIO_CHANNEL_AUX63
 
 
+#define MA_PW_KEY_APP_NAME                  PW_KEY_APP_NAME
+#define MA_PW_KEY_APP_ID                    PW_KEY_APP_ID
+#define MA_PW_KEY_APP_ICON_NAME             PW_KEY_APP_ICON_NAME
+#define MA_PW_KEY_NODE_NAME                 PW_KEY_NODE_NAME
+#define MA_PW_KEY_NODE_DESCRIPTION          PW_KEY_NODE_DESCRIPTION
+#define MA_PW_KEY_MEDIA_NAME                PW_KEY_MEDIA_NAME
 #define MA_PW_KEY_MEDIA_TYPE                PW_KEY_MEDIA_TYPE
 #define MA_PW_KEY_MEDIA_CATEGORY            PW_KEY_MEDIA_CATEGORY
 #define MA_PW_KEY_MEDIA_ROLE                PW_KEY_MEDIA_ROLE
@@ -31745,6 +31763,12 @@ struct ma_spa_fraction
 
 
 
+#define MA_PW_KEY_APP_NAME              "application.name"
+#define MA_PW_KEY_APP_ID                "application.id"
+#define MA_PW_KEY_APP_ICON_NAME         "application.icon-name"
+#define MA_PW_KEY_NODE_NAME             "node.name"
+#define MA_PW_KEY_NODE_DESCRIPTION      "node.description"
+#define MA_PW_KEY_MEDIA_NAME            "media.name"
 #define MA_PW_KEY_MEDIA_TYPE            "media.type"
 #define MA_PW_KEY_MEDIA_CATEGORY        "media.category"
 #define MA_PW_KEY_MEDIA_ROLE            "media.role"
@@ -32183,6 +32207,9 @@ typedef struct
 {
     ma_log* pLog;
     ma_handle hPipeWire;
+    char* pApplicationName;
+    char* pApplicationID;
+    char* pApplicationIconName;
     ma_pw_init_proc                     pw_init;
     ma_pw_deinit_proc                   pw_deinit;
     ma_pw_loop_new_proc                 pw_loop_new;
@@ -32529,7 +32556,12 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
 {
     /* We'll use a list of possible shared object names for easier extensibility. */
     ma_context_state_pipewire* pContextStatePipeWire;
-    ma_context_config_pipewire* pContextConfigPipeWire = (ma_context_config_pipewire*)pContextBackendConfig;
+    const ma_context_config_pipewire* pContextConfigPipeWire = (const ma_context_config_pipewire*)pContextBackendConfig;
+    ma_context_config_pipewire defaultConfig;
+    size_t applicationNameSize = 0;
+    size_t applicationIDSize = 0;
+    size_t applicationIconNameSize = 0;
+    size_t allocationSize;
     ma_log* pLog = ma_context_get_log(pContext);
 #ifndef MA_NO_RUNTIME_LINKING
     ma_handle hPipeWire;
@@ -32540,14 +32572,50 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     };
 #endif
 
-    (void)pContextConfigPipeWire;
+    if (pContextConfigPipeWire == NULL) {
+        defaultConfig = ma_context_config_pipewire_init();
+        pContextConfigPipeWire = &defaultConfig;
+    }
 
-    pContextStatePipeWire = (ma_context_state_pipewire*)ma_calloc(sizeof(*pContextStatePipeWire), ma_context_get_allocation_callbacks(pContext));
+    if (pContextConfigPipeWire->pApplicationName != NULL) {
+        applicationNameSize = strlen(pContextConfigPipeWire->pApplicationName) + 1;
+    }
+
+    if (pContextConfigPipeWire->pApplicationID != NULL) {
+        applicationIDSize = strlen(pContextConfigPipeWire->pApplicationID) + 1;
+    }
+
+    if (pContextConfigPipeWire->pApplicationIconName != NULL) {
+        applicationIconNameSize = strlen(pContextConfigPipeWire->pApplicationIconName) + 1;
+    }
+
+    allocationSize = sizeof(*pContextStatePipeWire);
+    allocationSize += applicationNameSize;
+    allocationSize += applicationIDSize;
+    allocationSize += applicationIconNameSize;
+
+    pContextStatePipeWire = (ma_context_state_pipewire*)ma_calloc(allocationSize, ma_context_get_allocation_callbacks(pContext));
     if (pContextStatePipeWire == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
     pContextStatePipeWire->pLog = pLog;
+
+    /* Retain metadata in the context allocation for devices and replacement streams. */
+    if (applicationNameSize > 0) {
+        pContextStatePipeWire->pApplicationName = (char*)ma_offset_ptr(pContextStatePipeWire, sizeof(*pContextStatePipeWire));
+        MA_COPY_MEMORY(pContextStatePipeWire->pApplicationName, pContextConfigPipeWire->pApplicationName, applicationNameSize);
+    }
+
+    if (applicationIDSize > 0) {
+        pContextStatePipeWire->pApplicationID = (char*)ma_offset_ptr(pContextStatePipeWire, sizeof(*pContextStatePipeWire) + applicationNameSize);
+        MA_COPY_MEMORY(pContextStatePipeWire->pApplicationID, pContextConfigPipeWire->pApplicationID, applicationIDSize);
+    }
+
+    if (applicationIconNameSize > 0) {
+        pContextStatePipeWire->pApplicationIconName = (char*)ma_offset_ptr(pContextStatePipeWire, sizeof(*pContextStatePipeWire) + applicationNameSize + applicationIDSize);
+        MA_COPY_MEMORY(pContextStatePipeWire->pApplicationIconName, pContextConfigPipeWire->pApplicationIconName, applicationIconNameSize);
+    }
 
     /* Check if we have a PipeWire SO. If we can't find this we need to abort. */
     #ifndef MA_NO_RUNTIME_LINKING
@@ -33931,6 +33999,8 @@ static ma_result ma_device_init_begin_internal__pipewire(ma_device* pDevice, ma_
 {
     ma_pipewire_stream_state* pStreamState;
     struct ma_pw_properties* pProperties;
+    const char* pStreamName;
+    const char* pNodeName;
     const struct ma_pw_stream_events* pStreamEvents;
     enum ma_spa_audio_format formatPA;
     ma_uint32 channels;
@@ -33958,7 +34028,20 @@ static ma_result ma_device_init_begin_internal__pipewire(ma_device* pDevice, ma_
     pStreamState->pDescriptor = pDescriptor;
     pStreamState->bufferSizeInFrames = pDescriptor->periodSizeInFrames;
 
+    pStreamName = pDeviceConfigPipeWire->pStreamName;
+    if (pStreamName == NULL) {
+        pStreamName = "miniaudio";
+    }
+
+    pNodeName = pContextStatePipeWire->pApplicationName;
+    if (pNodeName == NULL || pNodeName[0] == '\0') {
+        pNodeName = pStreamName;
+    }
+
     pProperties = pContextStatePipeWire->pw_properties_new(
+        MA_PW_KEY_NODE_NAME,           pNodeName,
+        MA_PW_KEY_NODE_DESCRIPTION,    pNodeName,
+        MA_PW_KEY_MEDIA_NAME,          pStreamName,
         MA_PW_KEY_MEDIA_TYPE,          "Audio",
         MA_PW_KEY_MEDIA_CATEGORY,      (deviceType == ma_device_type_playback) ? "Playback" : "Capture",
         MA_PW_KEY_MEDIA_ROLE,          (pDeviceConfigPipeWire->pMediaRole != NULL) ? pDeviceConfigPipeWire->pMediaRole : "Game",
@@ -33966,11 +34049,27 @@ static ma_result ma_device_init_begin_internal__pipewire(ma_device* pDevice, ma_
         /* MA_PW_KEY_NODE_LATENCY is set during format negotiation because it depends on knowledge of the sample rate. */
         NULL);
 
+    if (pProperties == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    if (pContextStatePipeWire->pApplicationName != NULL) {
+        pContextStatePipeWire->pw_properties_set(pProperties, MA_PW_KEY_APP_NAME, pContextStatePipeWire->pApplicationName);
+    }
+
+    if (pContextStatePipeWire->pApplicationID != NULL) {
+        pContextStatePipeWire->pw_properties_set(pProperties, MA_PW_KEY_APP_ID, pContextStatePipeWire->pApplicationID);
+    }
+
+    if (pContextStatePipeWire->pApplicationIconName != NULL) {
+        pContextStatePipeWire->pw_properties_set(pProperties, MA_PW_KEY_APP_ICON_NAME, pContextStatePipeWire->pApplicationIconName);
+    }
+
     if (pDescriptor->pDeviceID != NULL) {
         pContextStatePipeWire->pw_properties_set(pProperties, MA_PW_KEY_TARGET_OBJECT, pDescriptor->pDeviceID->custom.s);
     }
 
-    pStreamState->pStream = pContextStatePipeWire->pw_stream_new(pDeviceStatePipeWire->pCore, (pDeviceConfigPipeWire->pStreamName != NULL) ? pDeviceConfigPipeWire->pStreamName : "miniaudio", pProperties);
+    pStreamState->pStream = pContextStatePipeWire->pw_stream_new(pDeviceStatePipeWire->pCore, pStreamName, pProperties);
     if (pStreamState->pStream == NULL) {
         if (!pDeviceStatePipeWire->recovery.isRecovering) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire stream.");
