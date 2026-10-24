@@ -31343,12 +31343,21 @@ PipeWire Backend
 #define ma_pw_buffer                        pw_buffer
 #define ma_pw_time                          pw_time
 
+#define MA_SPA_VERSION_LOOP_CONTROL_METHODS SPA_VERSION_LOOP_CONTROL_METHODS
+#define ma_spa_loop_control_methods         spa_loop_control_methods
+#define MA_SPA_VERSION_LOOP_UTILS_METHODS   SPA_VERSION_LOOP_UTILS_METHODS
+#define ma_spa_loop_utils_methods           spa_loop_utils_methods
+
 #define MA_PW_VERSION_CORE_EVENTS           PW_VERSION_CORE_EVENTS
 #define ma_pw_core_events                   pw_core_events
+#define MA_PW_VERSION_CORE_METHODS          PW_VERSION_CORE_METHODS
+#define ma_pw_core_methods                  pw_core_methods
 
 #define MA_PW_VERSION_REGISTRY              PW_VERSION_REGISTRY
 #define MA_PW_VERSION_REGISTRY_EVENTS       PW_VERSION_REGISTRY_EVENTS
 #define ma_pw_registry_events               pw_registry_events
+#define MA_PW_VERSION_REGISTRY_METHODS      PW_VERSION_REGISTRY_METHODS
+#define ma_pw_registry_methods              pw_registry_methods
 
 #define MA_PW_VERSION_METADATA_METHODS      PW_VERSION_METADATA_METHODS
 #define ma_pw_metadata_methods              pw_metadata_methods
@@ -31520,7 +31529,7 @@ enum ma_spa_audio_channel
 
 
 
-/* The spa_interface thing is only used by one thing here, and only because the function we want is not exported by the SO. */
+/* The spa_interface thing is used to call functions that are not exported by older versions of the SO. */
 struct ma_spa_callbacks
 {
     const void* funcs;
@@ -31532,6 +31541,41 @@ struct ma_spa_interface
     const char* type;
     ma_uint32 version;
     struct ma_spa_callbacks cb;
+};
+
+
+struct ma_spa_hook;
+struct ma_spa_loop_control_hooks;
+struct spa_source;
+struct timespec;
+
+#define MA_SPA_VERSION_LOOP_CONTROL_METHODS 1
+struct ma_spa_loop_control_methods
+{
+    ma_uint32 version;
+    int  (* get_fd  )(void* object);
+    void (* add_hook)(void* object, struct ma_spa_hook* hook, const struct ma_spa_loop_control_hooks* hooks, void* data);
+    void (* enter   )(void* object);
+    void (* leave   )(void* object);
+    int  (* iterate )(void* object, int timeout);
+    int  (* check   )(void* object);
+};
+
+
+#define MA_SPA_VERSION_LOOP_UTILS_METHODS   0
+struct ma_spa_loop_utils_methods
+{
+    ma_uint32 version;
+    struct spa_source* (* add_io        )(void* object, int fd, ma_uint32 mask, ma_bool8 close, void (*func)(void* data, int fd, ma_uint32 mask), void* data);
+    int                (* update_io     )(void* object, struct spa_source* source, ma_uint32 mask);
+    struct spa_source* (* add_idle      )(void* object, ma_bool8 enabled, void (*func)(void* data), void* data);
+    int                (* enable_idle   )(void* object, struct spa_source* source, ma_bool8 enabled);
+    struct spa_source* (* add_event     )(void* object, ma_spa_source_event_func_t func, void* data);
+    int                (* signal_event  )(void* object, struct spa_source* source);
+    struct spa_source* (* add_timer     )(void* object, void (*func)(void* data, ma_uint64 expirations), void* data);
+    int                (* update_timer  )(void* object, struct spa_source* source, struct timespec* value, struct timespec* interval, ma_bool8 absolute);
+    struct spa_source* (* add_signal    )(void* object, int signal_number, void (*func)(void* data, int signal_number), void* data);
+    void               (* destroy_source)(void* object, struct spa_source* source);
 };
 
 
@@ -31784,8 +31828,16 @@ struct ma_spa_fraction
 #define MA_PW_ID_CORE                   0
 #define MA_PW_ID_ANY                    0xFFFFFFFF
 
+/* The public layout shared by older and newer PipeWire versions. Later fields are not used by miniaudio and are not included here. */
+struct ma_pw_loop
+{
+    struct ma_spa_system* system;
+    struct ma_spa_loop* loop;
+    struct ma_spa_loop_control* control;
+    struct ma_spa_loop_utils* utils;
+};
+
 struct ma_pw_thread_loop;
-struct ma_pw_loop;
 struct ma_pw_context;
 struct ma_pw_core;
 struct ma_pw_registry;
@@ -31860,6 +31912,21 @@ struct ma_pw_core_events
 };
 
 
+#define MA_PW_VERSION_CORE_METHODS      0
+struct ma_pw_core_methods
+{
+    ma_uint32 version;
+    int                    (* add_listener )(void* object, struct ma_spa_hook* listener, const struct ma_pw_core_events* events, void* data);
+    int                    (* hello        )(void* object, ma_uint32 version);
+    int                    (* sync         )(void* object, ma_uint32 id, int seq);
+    int                    (* pong         )(void* object, ma_uint32 id, int seq);
+    int                    (* error        )(void* object, ma_uint32 id, int seq, int res, const char* message);
+    struct ma_pw_registry* (* get_registry )(void* object, ma_uint32 version, size_t user_data_size);
+    void*                  (* create_object)(void* object, const char* factory_name, const char* type, ma_uint32 version, const struct ma_spa_dict* props, size_t user_data_size);
+    int                    (* destroy      )(void* object, void* proxy);
+};
+
+
 #define MA_PW_VERSION_REGISTRY          3
 #define MA_PW_VERSION_REGISTRY_EVENTS   0
 struct ma_pw_registry_events
@@ -31869,6 +31936,15 @@ struct ma_pw_registry_events
     void (* global_remove)(void* data, ma_uint32 id);
 };
 
+
+#define MA_PW_VERSION_REGISTRY_METHODS  0
+struct ma_pw_registry_methods
+{
+    ma_uint32 version;
+    int   (* add_listener)(void* object, struct ma_spa_hook* listener, const struct ma_pw_registry_events* events, void* data);
+    void* (* bind        )(void* object, ma_uint32 id, const char* type, ma_uint32 version, size_t user_data_size);
+    int   (* destroy     )(void* object, ma_uint32 id);
+};
 
 
 #define PW_VERSION_METADATA_METHODS 0
@@ -31906,6 +31982,128 @@ struct ma_pw_stream_events
     void (* trigger_done )(void* data);
 };
 #endif
+
+
+static void ma_pw_loop_enter(struct ma_pw_loop* pLoop)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pLoop->control;
+    const struct ma_spa_loop_control_methods* pMethods = (const struct ma_spa_loop_control_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->enter == NULL) {
+        return;
+    }
+
+    pMethods->enter(pInterface->cb.data);
+}
+
+static void ma_pw_loop_leave(struct ma_pw_loop* pLoop)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pLoop->control;
+    const struct ma_spa_loop_control_methods* pMethods = (const struct ma_spa_loop_control_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->leave == NULL) {
+        return;
+    }
+
+    pMethods->leave(pInterface->cb.data);
+}
+
+static int ma_pw_loop_iterate(struct ma_pw_loop* pLoop, int timeout)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pLoop->control;
+    const struct ma_spa_loop_control_methods* pMethods = (const struct ma_spa_loop_control_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->iterate == NULL) {
+        return -ENOTSUP;
+    }
+
+    return pMethods->iterate(pInterface->cb.data, timeout);
+}
+
+static struct spa_source* ma_pw_loop_add_event(struct ma_pw_loop* pLoop, ma_spa_source_event_func_t callback, void* pUserData)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pLoop->utils;
+    const struct ma_spa_loop_utils_methods* pMethods = (const struct ma_spa_loop_utils_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->add_event == NULL) {
+        return NULL;
+    }
+
+    return pMethods->add_event(pInterface->cb.data, callback, pUserData);
+}
+
+static int ma_pw_loop_signal_event(struct ma_pw_loop* pLoop, struct spa_source* pSource)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pLoop->utils;
+    const struct ma_spa_loop_utils_methods* pMethods = (const struct ma_spa_loop_utils_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->signal_event == NULL) {
+        return -ENOTSUP;
+    }
+
+    return pMethods->signal_event(pInterface->cb.data, pSource);
+}
+
+static int ma_pw_core_add_listener(struct ma_pw_core* pCore, struct ma_spa_hook* pListener, const struct ma_pw_core_events* pEvents, void* pUserData)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pCore;
+    const struct ma_pw_core_methods* pMethods = (const struct ma_pw_core_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->add_listener == NULL) {
+        return -ENOTSUP;
+    }
+
+    return pMethods->add_listener(pInterface->cb.data, pListener, pEvents, pUserData);
+}
+
+static struct ma_pw_registry* ma_pw_core_get_registry(struct ma_pw_core* pCore, ma_uint32 version, size_t userDataSize)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pCore;
+    const struct ma_pw_core_methods* pMethods = (const struct ma_pw_core_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->get_registry == NULL) {
+        return NULL;
+    }
+
+    return pMethods->get_registry(pInterface->cb.data, version, userDataSize);
+}
+
+static int ma_pw_core_sync(struct ma_pw_core* pCore, ma_uint32 id, int seq)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pCore;
+    const struct ma_pw_core_methods* pMethods = (const struct ma_pw_core_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->sync == NULL) {
+        return -ENOTSUP;
+    }
+
+    return pMethods->sync(pInterface->cb.data, id, seq);
+}
+
+static int ma_pw_registry_add_listener(struct ma_pw_registry* pRegistry, struct ma_spa_hook* pListener, const struct ma_pw_registry_events* pEvents, void* pUserData)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pRegistry;
+    const struct ma_pw_registry_methods* pMethods = (const struct ma_pw_registry_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->add_listener == NULL) {
+        return -ENOTSUP;
+    }
+
+    return pMethods->add_listener(pInterface->cb.data, pListener, pEvents, pUserData);
+}
+
+static void* ma_pw_registry_bind(struct ma_pw_registry* pRegistry, ma_uint32 id, const char* pType, ma_uint32 version, size_t userDataSize)
+{
+    const struct ma_spa_interface* pInterface = (const struct ma_spa_interface*)pRegistry;
+    const struct ma_pw_registry_methods* pMethods = (const struct ma_pw_registry_methods*)pInterface->cb.funcs;
+
+    if (pMethods == NULL || pMethods->bind == NULL) {
+        return NULL;
+    }
+
+    return pMethods->bind(pInterface->cb.data, id, pType, version, userDataSize);
+}
+
 
 static MA_INLINE struct ma_spa_pod_id ma_spa_pod_id_init(ma_uint32 value)
 {
@@ -32162,16 +32360,10 @@ static MA_INLINE ma_int32 ma_spa_pod_get_int_value(const struct ma_spa_pod* pod)
 }
 
 
-
 typedef void                      (* ma_pw_init_proc                    )(int* argc, char*** argv);
 typedef void                      (* ma_pw_deinit_proc                  )(void);
 typedef struct ma_pw_loop*        (* ma_pw_loop_new_proc                )(const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_loop_destroy_proc            )(struct ma_pw_loop* loop);
-typedef void                      (* ma_pw_loop_enter_proc              )(struct ma_pw_loop* loop);
-typedef void                      (* ma_pw_loop_leave_proc              )(struct ma_pw_loop* loop);
-typedef int                       (* ma_pw_loop_iterate_proc            )(struct ma_pw_loop* loop, int timeout);
-typedef struct spa_source*        (* ma_pw_loop_add_event_proc          )(struct ma_pw_loop* loop, ma_spa_source_event_func_t func, void* data);
-typedef int                       (* ma_pw_loop_signal_event_proc       )(struct ma_pw_loop* loop, struct spa_source* source);
 typedef struct ma_pw_thread_loop* (* ma_pw_thread_loop_new_proc         )(const char* name, const struct ma_spa_dict* props);
 typedef void                      (* ma_pw_thread_loop_destroy_proc     )(struct ma_pw_thread_loop* loop);
 typedef struct ma_pw_loop*        (* ma_pw_thread_loop_get_loop_proc    )(struct ma_pw_thread_loop* loop);
@@ -32182,11 +32374,6 @@ typedef struct ma_pw_context*     (* ma_pw_context_new_proc             )(struct
 typedef void                      (* ma_pw_context_destroy_proc         )(struct ma_pw_context* context);
 typedef struct ma_pw_core*        (* ma_pw_context_connect_proc         )(struct ma_pw_context* context, struct ma_pw_properties* properties, size_t user_data_size);
 typedef int                       (* ma_pw_core_disconnect_proc         )(struct ma_pw_core* core);
-typedef int                       (* ma_pw_core_add_listener_proc       )(struct ma_pw_core* core, struct ma_spa_hook* listener, const struct ma_pw_core_events* events, void* data);
-typedef struct ma_pw_registry*    (* ma_pw_core_get_registry_proc       )(struct ma_pw_core* core, ma_uint32 version, size_t user_data_size);
-typedef int                       (* ma_pw_core_sync_proc               )(struct ma_pw_core* core, ma_uint32 id, int seq);
-typedef int                       (* ma_pw_registry_add_listener_proc   )(struct ma_pw_registry* registry, struct ma_spa_hook* listener, const struct ma_pw_registry_events* events, void* data);
-typedef void*                     (* ma_pw_registry_bind_proc           )(struct ma_pw_registry* registry, ma_uint32 id, const char* type, ma_uint32 version, size_t user_data_size);
 typedef void                      (* ma_pw_proxy_destroy_proc           )(struct ma_pw_proxy* proxy);
 typedef struct ma_pw_properties*  (* ma_pw_properties_new_proc          )(const char* key, ...);
 typedef void                      (* ma_pw_properties_free_proc         )(struct ma_pw_properties* properties);
@@ -32213,11 +32400,6 @@ typedef struct
     ma_pw_deinit_proc                   pw_deinit;
     ma_pw_loop_new_proc                 pw_loop_new;
     ma_pw_loop_destroy_proc             pw_loop_destroy;
-    ma_pw_loop_enter_proc               pw_loop_enter;
-    ma_pw_loop_leave_proc               pw_loop_leave;
-    ma_pw_loop_iterate_proc             pw_loop_iterate;
-    ma_pw_loop_add_event_proc           pw_loop_add_event;
-    ma_pw_loop_signal_event_proc        pw_loop_signal_event;
     ma_pw_thread_loop_new_proc          pw_thread_loop_new;
     ma_pw_thread_loop_destroy_proc      pw_thread_loop_destroy;
     ma_pw_thread_loop_get_loop_proc     pw_thread_loop_get_loop;
@@ -32228,11 +32410,6 @@ typedef struct
     ma_pw_context_destroy_proc          pw_context_destroy;
     ma_pw_context_connect_proc          pw_context_connect;
     ma_pw_core_disconnect_proc          pw_core_disconnect;
-    ma_pw_core_add_listener_proc        pw_core_add_listener;
-    ma_pw_core_get_registry_proc        pw_core_get_registry;
-    ma_pw_core_sync_proc                pw_core_sync;
-    ma_pw_registry_add_listener_proc    pw_registry_add_listener;
-    ma_pw_registry_bind_proc            pw_registry_bind;
     ma_pw_proxy_destroy_proc            pw_proxy_destroy;
     ma_pw_properties_new_proc           pw_properties_new;
     ma_pw_properties_free_proc          pw_properties_free;
@@ -32639,11 +32816,6 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     MA_PIPEWIRE_SYM(pw_deinit)
     MA_PIPEWIRE_SYM(pw_loop_new)
     MA_PIPEWIRE_SYM(pw_loop_destroy)
-    MA_PIPEWIRE_SYM(pw_loop_enter)
-    MA_PIPEWIRE_SYM(pw_loop_leave)
-    MA_PIPEWIRE_SYM(pw_loop_iterate)
-    MA_PIPEWIRE_SYM(pw_loop_add_event)
-    MA_PIPEWIRE_SYM(pw_loop_signal_event)
     MA_PIPEWIRE_SYM(pw_thread_loop_new)
     MA_PIPEWIRE_SYM(pw_thread_loop_destroy)
     MA_PIPEWIRE_SYM(pw_thread_loop_get_loop)
@@ -32654,11 +32826,6 @@ static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pCo
     MA_PIPEWIRE_SYM(pw_context_destroy)
     MA_PIPEWIRE_SYM(pw_context_connect)
     MA_PIPEWIRE_SYM(pw_core_disconnect)
-    MA_PIPEWIRE_SYM(pw_core_add_listener)
-    MA_PIPEWIRE_SYM(pw_core_get_registry)
-    MA_PIPEWIRE_SYM(pw_core_sync)
-    MA_PIPEWIRE_SYM(pw_registry_add_listener)
-    MA_PIPEWIRE_SYM(pw_registry_bind)
     MA_PIPEWIRE_SYM(pw_proxy_destroy)
     MA_PIPEWIRE_SYM(pw_properties_new)
     MA_PIPEWIRE_SYM(pw_properties_free)
@@ -33280,7 +33447,7 @@ static void ma_add_native_data_format__pipewire(ma_context_state_pipewire* pCont
         if (connectResult >= 0) {
             /* Keep looping until we've processed our channel count and sample rate. */
             while (!eventsData.done) {
-                pContextStatePipeWire->pw_loop_iterate(pLoop, 1);
+                ma_pw_loop_iterate(pLoop, 1);
             }
 
             if (eventsData.channels != 0 && eventsData.sampleRate != 0) {
@@ -33375,7 +33542,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
         if (pName != NULL) {
             /* Default devices. */
             if (strcmp(pName, "default") == 0) {
-                pEnumData->pMetadataDefault = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
+                pEnumData->pMetadataDefault = (struct ma_pw_metadata*)ma_pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
                 if (pEnumData->pMetadataDefault != NULL) {
                     MA_ZERO_OBJECT(&pEnumData->metadataListenerDefault);
     
@@ -33388,7 +33555,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
                     /*spa_api_method_r(int, -ENOTSUP, ma_pw_metadata, (struct spa_interface*)pEnumData->pMetadata, add_listener, 0, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, pEnumData);*/
                     /*pEnumData->pContextStatePipeWire->pw_metadata_add_listener(pMetadata, &pEnumData->metadataListener, &ma_gMetadataEventsPipeWire, NULL);*/
 
-                    pEnumData->seqDefaults = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                    pEnumData->seqDefaults = ma_pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
                     if (pEnumData->seqDefaults < 0) {
                         pEnumData->result = MA_ERROR;
                     }
@@ -33399,7 +33566,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
 
             /* Sample rate. */
             if (strcmp(pName, "settings") == 0) {
-                pEnumData->pMetadataSettings = (struct ma_pw_metadata*)pEnumData->pContextStatePipeWire->pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
+                pEnumData->pMetadataSettings = (struct ma_pw_metadata*)ma_pw_registry_bind(pEnumData->pRegistry, id, MA_PW_TYPE_INTERFACE_Metadata, MA_PW_VERSION_METADATA, 0);
                 if (pEnumData->pMetadataSettings != NULL) {
                     MA_ZERO_OBJECT(&pEnumData->metadataListenerSettings);
                     if (((struct ma_pw_metadata_methods*)((struct ma_spa_interface*)pEnumData->pMetadataSettings)->cb.funcs)->add_listener(pEnumData->pMetadataSettings, &pEnumData->metadataListenerSettings, &ma_gMetadataEventsPipeWire_Settings, pEnumData) < 0) {
@@ -33407,7 +33574,7 @@ static void ma_registry_event_global_add_enumeration__pipewire(void* pUserData, 
                         return;
                     }
 
-                    pEnumData->seqSettings = pEnumData->pContextStatePipeWire->pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
+                    pEnumData->seqSettings = ma_pw_core_sync(pEnumData->pCore, MA_PW_ID_CORE, 0);
                     if (pEnumData->seqSettings < 0) {
                         pEnumData->result = MA_ERROR;
                     }
@@ -33494,11 +33661,11 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     ma_timer_init(&timer);
     result = MA_ERROR;
 
-    if (pContextStatePipeWire->pw_core_add_listener(pCore, &coreListener, &ma_gCoreEventsPipeWire, &enumData) < 0) {
+    if (ma_pw_core_add_listener(pCore, &coreListener, &ma_gCoreEventsPipeWire, &enumData) < 0) {
         goto on_exit;
     }
 
-    pRegistry = pContextStatePipeWire->pw_core_get_registry(pCore, MA_PW_VERSION_REGISTRY, 0);
+    pRegistry = ma_pw_core_get_registry(pCore, MA_PW_VERSION_REGISTRY, 0);
     if (pRegistry == NULL) {
         goto on_exit;
     }
@@ -33506,7 +33673,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     enumData.pRegistry = pRegistry;
 
     MA_ZERO_OBJECT(&registeryListener);
-    if (pContextStatePipeWire->pw_registry_add_listener(pRegistry, &registeryListener, &ma_gRegistryEventsPipeWire_Enumeration, &enumData) < 0) {
+    if (ma_pw_registry_add_listener(pRegistry, &registeryListener, &ma_gRegistryEventsPipeWire_Enumeration, &enumData) < 0) {
         goto on_exit;
     }
 
@@ -33521,7 +33688,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
     is a PipeWire developer reading this, this documentation needs to be addressed. Feedback welcome if I'm misunderstanding or just
     doing something wrong here.
     */
-    enumData.seqEnumeration = pContextStatePipeWire->pw_core_sync(pCore, MA_PW_ID_CORE, 0);
+    enumData.seqEnumeration = ma_pw_core_sync(pCore, MA_PW_ID_CORE, 0);
     if (enumData.seqEnumeration < 0) {
         goto on_exit;
     }
@@ -33557,7 +33724,7 @@ static ma_result ma_context_enumerate_devices__pipewire(ma_context* pContext, ma
             iterateTimeoutInMilliseconds = 1;
         }
 
-        iterateResult = pContextStatePipeWire->pw_loop_iterate(pLoop, iterateTimeoutInMilliseconds);
+        iterateResult = ma_pw_loop_iterate(pLoop, iterateTimeoutInMilliseconds);
         if (iterateResult < 0 && iterateResult != -EINTR) {
             result = MA_ERROR;
             goto on_exit;
@@ -33704,7 +33871,7 @@ static ma_result ma_device_iterate__pipewire(ma_device_state_pipewire* pDeviceSt
     pDeviceStatePipeWire->playback.framesProcessedInIteration = 0;
     pDeviceStatePipeWire->capture.framesProcessedInIteration = 0;
 
-    result = pDeviceStatePipeWire->pContextStatePipeWire->pw_loop_iterate(pDeviceStatePipeWire->pLoop, timeout);
+    result = ma_pw_loop_iterate(pDeviceStatePipeWire->pLoop, timeout);
     if (result < 0 && result != -EINTR) {
         ma_device_set_error__pipewire(pDeviceStatePipeWire, "Event loop failed.");
     }
@@ -34101,7 +34268,7 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     pContextStatePipeWire->pw_stream_queue_buffer(pStreamState->pStream, pBuffer);
 
     /* We need to make sure the loop is woken up so we can refill the intermediary buffer in the step function. */
-    pContextStatePipeWire->pw_loop_signal_event(pDeviceStatePipeWire->pLoop, pDeviceStatePipeWire->pWakeup);
+    ma_pw_loop_signal_event(pDeviceStatePipeWire->pLoop, pDeviceStatePipeWire->pWakeup);
 }
 
 
@@ -34554,7 +34721,7 @@ static void ma_device_recover__pipewire(ma_device_state_pipewire* pDeviceStatePi
         pDeviceStatePipeWire->hasError = MA_FALSE;
         pDeviceStatePipeWire->recovery.deadlineInSeconds = nowInSeconds + 2;
 
-        if (pContextStatePipeWire->pw_core_add_listener(pDeviceStatePipeWire->pCore, &pDeviceStatePipeWire->coreListener, &ma_gDeviceCoreEventsPipeWire, pDeviceStatePipeWire) < 0) {
+        if (ma_pw_core_add_listener(pDeviceStatePipeWire->pCore, &pDeviceStatePipeWire->coreListener, &ma_gDeviceCoreEventsPipeWire, pDeviceStatePipeWire) < 0) {
             goto on_error;
         }
 
@@ -34713,9 +34880,9 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     }
 
     /* Enter the main loop before we start iterating. */
-    pContextStatePipeWire->pw_loop_enter(pLoop);
+    ma_pw_loop_enter(pLoop);
     
-    if (pContextStatePipeWire->pw_core_add_listener(pCore, &pDeviceStatePipeWire->coreListener, &ma_gDeviceCoreEventsPipeWire, pDeviceStatePipeWire) < 0) {
+    if (ma_pw_core_add_listener(pCore, &pDeviceStatePipeWire->coreListener, &ma_gDeviceCoreEventsPipeWire, pDeviceStatePipeWire) < 0) {
         result = MA_ERROR;
         goto on_error;
     }
@@ -34745,7 +34912,7 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
     }
 
     /* We need an event for waking up the loop. */
-    pDeviceStatePipeWire->pWakeup = pContextStatePipeWire->pw_loop_add_event(pLoop, (ma_spa_source_event_func_t)ma_device_on_wakeup__pipewire, pDeviceStatePipeWire);   /* Cast should be fine here. It's complaining about the difference between ma_uint64 and uint64_t. */
+    pDeviceStatePipeWire->pWakeup = ma_pw_loop_add_event(pLoop, (ma_spa_source_event_func_t)ma_device_on_wakeup__pipewire, pDeviceStatePipeWire);   /* Cast should be fine here. It's complaining about the difference between ma_uint64 and uint64_t. */
     if (pDeviceStatePipeWire->pWakeup == NULL) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to create PipeWire loop wakeup event.");
         result = MA_ERROR;
@@ -34759,7 +34926,7 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
 on_error:
     pDeviceStatePipeWire->isUninitializing = MA_TRUE;
     ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
-    pContextStatePipeWire->pw_loop_leave(pLoop);
+    ma_pw_loop_leave(pLoop);
     pContextStatePipeWire->pw_context_destroy(pPipeWireContext);
     pContextStatePipeWire->pw_loop_destroy(pLoop);
 
@@ -34777,7 +34944,7 @@ static void ma_device_uninit__pipewire(ma_device* pDevice)
     ma_device_uninit_connection__pipewire(pDeviceStatePipeWire);
 
     /* This will be called from the same thread that called ma_device_init__pipewire() and is therefore an appropriate place to leave the main loop. */
-    pContextStatePipeWire->pw_loop_leave(pDeviceStatePipeWire->pLoop);
+    ma_pw_loop_leave(pDeviceStatePipeWire->pLoop);
     pContextStatePipeWire->pw_context_destroy(pDeviceStatePipeWire->pContext);
     pContextStatePipeWire->pw_loop_destroy(pDeviceStatePipeWire->pLoop);
 
@@ -34913,9 +35080,8 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
 static void ma_device_wakeup__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
-    ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
 
-    pContextStatePipeWire->pw_loop_signal_event(pDeviceStatePipeWire->pLoop, pDeviceStatePipeWire->pWakeup);
+    ma_pw_loop_signal_event(pDeviceStatePipeWire->pLoop, pDeviceStatePipeWire->pWakeup);
 }
 
 
