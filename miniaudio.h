@@ -33834,7 +33834,42 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
     if ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY) == 0) {
         struct ma_pw_time time;
 
-        pContextStatePipeWire->pw_stream_get_time_n(pStreamState->pStream, &time, sizeof(time));
+        MA_ZERO_OBJECT(&time);
+
+        if (pContextStatePipeWire->pw_stream_get_time_n(pStreamState->pStream, &time, sizeof(time)) < 0) {
+            time.size = 0;
+        }
+
+        /* Older PipeWire runtimes do not write time.size. Use the buffer's frame count instead. */
+        if (time.size == 0) {
+            pBuffer = pContextStatePipeWire->pw_stream_dequeue_buffer(pStreamState->pStream);
+            if (pBuffer == NULL) {
+                return;
+            }
+
+            if (pBuffer->buffer != NULL && pBuffer->buffer->n_datas > 0) {
+                bytesPerFrame = ma_get_bytes_per_frame(pStreamState->format, pStreamState->channels);
+
+                if (deviceType == ma_device_type_playback) {
+                    time.size = pBuffer->buffer->datas[0].maxsize / bytesPerFrame;
+                    if (pBuffer->requested > 0) {
+                        time.size = ma_min(time.size, pBuffer->requested);
+                    }
+
+                    /* No audio is produced during initialization. */
+                    if (pBuffer->buffer->datas[0].chunk != NULL) {
+                        pBuffer->buffer->datas[0].chunk->size = 0;
+                    }
+                } else if (pBuffer->buffer->datas[0].chunk != NULL) {
+                    time.size = ma_min(pBuffer->buffer->datas[0].chunk->size, pBuffer->buffer->datas[0].maxsize) / bytesPerFrame;
+                }
+            }
+
+            pContextStatePipeWire->pw_stream_queue_buffer(pStreamState->pStream, pBuffer);
+            if (time.size == 0) {
+                return; /* Wait for a buffer with a usable size. */
+            }
+        }
 
         if (pStreamState->rbSizeInFrames > 0) {
             if (ma_device_get_threading_mode(pDeviceStatePipeWire->pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
@@ -33855,6 +33890,11 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
         }
 
         pStreamState->initStatus |= MA_PIPEWIRE_INIT_STATUS_HAS_LATENCY;
+        return;
+    }
+
+    /* Queuing the sizing buffer can trigger another callback before initialization finishes. */
+    if ((pStreamState->initStatus & MA_PIPEWIRE_INIT_STATUS_INITIALIZED) == 0) {
         return;
     }
 
