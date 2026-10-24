@@ -33896,8 +33896,10 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
                     }
 
                     /* No audio is produced during initialization. */
+                    pBuffer->size = 0;
                     if (pBuffer->buffer->datas[0].chunk != NULL) {
                         pBuffer->buffer->datas[0].chunk->size = 0;
+                        pBuffer->buffer->datas[0].chunk->stride = bytesPerFrame;
                     }
                 } else if (pBuffer->buffer->datas[0].chunk != NULL) {
                     time.size = ma_min(pBuffer->buffer->datas[0].chunk->size, pBuffer->buffer->datas[0].maxsize) / bytesPerFrame;
@@ -33979,6 +33981,12 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
         if (ma_stream_grow_ring_buffer__pipewire(pStreamState, requiredSizeInFrames) != MA_SUCCESS) {
             pBuffer->buffer->datas[0].chunk->offset = 0;
             pBuffer->buffer->datas[0].chunk->size = 0;
+
+            if (deviceType == ma_device_type_playback) {
+                pBuffer->size = 0;
+                pBuffer->buffer->datas[0].chunk->stride = bytesPerFrame;
+            }
+
             pContextStatePipeWire->pw_stream_queue_buffer(pStreamState->pStream, pBuffer);
             ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to grow stream ring buffer.");
             return;
@@ -34026,6 +34034,11 @@ static void ma_stream_event_process__pipewire(void* pUserData, ma_device_type de
 
     pBuffer->buffer->datas[0].chunk->offset = 0;
     pBuffer->buffer->datas[0].chunk->size   = frameCount * bytesPerFrame;
+    
+    if (deviceType == ma_device_type_playback) {
+        pBuffer->size = frameCount;
+        pBuffer->buffer->datas[0].chunk->stride = bytesPerFrame;
+    }
 
     pContextStatePipeWire->pw_stream_queue_buffer(pStreamState->pStream, pBuffer);
 
