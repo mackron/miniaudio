@@ -33036,34 +33036,35 @@ typedef struct
     const ma_uint32* pChannelPositions;
 } ma_pipewire_audio_info;
 
-static void ma_pipewire_audio_info_parse(const struct ma_spa_pod* pParam, ma_log* pLog, ma_pipewire_audio_info* pAudioInfo)
+static ma_result ma_pipewire_audio_info_parse(const struct ma_spa_pod* pParam, ma_log* pLog, ma_pipewire_audio_info* pAudioInfo)
 {
     struct ma_spa_pod_object* pObject;
     struct ma_spa_pod_prop* pNextProp;
     ma_uint8* ptr = (ma_uint8*)pParam;
-    ma_uint32 cursor = 0;
-    ma_uint32 size;
+    ma_uint64 cursor = 0;
+    ma_uint64 size;
+    ma_uint32 channelPositionCount = 0;
 
     MA_ZERO_OBJECT(pAudioInfo);
 
     if (pParam == NULL) {
-        return;
+        return MA_INVALID_DATA;
     }
 
     if (pParam->type != MA_SPA_TYPE_Object || pParam->size < sizeof(struct ma_spa_pod_object_body)) {
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid pod type).");
-        return;
+        return MA_INVALID_DATA;
     }
 
     pObject = (struct ma_spa_pod_object*)pParam;
 
     /* The size of the pod does not include the header which makes parsing kind of annoying for us. We'll add it here. */
-    size = pParam->size + sizeof(struct ma_spa_pod);
+    size = (ma_uint64)pParam->size + sizeof(struct ma_spa_pod);
     cursor += sizeof(struct ma_spa_pod);
     
     if (pObject->body.type != MA_SPA_TYPE_OBJECT_Format) {
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid body type).");
-        return;
+        return MA_INVALID_DATA;
     }
 
     cursor += sizeof(struct ma_spa_pod_object_body);
@@ -33071,16 +33072,45 @@ static void ma_pipewire_audio_info_parse(const struct ma_spa_pod* pParam, ma_log
     /* At this point we have parsed the header part of the object, and what follows now should be a list of properties. */
     while (cursor < size) {
         struct ma_spa_pod* pPropValue;
+        ma_uint64 valueSize;
 
         pNextProp = (struct ma_spa_pod_prop*)(ptr + cursor);
-        if (cursor + sizeof(struct ma_spa_pod_prop) > size) {
+        if (sizeof(struct ma_spa_pod_prop) > size - cursor) {
             ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid size for property).");
-            return;
+            return MA_INVALID_DATA;
         }
 
         /* Place the cursor on the prop value, which is a spa_pod. */
         cursor += 8;    /* Size of the key and flags. */
         pPropValue = (struct ma_spa_pod*)(ptr + cursor);
+
+        valueSize = ma_align_64((ma_uint64)sizeof(struct ma_spa_pod) + pPropValue->size);
+        if (valueSize > size - cursor) {
+            goto invalid_data;
+        }
+
+        if (pNextProp->key == MA_SPA_FORMAT_AUDIO_format || pNextProp->key == MA_SPA_FORMAT_AUDIO_channels || pNextProp->key == MA_SPA_FORMAT_AUDIO_rate) {
+            ma_uint32 expectedType;
+
+            expectedType = MA_SPA_TYPE_Int;
+            if (pNextProp->key == MA_SPA_FORMAT_AUDIO_format) {
+                expectedType = MA_SPA_TYPE_Id;
+            }
+
+            if (pPropValue->type == MA_SPA_TYPE_Choice) {
+                const struct ma_spa_pod_choice* pChoice = (const struct ma_spa_pod_choice*)pPropValue;
+
+                if (pPropValue->size < sizeof(struct ma_spa_pod_choice_body) + sizeof(ma_uint32)) {
+                    goto invalid_data;
+                }
+
+                if (pChoice->body.child.type != expectedType || pChoice->body.child.size != sizeof(ma_uint32)) {
+                    goto invalid_data;
+                }
+            } else if (pPropValue->type != expectedType || pPropValue->size < sizeof(ma_uint32)) {
+                goto invalid_data;
+            }
+        }
 
         switch (pNextProp->key)
         {
@@ -33104,15 +33134,42 @@ static void ma_pipewire_audio_info_parse(const struct ma_spa_pod* pParam, ma_log
                 /* I'm assuming we can only get an array back for this. */
                 if (pPropValue->type != MA_SPA_TYPE_Array) {
                     ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid type for position property).");
-                    return;
+                    return MA_INVALID_DATA;
                 }
 
-                pAudioInfo->pChannelPositions = (const ma_uint32*)ma_spa_pod_array_get_values((const struct ma_spa_pod_array*)pPropValue);
+                if (pPropValue->size < sizeof(struct ma_spa_pod_array_body)) {
+                    goto invalid_data;
+                }
+
+                {
+                    const struct ma_spa_pod_array* pArray = (const struct ma_spa_pod_array*)pPropValue;
+
+                    if (pArray->body.child.type != MA_SPA_TYPE_Id || pArray->body.child.size != sizeof(ma_uint32)) {
+                        goto invalid_data;
+                    }
+
+                    channelPositionCount = (pPropValue->size - sizeof(struct ma_spa_pod_array_body)) / sizeof(ma_uint32);
+                    pAudioInfo->pChannelPositions = (const ma_uint32*)ma_spa_pod_array_get_values(pArray);
+                }
             } break;
         }
 
-        cursor += ma_align_64(8 + pPropValue->size);    /* Size of the value pod header + the size of the pod itself. */
+        cursor += valueSize;    /* Size of the value pod header + the size of the pod itself. */
     }
+
+    if (ma_format_from_pipewire(pAudioInfo->format) == ma_format_unknown || pAudioInfo->channels == 0 || pAudioInfo->channels > MA_MAX_CHANNELS || (ma_int32)pAudioInfo->sampleRate <= 0) {
+        goto invalid_data;
+    }
+
+    if (channelPositionCount < pAudioInfo->channels) {
+        pAudioInfo->pChannelPositions = NULL;
+    }
+
+    return MA_SUCCESS;
+
+invalid_data:
+    ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "Failed to parse PipeWire format parameter (invalid property data).");
+    return MA_INVALID_DATA;
 }
 
 
@@ -33150,7 +33207,9 @@ static void ma_stream_event_param_changed_enumeration__pipewire(void* pUserData,
 
     if (id == MA_SPA_PARAM_Format) {
         ma_pipewire_audio_info audioInfo;
-        ma_pipewire_audio_info_parse(pParam, pData->pLog, &audioInfo);
+        if (ma_pipewire_audio_info_parse(pParam, pData->pLog, &audioInfo) != MA_SUCCESS) {
+            return;
+        }
 
         pData->channels   = audioInfo.channels;
         pData->sampleRate = audioInfo.sampleRate;
@@ -33723,7 +33782,10 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         }
         #endif
         {
-            ma_pipewire_audio_info_parse(pParam, pContextStatePipeWire->pLog, &audioInfo);
+            if (ma_pipewire_audio_info_parse(pParam, pContextStatePipeWire->pLog, &audioInfo) != MA_SUCCESS) {
+                ma_device_set_error__pipewire(pDeviceStatePipeWire, "Invalid stream format.");
+                return;
+            }
         }
 
         /* Now that we definitely know the sample rate, we can reliably configure the size of the buffer. */
