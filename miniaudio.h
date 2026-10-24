@@ -32246,6 +32246,7 @@ typedef struct
     struct ma_spa_hook coreListener;
     ma_bool32 hasError;          /* Accessed only from the thread that iterates the device loop. */
     ma_bool32 isUninitializing;
+    ma_device_state_silence silence;
     struct spa_source* pWakeup; /* This is for waking up the loop which we need to do after each data processing callback and the miniaudio wakeup callback. */
     ma_pipewire_stream_state playback;
     ma_pipewire_stream_state capture;
@@ -33357,6 +33358,12 @@ static void ma_device_set_error__pipewire(ma_device_state_pipewire* pDeviceState
     }
 
     pDeviceStatePipeWire->hasError = MA_TRUE;
+
+    /* Real processing callbacks are now disabled. Start the silent clock at the time of failure. */
+    if (pDeviceStatePipeWire->silence.internal.pBuffer != NULL) {
+        ma_device_state_silence_reset(&pDeviceStatePipeWire->silence);
+    }
+
     if (pMessage == NULL) {
         pMessage = "Device connection failed.";
     }
@@ -33983,6 +33990,12 @@ static ma_result ma_device_init__pipewire(ma_device* pDevice, const void* pDevic
         goto on_error;
     }
 
+    /* Prepare fallback buffers now so a connection failure does not require an allocation. */
+    result = ma_device_state_silence_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStatePipeWire->silence);
+    if (result != MA_SUCCESS) {
+        goto on_error;
+    }
+
     /* We need an event for waking up the loop. */
     pDeviceStatePipeWire->pWakeup = pContextStatePipeWire->pw_loop_add_event(pLoop, (ma_spa_source_event_func_t)ma_device_on_wakeup__pipewire, pDeviceStatePipeWire);   /* Cast should be fine here. It's complaining about the difference between ma_uint64 and uint64_t. */
     if (pDeviceStatePipeWire->pWakeup == NULL) {
@@ -34016,6 +34029,7 @@ on_error:
         ma_audio_ring_buffer_uninit(&pDeviceStatePipeWire->playback.rb);
     }
 
+    ma_device_state_silence_uninit(&pDeviceStatePipeWire->silence, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
     return result;
 }
@@ -34054,6 +34068,7 @@ static void ma_device_uninit__pipewire(ma_device* pDevice)
         }
     }
 
+    ma_device_state_silence_uninit(&pDeviceStatePipeWire->silence, ma_device_get_allocation_callbacks(pDevice));
     ma_free(pDeviceStatePipeWire, ma_device_get_allocation_callbacks(pDevice));
 }
 
@@ -34063,25 +34078,23 @@ static ma_result ma_device_start__pipewire(ma_device* pDevice)
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
 
-    /* Process pending events before starting so a disconnected device cannot report success. */
+    /* Process pending events before starting. A disconnected device starts with silent processing. */
     if (ma_device_iterate__pipewire(pDeviceStatePipeWire, 0) != MA_SUCCESS) {
-        ma_device_set_errored(pDevice);
-        return MA_ERROR;
+        ma_device_state_silence_reset(&pDeviceStatePipeWire->silence);
+        return MA_SUCCESS;
     }
 
     if (pDeviceStatePipeWire->capture.pStream != NULL) {
         if (pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->capture.pStream, MA_TRUE) < 0) {
             ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to activate capture stream.");
-            ma_device_set_errored(pDevice);
-            return MA_ERROR;
+            return MA_SUCCESS;
         }
     }
 
     if (pDeviceStatePipeWire->playback.pStream != NULL) {
         if (pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->playback.pStream, MA_TRUE) < 0) {
             ma_device_set_error__pipewire(pDeviceStatePipeWire, "Failed to activate playback stream.");
-            ma_device_set_errored(pDevice);
-            return MA_ERROR;
+            return MA_SUCCESS;
         }
     }
 
@@ -34092,6 +34105,10 @@ static ma_result ma_device_stop__pipewire(ma_device* pDevice)
 {
     ma_device_state_pipewire* pDeviceStatePipeWire = ma_device_get_backend_state__pipewire(pDevice);
     ma_context_state_pipewire* pContextStatePipeWire = ma_context_get_backend_state__pipewire(ma_device_get_context(pDevice));
+
+    if (pDeviceStatePipeWire->hasError) {
+        return MA_SUCCESS;
+    }
 
     if (pDeviceStatePipeWire->capture.pStream != NULL) {
         pContextStatePipeWire->pw_stream_set_active(pDeviceStatePipeWire->capture.pStream, MA_FALSE);
@@ -34120,8 +34137,7 @@ static ma_result ma_device_step__pipewire(ma_device* pDevice, ma_blocking_mode b
     /* We will keep looping until we've processed some data. This should keep our stepping in time with data processing. */
     for (;;) {
         if (ma_device_iterate__pipewire(pDeviceStatePipeWire, timeout) != MA_SUCCESS) {
-            ma_device_set_errored(pDevice);
-            return MA_ERROR;
+            return ma_device_state_silence_step(&pDeviceStatePipeWire->silence, pDevice, blockingMode);
         }
 
         if (!ma_device_is_started(pDevice)) {
