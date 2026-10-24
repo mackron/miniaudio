@@ -31183,6 +31183,7 @@ PipeWire Backend
 #define MA_SPA_AUDIO_FORMAT_F32_LE          SPA_AUDIO_FORMAT_F32_LE
 #define MA_SPA_AUDIO_FORMAT_F32_BE          SPA_AUDIO_FORMAT_F32_BE
 
+#define MA_SPA_AUDIO_CHANNEL_UNKNOWN        SPA_AUDIO_CHANNEL_UNKNOWN
 #define MA_SPA_AUDIO_CHANNEL_MONO           SPA_AUDIO_CHANNEL_MONO
 #define MA_SPA_AUDIO_CHANNEL_FL             SPA_AUDIO_CHANNEL_FL
 #define MA_SPA_AUDIO_CHANNEL_FR             SPA_AUDIO_CHANNEL_FR
@@ -32549,7 +32550,7 @@ static void ma_backend_info__pipewire(ma_device_backend_info* pBackendInfo)
         }
 #else
     #define MA_PIPEWIRE_SYM(functionName) \
-        pContextStatePipeWire->functionName = pContextStatePipeWire->functionName;
+        pContextStatePipeWire->functionName = functionName;
 #endif
 
 static ma_result ma_context_init__pipewire(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
