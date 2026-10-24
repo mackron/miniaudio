@@ -35296,28 +35296,52 @@ static void ma_device_source_info_callback(ma_pa_context* pPulseContext, const m
 }
 
 
-static ma_result ma_context_get_sink_info__pulseaudio(ma_context_state_pulseaudio* pContextStatePulseAudio, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
+static ma_result ma_context_get_sink_info__pulseaudio(ma_context_state_pulseaudio* pContextStatePulseAudio, ma_pa_mainloop* pMainLoop, ma_pa_context* pPulseContext, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
 {
     ma_pa_operation* pOP;
+    ma_result result;
 
-    pOP = pContextStatePulseAudio->pa_context_get_sink_info_by_name(pContextStatePulseAudio->pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
+    MA_ZERO_OBJECT(pSinkInfo);
+
+    pOP = pContextStatePulseAudio->pa_context_get_sink_info_by_name(pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
     if (pOP == NULL) {
         return MA_ERROR;
     }
 
-    return ma_wait_for_operation_and_unref__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pOP);
+    result = ma_wait_for_operation_and_unref__pulseaudio(pContextStatePulseAudio, pMainLoop, pOP);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pSinkInfo->sample_spec.channels == 0) {
+        return MA_NO_DEVICE;
+    }
+
+    return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_source_info__pulseaudio(ma_context_state_pulseaudio* pContextStatePulseAudio, const char* pDeviceName, ma_pa_source_info* pSourceInfo)
+static ma_result ma_context_get_source_info__pulseaudio(ma_context_state_pulseaudio* pContextStatePulseAudio, ma_pa_mainloop* pMainLoop, ma_pa_context* pPulseContext, const char* pDeviceName, ma_pa_source_info* pSourceInfo)
 {
     ma_pa_operation* pOP;
+    ma_result result;
 
-    pOP = pContextStatePulseAudio->pa_context_get_source_info_by_name(pContextStatePulseAudio->pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
+    MA_ZERO_OBJECT(pSourceInfo);
+
+    pOP = pContextStatePulseAudio->pa_context_get_source_info_by_name(pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
     if (pOP == NULL) {
         return MA_ERROR;
     }
 
-    return ma_wait_for_operation_and_unref__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pOP);
+    result = ma_wait_for_operation_and_unref__pulseaudio(pContextStatePulseAudio, pMainLoop, pOP);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pSourceInfo->sample_spec.channels == 0) {
+        return MA_NO_DEVICE;
+    }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_context_get_default_device_index__pulseaudio(ma_context_state_pulseaudio* pContextStatePulseAudio, ma_device_type deviceType, ma_uint32* pIndex)
@@ -35333,7 +35357,7 @@ static ma_result ma_context_get_default_device_index__pulseaudio(ma_context_stat
 
     if (deviceType == ma_device_type_playback) {
         ma_pa_sink_info sinkInfo;
-        result = ma_context_get_sink_info__pulseaudio(pContextStatePulseAudio, NULL, &sinkInfo);
+        result = ma_context_get_sink_info__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pContextStatePulseAudio->pPulseContext, NULL, &sinkInfo);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -35345,7 +35369,7 @@ static ma_result ma_context_get_default_device_index__pulseaudio(ma_context_stat
 
     if (deviceType == ma_device_type_capture) {
         ma_pa_source_info sourceInfo;
-        result = ma_context_get_source_info__pulseaudio(pContextStatePulseAudio, NULL, &sourceInfo);
+        result = ma_context_get_source_info__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pContextStatePulseAudio->pPulseContext, NULL, &sourceInfo);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -36135,7 +36159,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        result = ma_context_get_source_info__pulseaudio(pContextStatePulseAudio, devCapture, &sourceInfo);
+        result = ma_context_get_source_info__pulseaudio(pContextStatePulseAudio, pDeviceStatePulseAudio->pMainLoop, pDeviceStatePulseAudio->pPulseContext, devCapture, &sourceInfo);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve source info for capture device.");
             goto on_error0;
@@ -36298,7 +36322,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        result = ma_context_get_sink_info__pulseaudio(pContextStatePulseAudio, devPlayback, &sinkInfo);
+        result = ma_context_get_sink_info__pulseaudio(pContextStatePulseAudio, pDeviceStatePulseAudio->pMainLoop, pDeviceStatePulseAudio->pPulseContext, devPlayback, &sinkInfo);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve sink info for playback device.");
             goto on_error2;
@@ -92136,7 +92160,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
     ma_bool8 foundChunk_data = MA_FALSE;
     ma_bool8 isAIFCFormType = MA_FALSE;
     ma_uint64 aiffFrameCount = 0;
-    ma_int64 fileSize;
+    ma_int64 fileSize = 0;
     ma_bool32 hasKnownFileSize = MA_FALSE;
     cursor = 0;
     sequential = (flags & MA_DR_WAV_SEQUENTIAL) != 0;
@@ -98304,7 +98328,7 @@ static ma_bool32 ma_dr_flac__decode_samples_with_residual__rice__neon_64(ma_dr_f
     int32x4_t riceParam128;
     int64x1_t shift64;
     uint32x4_t one128;
-    int64x2_t prediction128 = { 0 };
+    int64x2_t prediction128;
     uint32x4_t zeroCountPart128;
     uint32x4_t riceParamPart128;
     const ma_uint32 t[2] = {0x00000000, 0xFFFFFFFF};
@@ -98377,7 +98401,7 @@ static ma_bool32 ma_dr_flac__decode_samples_with_residual__rice__neon_64(ma_dr_f
         riceParamPart128 = veorq_u32(vshrq_n_u32(riceParamPart128, 1), vaddq_u32(ma_dr_flac__vnotq_u32(vandq_u32(riceParamPart128, one128)), one128));
         for (i = 0; i < 4; i += 1) {
             int64x1_t prediction64;
-            prediction128 = veorq_s64(prediction128, prediction128);
+            prediction128 = vdupq_n_s64(0);
             switch (order)
             {
             case 12:
@@ -99800,7 +99824,7 @@ static ma_bool32 ma_dr_flac__read_and_decode_metadata(ma_dr_flac_read_proc onRea
                         pSeekpoint->pcmFrameCount   = ma_dr_flac__be2host_16(pSeekpoint->pcmFrameCount);
                     }
                     metadata.pRawData = pRawData;
-                    metadata.rawDataSize = rawDataSize;
+                    metadata.rawDataSize = (ma_uint32)rawDataSize;
                     metadata.data.seektable.seekpointCount = seekpointCount;
                     metadata.data.seektable.pSeekpoints = (const ma_dr_flac_seekpoint*)pRawData;
                     onMeta(pUserDataMD, &metadata);
