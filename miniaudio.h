@@ -8017,6 +8017,7 @@ struct ma_device
             /*AAudioStream**/ ma_ptr pStreamCapture;
             ma_mutex rerouteLock;
             ma_atomic_bool32 isTearingDown;
+            MA_ATOMIC(4, ma_uint32) pendingReroutes;    /* Reroute jobs posted and not yet finished. Must be used atomically. ma_device_uninit() waits for this to reach zero. */
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
@@ -39447,9 +39448,17 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     When we get an error, we'll assume that the stream is in an erroneous state and needs to be restarted. From the documentation,
     we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
     cleanly and safely.
+
+    The job is counted before isTearingDown is checked. ma_device_uninit__aaudio() sets isTearingDown and
+    then waits for the count to drain, so either it sees this job and waits for it, or we see the flag here
+    and post nothing. Without this a job still queued when the device is uninitialized would lock the
+    destroyed rerouteLock.
     */
+    ma_atomic_fetch_add_32(&pDevice->aaudio.pendingReroutes, 1);
+
     if (ma_atomic_bool32_get(&pDevice->aaudio.isTearingDown)) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Tearing down device.\n");
+        ma_atomic_fetch_sub_32(&pDevice->aaudio.pendingReroutes, 1);
     }
     else {
         job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
@@ -39464,6 +39473,7 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
         result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
         if (result != MA_SUCCESS) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
+            ma_atomic_fetch_sub_32(&pDevice->aaudio.pendingReroutes, 1);
             return;
         }
     }
@@ -39804,6 +39814,15 @@ static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
     We must not schedule a reroute when device is getting destroyed.
     */
     ma_atomic_bool32_set(&pDevice->aaudio.isTearingDown, MA_TRUE);
+
+    /*
+    A reroute job can still be queued on the job thread, or be waiting for rerouteLock. It dereferences the
+    device and locks rerouteLock, so it must finish before the lock is destroyed below. With isTearingDown
+    set it returns without reinitializing anything, and no new job can be posted.
+    */
+    while (ma_atomic_load_32(&pDevice->aaudio.pendingReroutes) > 0) {
+        ma_sleep(1);
+    }
 
     /* Wait for any rerouting to finish before attempting to close the streams. */
     ma_mutex_lock(&pDevice->aaudio.rerouteLock);
@@ -40348,6 +40367,9 @@ static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
         }
     }
     ma_mutex_unlock(&pDevice->aaudio.rerouteLock);
+
+    /* Must be the last access to pDevice: once the count reaches zero ma_device_uninit() may proceed. */
+    ma_atomic_fetch_sub_32(&pDevice->aaudio.pendingReroutes, 1);
 
     return result;
 }
