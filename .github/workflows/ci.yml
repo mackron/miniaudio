@@ -34,7 +34,6 @@ jobs:
               -DMINIAUDIO_FORCE_C89=ON
               -DMINIAUDIO_BUILD_EXAMPLES=ON
               -DMINIAUDIO_BUILD_TESTS=ON
-            continue_on_error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +140,6 @@ jobs:
               -DMINIAUDIO_FORCE_C89=ON
               -DMINIAUDIO_BUILD_EXAMPLES=ON
               -DMINIAUDIO_BUILD_TESTS=ON
-            continue_on_error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -191,15 +189,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Android NDK
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
 
       - name: Configure CMake
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake
+          TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake"
           cmake -B build \
-            -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE \
+            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
             -DANDROID_ABI=${{ matrix.arch }} \
             -DANDROID_PLATFORM=android-21 \
             ${{ matrix.config.cmake_args }}
@@ -280,7 +281,6 @@ jobs:
         config:
           - name: "No SSE2"
             cmake_args: "-DMINIAUDIO_NO_SSE2=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
-            continue_on_error: true
           - name: "No Threading"
             cmake_args: "-DMINIAUDIO_NO_THREADING=ON -DMINIAUDIO_NO_DEVICEIO=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
           - {name: "No Decoding", cmake_args: "-DMINIAUDIO_NO_DECODING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
