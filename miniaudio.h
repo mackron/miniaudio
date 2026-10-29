@@ -41660,6 +41660,17 @@ Web Audio Backend
 #ifdef MA_HAS_WEBAUDIO
 #include <emscripten/emscripten.h>
 
+/* Emscripten's inline JavaScript syntax uses extensions to standard C and C++. */
+#if defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdollar-in-identifier-extension"
+    #if __has_warning("-Wvariadic-macro-arguments-omitted")
+        #pragma clang diagnostic ignored "-Wvariadic-macro-arguments-omitted"
+    #else
+        #pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+    #endif
+#endif
+
 #ifndef MA_EMSCRIPTEN_MAJOR
     #if defined(__EMSCRIPTEN_MAJOR__)
         #define MA_EMSCRIPTEN_MAJOR __EMSCRIPTEN_MAJOR__
@@ -42619,6 +42630,9 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
 
     return MA_SUCCESS;
 }
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#endif
 #endif  /* MA_HAS_WEBAUDIO */
 
 
