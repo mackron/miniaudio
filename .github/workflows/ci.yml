@@ -36,7 +36,7 @@ jobs:
               -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -82,20 +82,16 @@ jobs:
               -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSVC
-        if: matrix.compiler == 'msvc'
-        uses: ilammy/msvc-dev-cmd@v1
+      - uses: actions/checkout@v7
 
       - name: Setup MinGW
         if: matrix.compiler == 'mingw'
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
-            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-make
 
       - name: Configure CMake (MSVC)
         if: matrix.compiler == 'msvc'
@@ -142,7 +138,7 @@ jobs:
               -DMINIAUDIO_BUILD_TESTS=ON
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure CMake
         run: cmake -B build ${{ matrix.config.cmake_args }}
@@ -161,10 +157,10 @@ jobs:
             cmake_args: "-DMINIAUDIO_BUILD_TESTS=ON"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
         with:
           version: latest
 
@@ -186,7 +182,7 @@ jobs:
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Android NDK
         id: setup-ndk
@@ -218,7 +214,7 @@ jobs:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Test on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
@@ -239,7 +235,7 @@ jobs:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Test on OpenBSD
         uses: vmactions/openbsd-vm@v1
         with:
@@ -260,7 +256,7 @@ jobs:
         config:
           - {name: "Default", cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Test on NetBSD
         uses: vmactions/netbsd-vm@v1
         with:
@@ -287,7 +283,7 @@ jobs:
           - {name: "No Encoding", cmake_args: "-DMINIAUDIO_NO_ENCODING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure CMake
         run: cmake -B build ${{ matrix.config.cmake_args }}
