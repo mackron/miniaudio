@@ -41706,7 +41706,7 @@ Web Audio Backend
 #define MA_WEBAUDIO_LATENCY_HINT_PLAYBACK       "playback"
 #endif
 
-static ma_bool32 ma_is_capture_supported__webaudio()
+static ma_bool32 ma_is_capture_supported__webaudio(void)
 {
     return EM_ASM_INT({
         return (navigator.mediaDevices !== undefined && navigator.mediaDevices.getUserMedia !== undefined);
