@@ -13005,21 +13005,6 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 }
 
 
-#if defined(MA_ANDROID) && (defined(MA_HAS_AAUDIO) || defined(MA_HAS_OPENSL))
-#include <sys/system_properties.h>
-
-static int ma_android_sdk_version(void)
-{
-    char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
-    if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
-        return atoi(sdkVersion);
-    }
-
-    return 0;
-}
-#endif
-
-
 #ifndef MA_COINIT_VALUE
 #define MA_COINIT_VALUE    0   /* 0 = COINIT_MULTITHREADED */
 #endif
@@ -20880,6 +20865,21 @@ BACKENDS
 END BACKENDS
 
 ************************************************************************************************************************************************************/
+
+#if defined(MA_ANDROID) && (defined(MA_HAS_AAUDIO) || defined(MA_HAS_OPENSL))
+#include <sys/system_properties.h>
+
+static int ma_android_sdk_version(void)
+{
+    char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
+    if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
+        return atoi(sdkVersion);
+    }
+
+    return 0;
+}
+#endif
+
 
 MA_API void ma_device_info_add_native_data_format_ex(ma_device_info* pDeviceInfo, ma_uint32 flags, ma_format format, ma_uint32 minChannels, ma_uint32 maxChannels, ma_uint32 minSampleRate, ma_uint32 maxSampleRate)
 {
