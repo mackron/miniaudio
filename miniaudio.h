@@ -20297,7 +20297,7 @@ static void ma_device__on_notification_stopped(ma_device* pDevice)
 }
 
 /* Not all platforms support reroute notifications. */
-#if !defined(MA_EMSCRIPTEN)
+#if !defined(MA_EMSCRIPTEN) && !defined(MA_BSD)
 static void ma_device__on_notification_rerouted(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_rerouted));
