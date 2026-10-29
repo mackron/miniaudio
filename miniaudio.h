@@ -38127,10 +38127,6 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
         "/dev/audio",
         "/dev/audio0"
     };
-    const char* pDefaultDeviceCtlNames[] = {
-        "/dev/audioctl",
-        "/dev/audioctl0"
-    };
     int fd;
     int fdFlags = 0;
     size_t iDefaultDevice = (size_t)-1;
@@ -38183,6 +38179,10 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
 
     #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
     {
+        const char* pDefaultDeviceCtlNames[] = {
+            "/dev/audioctl",
+            "/dev/audioctl0"
+        };
         audio_info_t fdInfo;
         int fdInfoResult = -1;
 
