@@ -149,6 +149,7 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
     #else
     {
         /* libvorbis is disabled. */
+        (void)g_ma_libvorbis_ds_vtable;
         (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
