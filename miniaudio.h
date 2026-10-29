@@ -20869,6 +20869,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                     for (;;) {
                         ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                         ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                        ma_uint64 playbackClientFramesProcessed = 0;
                         ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format,  pDevice->capture.channels);
                         ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
                         ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
@@ -20898,7 +20899,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                         for (;;) {
                             ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
                             ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
-                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
+                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, ma_offset_pcm_frames_ptr(playbackClientData, playbackClientFramesProcessed, pDevice->playback.format, pDevice->playback.channels), &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
                             if (result != MA_SUCCESS) {
                                 break;
                             }
@@ -20909,7 +20910,8 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                                 break;
                             }
 
-                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            playbackClientFramesProcessed += convertedClientFrameCount;
+                            capturedClientFramesToProcessThisIteration -= convertedClientFrameCount;
                             if (capturedClientFramesToProcessThisIteration == 0) {
                                 break;
                             }
