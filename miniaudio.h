@@ -12182,7 +12182,7 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 }
 
 
-#ifdef MA_ANDROID
+#if defined(MA_ANDROID) && (defined(MA_HAS_AAUDIO) || defined(MA_HAS_OPENSL))
 #include <sys/system_properties.h>
 
 static int ma_android_sdk_version(void)
