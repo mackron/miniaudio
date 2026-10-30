@@ -25348,7 +25348,6 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
 static ma_result ma_device_start_internal__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
-    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     HRESULT hr;
 
     /*
@@ -25400,7 +25399,6 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
 static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
-    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     ma_result result;
     HRESULT hr;
 
@@ -25511,8 +25509,6 @@ static ma_result ma_device_stop_client_by_type__wasapi(ma_device* pDevice, ma_de
 
 static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 {
-    ma_device_state_wasapi* pDeviceStateWASAPI = ma_device_get_backend_state__wasapi(pDevice);
-    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(ma_device_get_context(pDevice));
     ma_result result;
 
     MA_ASSERT(pDevice != NULL);
@@ -28532,10 +28528,7 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         MA_MMRESULT resultMM;
-        MA_WAVEHDR* pWAVEHDR;
         ma_uint32 iPeriod;
-
-        pWAVEHDR = pDeviceStateWinMM->pWAVEHDRCapture;
 
         /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
         ResetEvent(pDeviceStateWinMM->hEventCapture);
@@ -28584,14 +28577,12 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint32 iPeriod;
-        MA_WAVEHDR* pWAVEHDR;
 
         if (pDeviceStateWinMM->hDevicePlayback == NULL) {
             return MA_INVALID_ARGS;
         }
 
         /* We need to drain the device. To do this we just loop over each header and if it's locked just wait for the event. */
-        pWAVEHDR = pDeviceStateWinMM->pWAVEHDRPlayback;
         for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
             if (WaitForSingleObject(pDeviceStateWinMM->hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                 break;  /* An error occurred so just abandon ship and stop the device without draining. */
