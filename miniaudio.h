@@ -24578,7 +24578,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
     /* Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode. */
     if (shareMode == MA_AUDCLNT_SHAREMODE_EXCLUSIVE) {
-        MA_REFERENCE_TIME bufferDuration = bufferDuration = periodDurationInMicroseconds * 10;
+        MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * 10;
         MA_REFERENCE_TIME minPeriod = 0;
 
         /* There is no notion of a period in Exclusive mode. Set this to 1. */
