@@ -20974,6 +20974,7 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
 #define MA_DSERR_OBJECTNOTFOUND                   ((HRESULT)0x88781161)
 #define MA_DSERR_FXUNAVAILABLE                    ((HRESULT)0x887800DC)
 
+#if defined(MA_HAS_WASAPI) || defined(MA_HAS_DSOUND)
 static ma_result ma_result_from_HRESULT(HRESULT hr)
 {
     switch (hr)
@@ -21064,6 +21065,7 @@ static ma_result ma_result_from_HRESULT(HRESULT hr)
         default:                                        return MA_ERROR;
     }
 }
+#endif
 
 /* PROPVARIANT */
 #define MA_VT_LPWSTR    31
@@ -22212,6 +22214,7 @@ typedef struct
 #define WAVE_FORMAT_IEEE_FLOAT  0x0003
 #endif
 
+#if defined(MA_HAS_WASAPI) || defined(MA_HAS_DSOUND)
 /* Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to miniaudio. */
 static ma_uint8 ma_channel_id_to_ma__win32(DWORD id)
 {
@@ -22305,7 +22308,9 @@ static void ma_channel_mask_to_channel_map__win32(DWORD dwChannelMask, ma_uint32
         }
     }
 }
+#endif
 
+#if defined(MA_HAS_WASAPI) || defined(MA_HAS_DSOUND) || defined(MA_HAS_WINMM)
 #ifdef __cplusplus
 static ma_bool32 ma_is_guid_equal(const void* a, const void* b)
 {
@@ -22383,6 +22388,7 @@ static ma_format ma_format_from_WAVEFORMATEX(const MA_WAVEFORMATEX* pWF)
 
     return ma_format_unknown;
 }
+#endif
 #endif
 
 
