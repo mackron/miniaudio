@@ -8,16 +8,16 @@
 
 void profile_sizeof(void)
 {
-    printf("sizeof(ma_context):           %lu\n", sizeof(ma_context));
-    printf("sizeof(ma_device):            %lu\n", sizeof(ma_device));
-    printf("sizeof(ma_device.playback):   %lu\n", sizeof(((ma_device*)0)->playback));
-    printf("sizeof(ma_duplex_rb):         %lu\n", sizeof(ma_duplex_rb));
-    printf("sizeof(ma_data_converter):    %lu\n", sizeof(ma_data_converter));
-    printf("sizeof(ma_channel_converter): %lu\n", sizeof(ma_channel_converter));
-    printf("sizeof(ma_resampler):         %lu\n", sizeof(ma_resampler));
-    printf("sizeof(ma_lpf):               %lu\n", sizeof(ma_lpf));
-    printf("sizeof(ma_mutex):             %lu\n", sizeof(ma_mutex));
-    printf("sizeof(ma_event):             %lu\n", sizeof(ma_event));
+    printf("sizeof(ma_context):           %lu\n", (unsigned long)sizeof(ma_context));
+    printf("sizeof(ma_device):            %lu\n", (unsigned long)sizeof(ma_device));
+    printf("sizeof(ma_device.playback):   %lu\n", (unsigned long)sizeof(((ma_device*)0)->playback));
+    printf("sizeof(ma_duplex_rb):         %lu\n", (unsigned long)sizeof(ma_duplex_rb));
+    printf("sizeof(ma_data_converter):    %lu\n", (unsigned long)sizeof(ma_data_converter));
+    printf("sizeof(ma_channel_converter): %lu\n", (unsigned long)sizeof(ma_channel_converter));
+    printf("sizeof(ma_resampler):         %lu\n", (unsigned long)sizeof(ma_resampler));
+    printf("sizeof(ma_lpf):               %lu\n", (unsigned long)sizeof(ma_lpf));
+    printf("sizeof(ma_mutex):             %lu\n", (unsigned long)sizeof(ma_mutex));
+    printf("sizeof(ma_event):             %lu\n", (unsigned long)sizeof(ma_event));
     printf("\n");
 }
 
