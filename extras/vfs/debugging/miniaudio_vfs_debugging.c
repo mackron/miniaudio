@@ -43,12 +43,13 @@ static ma_result ma_vfs_debugging_close(ma_vfs* pVFS, ma_vfs_file file)
 
 static ma_result ma_vfs_debugging_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
 {
-    ma_vfs_debugging* pDebuggingVFS = ma_vfs_debugging_cast(pVFS);
     ma_result result;
 
     /* Introduce artificial latency if requested. Ignored on Emscripten. */
     #ifndef __EMSCRIPTEN__
     {
+        ma_vfs_debugging* pDebuggingVFS = ma_vfs_debugging_cast(pVFS);
+
         if (pDebuggingVFS->config.latencyInMilliseconds > 0) {
             ma_sleep(pDebuggingVFS->config.latencyInMilliseconds);
         }
