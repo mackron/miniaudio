@@ -25703,7 +25703,7 @@ static ma_result ma_device_step__wasapi(ma_device* pDevice, ma_blocking_mode blo
     }
 
     waitResult = WaitForMultipleObjects(eventCount, hEvents, FALSE, timeout);
-    if (waitResult >= WAIT_OBJECT_0 && waitResult <= WAIT_OBJECT_0 + eventCount-1) {
+    if (waitResult <= WAIT_OBJECT_0 + eventCount-1) {
         HANDLE hEvent = hEvents[waitResult - WAIT_OBJECT_0];
 
         /* We may have been woken up due to the device stopping. Check for that. */
@@ -28632,7 +28632,7 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
         return MA_DEVICE_NOT_STARTED;
     }
 
-    if (waitResult >= WAIT_OBJECT_0 && waitResult <= WAIT_OBJECT_0 + handleCount-1) {
+    if (waitResult <= WAIT_OBJECT_0 + handleCount-1) {
         /* Something is available for processing. */
         HANDLE handle = handles[waitResult - WAIT_OBJECT_0];
         ma_uint32 frameCount;
