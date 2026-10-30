@@ -26718,8 +26718,8 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         }
 
         /* DirectSound will have the minimum sample rate set to something stupidly small like 100. We're going to clamp it. */
-        minSampleRate = ma_clamp(minSampleRate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
-        maxSampleRate = ma_clamp(maxSampleRate, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
+        minSampleRate = ma_clamp(minSampleRate, (ma_uint32)ma_standard_sample_rate_min, (ma_uint32)ma_standard_sample_rate_max);
+        maxSampleRate = ma_clamp(maxSampleRate, (ma_uint32)ma_standard_sample_rate_min, (ma_uint32)ma_standard_sample_rate_max);
 
         /* All formats are supported. */
         for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
