@@ -102,15 +102,7 @@ if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
 endif()
 
 if(MINIAUDIO_FORCE_CXX)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(STATUS "Compiling as C++ (GNU/Clang)")
-        list(APPEND COMPILE_OPTIONS -x c++)
-    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        message(STATUS "Compiling as C++ (MSVC)")
-        list(APPEND COMPILE_OPTIONS /TP)
-    else()
-        message(WARNING "MINIAUDIO_FORCE_CXX is enabled but the compiler does not support it. Ignoring.")
-    endif()
+    message(STATUS "Compiling miniaudio libraries as C++")
 endif()
 
 if(MINIAUDIO_FORCE_C89)
@@ -517,6 +509,8 @@ if(APPLE AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         enable_language(OBJC)
         set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE OBJC)
     endif()
+elseif(MINIAUDIO_FORCE_CXX)
+    set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE CXX)
 endif()
 
 # Static Libraries
@@ -553,6 +547,10 @@ if(HAS_LIBVORBIS)
         extras/decoders/libvorbis/miniaudio_libvorbis.h
     )
 
+    if(MINIAUDIO_FORCE_CXX)
+        set_source_files_properties(extras/decoders/libvorbis/miniaudio_libvorbis.c PROPERTIES LANGUAGE CXX)
+    endif()
+
     list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
     if(MINIAUDIO_INSTALL)
         install(FILES extras/decoders/libvorbis/miniaudio_libvorbis.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/decoders/libvorbis)
@@ -583,6 +581,10 @@ if(HAS_LIBOPUS)
         extras/decoders/libopus/miniaudio_libopus.h
     )
 
+    if(MINIAUDIO_FORCE_CXX)
+        set_source_files_properties(extras/decoders/libopus/miniaudio_libopus.c PROPERTIES LANGUAGE CXX)
+    endif()
+
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libopus)
     if(MINIAUDIO_INSTALL)
@@ -602,6 +604,10 @@ if (NOT MINIAUDIO_NO_EXTRA_NODES)
             extras/nodes/ma_${name}_node/ma_${name}_node.c
             extras/nodes/ma_${name}_node/ma_${name}_node.h
         )
+
+        if(MINIAUDIO_FORCE_CXX)
+            set_source_files_properties(extras/nodes/ma_${name}_node/ma_${name}_node.c PROPERTIES LANGUAGE CXX)
+        endif()
         
         set(libs "${LIBS_TO_INSTALL}")
 
