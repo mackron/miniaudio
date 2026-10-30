@@ -60,6 +60,7 @@ rename_wav_namespace :: function(src:string) string
         ["MA_DR_WAV_INVALID_ARGS"]           <= "MA_INVALID_ARGS"
         ["MA_DR_WAV_OUT_OF_MEMORY"]          <= "MA_OUT_OF_MEMORY"
         ["MA_DR_WAV_INVALID_FILE"]           <= "MA_INVALID_FILE"
+        ["MA_DR_WAV_INVALID_DATA"]           <= "MA_INVALID_DATA"
         ["MA_DR_WAV_AT_END"]                 <= "MA_AT_END"
         ["MA_DR_WAV_BAD_SEEK"]               <= "MA_BAD_SEEK"
 }
@@ -133,6 +134,9 @@ rename_flac_namespace :: function(src:string) string
         // Result codes.
         ["MA_DR_FLAC_SUCCESS"]                <= "MA_SUCCESS"
         ["MA_DR_FLAC_ERROR"]                  <= "MA_ERROR"
+        ["MA_DR_FLAC_OUT_OF_MEMORY"]          <= "MA_OUT_OF_MEMORY"
+        ["MA_DR_FLAC_BAD_SEEK"]               <= "MA_BAD_SEEK"
+        ["MA_DR_FLAC_INVALID_DATA"]           <= "MA_INVALID_DATA"
         ["MA_DR_FLAC_AT_END"]                 <= "MA_AT_END"
         ["MA_DR_FLAC_CRC_MISMATCH"]           <= "MA_CRC_MISMATCH"
 }
