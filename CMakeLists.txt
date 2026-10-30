@@ -19,6 +19,7 @@ option(MINIAUDIO_BUILD_TESTS                   "Build miniaudio tests"          
 option(MINIAUDIO_BUILD_TOOLS                   "Build miniaudio development tools. Leave this disabled unless you know what you're doing. If you enable this and you get build errors, you clearly do not know what you're doing and yet you still enabled this option. Why would you do that?" OFF)
 option(MINIAUDIO_FORCE_CXX                     "Force compilation as C++"            OFF)
 option(MINIAUDIO_FORCE_C89                     "Force compilation as C89"            OFF)
+option(MINIAUDIO_WARNINGS_AS_ERRORS            "Treat warnings as errors"            OFF)
 option(MINIAUDIO_NO_EXTRA_NODES                "Do not build extra node graph nodes" OFF)
 option(MINIAUDIO_NO_LIBVORBIS                  "Disable miniaudio_libvorbis"         OFF)
 option(MINIAUDIO_NO_LIBOPUS                    "Disable miniaudio_libopus"           OFF)
@@ -121,6 +122,18 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang"
     list(APPEND COMPILE_OPTIONS -Wall -Wextra -Wpedantic)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     #list(APPEND COMPILE_OPTIONS /W4)
+endif()
+
+
+# Warnings as errors are opt-in and do not apply to bundled dependencies.
+if(MINIAUDIO_WARNINGS_AS_ERRORS)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        list(APPEND COMPILE_OPTIONS -Werror)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        list(APPEND COMPILE_OPTIONS /WX)
+    else()
+        message(WARNING "MINIAUDIO_WARNINGS_AS_ERRORS is enabled but the compiler does not support it. Ignoring.")
+    endif()
 endif()
 
 
@@ -498,6 +511,16 @@ if (UNIX)
     endif()
 endif()
 
+function(set_source_file_language_cxx source)
+    set_source_files_properties("${source}" PROPERTIES LANGUAGE CXX)
+
+    # Clang warns when a .c file is compiled as C++ without an explicit language flag.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
+        set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS -x c++)
+    endif()
+endfunction()
+
+
 # APPLE is true for all Apple platforms. 
 # For macOS (MA_APPLE_DESKTOP, "Darwin" in CMake), the code uses CoreAudio that does not need Objective-C.
 # For the other Apple platforms, the code uses AVFoundation that requires Objective-C.
@@ -510,7 +533,7 @@ if(APPLE AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE OBJC)
     endif()
 elseif(MINIAUDIO_FORCE_CXX)
-    set_source_files_properties(miniaudio.c PROPERTIES LANGUAGE CXX)
+    set_source_file_language_cxx(miniaudio.c)
 endif()
 
 # Static Libraries
@@ -548,7 +571,7 @@ if(HAS_LIBVORBIS)
     )
 
     if(MINIAUDIO_FORCE_CXX)
-        set_source_files_properties(extras/decoders/libvorbis/miniaudio_libvorbis.c PROPERTIES LANGUAGE CXX)
+        set_source_file_language_cxx(extras/decoders/libvorbis/miniaudio_libvorbis.c)
     endif()
 
     list(APPEND LIBS_TO_INSTALL miniaudio_libvorbis)
@@ -582,7 +605,7 @@ if(HAS_LIBOPUS)
     )
 
     if(MINIAUDIO_FORCE_CXX)
-        set_source_files_properties(extras/decoders/libopus/miniaudio_libopus.c PROPERTIES LANGUAGE CXX)
+        set_source_file_language_cxx(extras/decoders/libopus/miniaudio_libopus.c)
     endif()
 
 
@@ -606,7 +629,7 @@ if (NOT MINIAUDIO_NO_EXTRA_NODES)
         )
 
         if(MINIAUDIO_FORCE_CXX)
-            set_source_files_properties(extras/nodes/ma_${name}_node/ma_${name}_node.c PROPERTIES LANGUAGE CXX)
+            set_source_file_language_cxx(extras/nodes/ma_${name}_node/ma_${name}_node.c)
         endif()
         
         set(libs "${LIBS_TO_INSTALL}")
