@@ -37651,6 +37651,23 @@ static ma_result ma_device_stop__pulseaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_bool32 ma_device_is_connected__pulseaudio(ma_context_state_pulseaudio* pContextStatePulseAudio, ma_device_state_pulseaudio* pDeviceStatePulseAudio)
+{
+    if (pContextStatePulseAudio->pa_context_get_state(pDeviceStatePulseAudio->pPulseContext) != MA_PA_CONTEXT_READY) {
+        return MA_FALSE;
+    }
+
+    if (pDeviceStatePulseAudio->playback.pStream != NULL && pContextStatePulseAudio->pa_stream_get_state(pDeviceStatePulseAudio->playback.pStream) != MA_PA_STREAM_READY) {
+        return MA_FALSE;
+    }
+
+    if (pDeviceStatePulseAudio->capture.pStream != NULL && pContextStatePulseAudio->pa_stream_get_state(pDeviceStatePulseAudio->capture.pStream) != MA_PA_STREAM_READY) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
+}
+
 static ma_result ma_device_step__pulseaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_pulseaudio* pDeviceStatePulseAudio = ma_device_get_backend_state__pulseaudio(pDevice);
@@ -37658,17 +37675,26 @@ static ma_result ma_device_step__pulseaudio(ma_device* pDevice, ma_blocking_mode
     int block = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? 1 : 0;
     int resultPA;
 
+    /* Check before blocking because a failed connection may no longer generate events. */
+    if (!ma_device_is_connected__pulseaudio(pContextStatePulseAudio, pDeviceStatePulseAudio)) {
+        goto on_error;
+    }
+
     /*
     The write callback is fired from pa_mainloop_iterate(). This meets miniaudio's specification that
-    the data callback be fired from the step() function, so there's no need to do anything here except
-    iterate the PulseAudio loop.
+    the data callback be fired from the step() function. Check the connection afterward because a
+    connection or stream failure does not necessarily make pa_mainloop_iterate() fail.
     */
     resultPA = pContextStatePulseAudio->pa_mainloop_iterate(pDeviceStatePulseAudio->pMainLoop, block, NULL);
-    if (resultPA < 0) {
-        return MA_ERROR;
+    if (resultPA < 0 || !ma_device_is_connected__pulseaudio(pContextStatePulseAudio, pDeviceStatePulseAudio)) {
+        goto on_error;
     }
 
     return MA_SUCCESS;
+
+on_error:
+    ma_device_set_errored(pDevice);
+    return MA_ERROR;
 }
 
 static void ma_device_wakeup__pulseaudio(ma_device* pDevice)
