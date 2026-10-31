@@ -29320,7 +29320,9 @@ typedef struct ma_device_state_alsa
 {
     ma_snd_pcm_t* pPCMPlayback;
     ma_snd_pcm_t* pPCMCapture;
-    void* pIntermediaryBuffer;          /* Used as a scratch buffer for read() and write(). */
+    void* pIntermediaryBufferCapture;
+    void* pIntermediaryBufferPlayback;
+    ma_uint32 intermediaryBufferLenPlayback; /* Unwritten frames in the playback buffer. */
     int wakeupfd;                       /* eventfd for waking up from poll() when the device is stopped. */
     struct pollfd* pPollDescriptors;    /* One array for wakeup, playback and capture. */
     int pollDescriptorCount;
@@ -30755,7 +30757,7 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     as a single allocation, and place it at the end of the device state allocation.
     */
     pollDescriptorAllocationSize     = ma_align_64(sizeof(struct pollfd) * (pDeviceStateALSA->pollDescriptorCount));
-    intermediaryBufferAllocationSize = ma_align_64(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback));
+    intermediaryBufferAllocationSize = ma_align_64(intermediaryBufferSizeCapture) + ma_align_64(intermediaryBufferSizePlayback);
 
     {
         size_t deviceStateAllocationSize;
@@ -30775,8 +30777,9 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
         pDeviceStateALSA = pDeviceStateALSANew;
     }
 
-    pDeviceStateALSA->pPollDescriptors    = (struct pollfd*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)));
-    pDeviceStateALSA->pIntermediaryBuffer =          (void*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)) + pollDescriptorAllocationSize);
+    pDeviceStateALSA->pPollDescriptors             = (struct pollfd*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)));
+    pDeviceStateALSA->pIntermediaryBufferCapture   =          (void*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)) + pollDescriptorAllocationSize);
+    pDeviceStateALSA->pIntermediaryBufferPlayback  =          (void*)ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)) + pollDescriptorAllocationSize + ma_align_64(intermediaryBufferSizeCapture));
 
 
     /*
@@ -30817,8 +30820,8 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
     }
 
 
-    /* Make sure the intermediary buffer is silenced just to be safe. */
-    MA_ZERO_MEMORY(pDeviceStateALSA->pIntermediaryBuffer, intermediaryBufferAllocationSize);
+    /* Make sure the intermediary buffers are silenced just to be safe. */
+    MA_ZERO_MEMORY(pDeviceStateALSA->pIntermediaryBufferCapture, intermediaryBufferAllocationSize);
 
 
     /* Link the PCMs in duplex mode. */
@@ -31005,6 +31008,9 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         }
     }
 
+    /* Discard unwritten playback frames so they are not replayed after a restart. */
+    pDeviceStateALSA->intermediaryBufferLenPlayback = 0;
+
     /* Clear the wakeupfd. */
     resultPoll = poll(pDeviceStateALSA->pPollDescriptors, 1, 0);
     if (resultPoll > 0) {
@@ -31093,10 +31099,10 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
         }
 
         if ((revents & POLLIN) != 0) {
-            resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pIntermediaryBuffer, pDevice->capture.internalPeriodSizeInFrames);
+            resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames);
             if (resultALSA >= 0) {
                 /* Success. Process the data. */
-                ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateALSA->pIntermediaryBuffer, (ma_uint32)resultALSA);
+                ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateALSA->pIntermediaryBufferCapture, (ma_uint32)resultALSA);
             } else {
                 /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
                 if (resultALSA == -EAGAIN) {
@@ -31144,13 +31150,19 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
         }
 
         if ((revents & POLLOUT) != 0) {
-            /* Read data from the client first. */
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+            void* pFramesToWrite;
 
-            /* Now send the data to ALSA for playback. */
-            resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pDeviceStateALSA->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames);
+            /* Read data from the client only after the previous buffer has been written in full. */
+            if (pDeviceStateALSA->intermediaryBufferLenPlayback == 0) {
+                ma_device_handle_backend_data_callback(pDevice, pDeviceStateALSA->pIntermediaryBufferPlayback, NULL, pDevice->playback.internalPeriodSizeInFrames);
+                pDeviceStateALSA->intermediaryBufferLenPlayback = pDevice->playback.internalPeriodSizeInFrames;
+            }
+
+            /* Now send the data to ALSA for playback. Keep unwritten frames for the next step. */
+            pFramesToWrite = ma_offset_pcm_frames_ptr(pDeviceStateALSA->pIntermediaryBufferPlayback, pDevice->playback.internalPeriodSizeInFrames - pDeviceStateALSA->intermediaryBufferLenPlayback, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            resultALSA = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, pFramesToWrite, pDeviceStateALSA->intermediaryBufferLenPlayback);
             if (resultALSA >= 0) {
-                /* Success. */    
+                pDeviceStateALSA->intermediaryBufferLenPlayback -= resultALSA;
             } else {
                 /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
                 if (resultALSA == -EAGAIN) {
