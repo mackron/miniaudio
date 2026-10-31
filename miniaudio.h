@@ -4262,6 +4262,16 @@ When using MA_VITA_PORT_TYPE_MAIN, the native sample rate will always be 48000 a
 else will invoke miniaudio's resampler which will have overhead.
 
 
+15.9. JACK
+-----------
+- `ma_device_stop()` calls `jack_deactivate()`, which disconnects all ports belonging to the
+  device's JACK client.
+- `ma_device_start()` activates the client and sets up automatic connections, unless
+  `jack.noAutoConnect` is true in the device config. Automatic connections are restored after
+  each stop/start cycle. Manually configured connections are not saved or restored. The
+  application must restore these connections after restarting the device.
+
+
 16. Optimization Tips
 =====================
 See below for some tips on improving performance.
@@ -38495,7 +38505,6 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         ma_uint32 iPort;
         ma_uint32 portIndex;
         ma_uint32 portCount;
-        ma_uint32 portCountToAutoConnect;
         ma_uint32 channels;
 
         ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
@@ -38519,9 +38528,6 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
             channels = portCount;
         }
 
-        /* We need to know how many ports to auto-connect. */
-        portCountToAutoConnect = ma_min(portCount, channels);
-
         pDeviceStateJACK->ppPortsCapture = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsCapture) * channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsCapture == NULL) {
             pContextStateJACK->jack_free((void*)ppPorts);
@@ -38540,15 +38546,6 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
                 ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
                 result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
                 goto on_error;
-            }
-
-            if (pDeviceConfigJACK->noAutoConnect == MA_FALSE) {
-                if (iPort < portCountToAutoConnect) {
-                    const char* pServerPort = ppPorts[portIndex + iPort];
-                    const char* pClientPort = pContextStateJACK->jack_port_name(pDeviceStateJACK->ppPortsCapture[iPort]);
-
-                    pContextStateJACK->jack_connect(pDeviceStateJACK->pClient, pServerPort, pClientPort);
-                }
             }
         }
 
@@ -38569,7 +38566,6 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         ma_uint32 iPort;
         ma_uint32 portIndex;
         ma_uint32 portCount;
-        ma_uint32 portCountToAutoConnect;
         ma_uint32 channels;
         
         ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
@@ -38593,9 +38589,6 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
             channels = portCount;
         }
 
-        /* We need to know how many ports to auto-connect. */
-        portCountToAutoConnect = ma_min(portCount, channels);
-
         pDeviceStateJACK->ppPortsPlayback = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsPlayback) * channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsPlayback == NULL) {
             pContextStateJACK->jack_free((void*)ppPorts);
@@ -38614,16 +38607,6 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
                 ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
                 result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
                 goto on_error;
-            }
-
-            /* Connect the port if we're auto-connecting. */
-            if (pDeviceConfigJACK->noAutoConnect == MA_FALSE) {
-                if (iPort < portCountToAutoConnect) {
-                    const char* pServerPort = ppPorts[portIndex + iPort];
-                    const char* pClientPort = pContextStateJACK->jack_port_name(pDeviceStateJACK->ppPortsPlayback[iPort]);
-
-                    pContextStateJACK->jack_connect(pDeviceStateJACK->pClient, pClientPort, pServerPort);
-                }
             }
         }
 
@@ -38705,10 +38688,80 @@ static void ma_device_uninit__jack(ma_device* pDevice)
 }
 
 
+static ma_result ma_device_connect_ports__jack(ma_device* pDevice, ma_device_type deviceType)
+{
+    ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
+    ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(ma_device_get_context(pDevice));
+    const ma_device_id* pDeviceID;
+    ma_jack_port_t** ppClientPorts;
+    const char** ppServerPorts;
+    const char* pDirection;
+    unsigned long portFlags;
+    ma_uint32 channels;
+    ma_uint32 portIndex;
+    ma_uint32 portCount;
+    ma_uint32 portCountToAutoConnect;
+    ma_uint32 iPort;
+    ma_result result;
+
+    if (deviceType == ma_device_type_capture) {
+        pDeviceID     = pDevice->capture.pID;
+        ppClientPorts = pDeviceStateJACK->ppPortsCapture;
+        pDirection    = "capture";
+        portFlags     = ma_JackPortIsPhysical | ma_JackPortIsOutput;
+        channels      = pDevice->capture.internalChannels;
+    } else {
+        pDeviceID     = pDevice->playback.pID;
+        ppClientPorts = pDeviceStateJACK->ppPortsPlayback;
+        pDirection    = "playback";
+        portFlags     = ma_JackPortIsPhysical | ma_JackPortIsInput;
+        channels      = pDevice->playback.internalChannels;
+    }
+
+    ppServerPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, portFlags);
+    if (ppServerPorts == NULL) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical %s ports during start.", pDirection);
+        return MA_DOES_NOT_EXIST;
+    }
+
+    result = ma_get_port_range_by_device_id__jack(ppServerPorts, pDeviceID, &portIndex, &portCount);
+    if (result != MA_SUCCESS || portCount == 0) {
+        pContextStateJACK->jack_free((void*)ppServerPorts);
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for %s during start.", pDirection);
+        return MA_DOES_NOT_EXIST;
+    }
+
+    /* We need to know how many ports to auto-connect. */
+    portCountToAutoConnect = ma_min(portCount, channels);
+
+    for (iPort = 0; iPort < portCountToAutoConnect; iPort += 1) {
+        const char* pServerPort = ppServerPorts[portIndex + iPort];
+        const char* pClientPort = pContextStateJACK->jack_port_name(ppClientPorts[iPort]);
+        int resultJACK;
+
+        if (deviceType == ma_device_type_capture) {
+            resultJACK = pContextStateJACK->jack_connect(pDeviceStateJACK->pClient, pServerPort, pClientPort);
+        } else {
+            resultJACK = pContextStateJACK->jack_connect(pDeviceStateJACK->pClient, pClientPort, pServerPort);
+        }
+
+        if (resultJACK != 0 && resultJACK != EEXIST) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to connect %s port to %s. Error: %d.", pClientPort, pServerPort, resultJACK);
+            pContextStateJACK->jack_free((void*)ppServerPorts);
+            return ma_result_from_errno(resultJACK);
+        }
+    }
+
+    pContextStateJACK->jack_free((void*)ppServerPorts);
+    return MA_SUCCESS;
+}
+
 static ma_result ma_device_start__jack(ma_device* pDevice)
 {
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(ma_device_get_context(pDevice));
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
     int resultJACK;
 
     resultJACK = pContextStateJACK->jack_activate(pDeviceStateJACK->pClient);
@@ -38719,11 +38772,36 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
 
     /* JACK may ignore a buffer size callback failure during activation. */
     if (ma_device_get_status(pDevice) == ma_device_status_errored) {
-        pContextStateJACK->jack_deactivate(pDeviceStateJACK->pClient);
-        return MA_FAILED_TO_START_BACKEND_DEVICE;
+        goto on_error;
+    }
+
+    /* Connect the ports if we're auto-connecting. Deactivation removes these connections. */
+    if (pDeviceStateJACK->noAutoConnect == MA_FALSE) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+            result = ma_device_connect_ports__jack(pDevice, ma_device_type_capture);
+            if (result != MA_SUCCESS) {
+                goto on_error;
+            }
+        }
+
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            result = ma_device_connect_ports__jack(pDevice, ma_device_type_playback);
+            if (result != MA_SUCCESS) {
+                goto on_error;
+            }
+        }
     }
 
     return MA_SUCCESS;
+
+on_error:
+    /* Deactivation also removes any connections made before the failure. */
+    if (pContextStateJACK->jack_deactivate(pDeviceStateJACK->pClient) != 0) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to deactivate the JACK client after a start failure.");
+        ma_device_set_errored(pDevice);
+    }
+
+    return MA_FAILED_TO_START_BACKEND_DEVICE;
 }
 
 static ma_result ma_device_stop__jack(ma_device* pDevice)
