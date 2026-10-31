@@ -4,8 +4,19 @@ v0.11.26 - TBD
 * Fixed a crash when passing in null for the read or seek callbacks for a decoder.
 * Fixed an error with node initialization.
 * Fixed build for Arm64EC on MSVC.
+* Fixed audio glitches during volume smoothing, including SSE2 and multichannel processing.
+* Fixed a race when changing sound and sound-group volume during playback.
+* Fixed incorrect handling of scheduled node start times.
+* Fixed repeated audio and a possible ring-buffer overflow during duplex processing with resampling.
+* Fixed swapped input and output channel maps returned by data converter queries.
+* Miscellaneous compiler compatibility and warning fixes.
 * Resource Manager: Fixed a possible crash when loading fails.
+* Resource Manager: Fixed races during asynchronous loading and teardown that could access freed memory.
 * PulseAudio: Improvements to format negotiation to better handle cases when PulseAudio reports s24_32 as its native format.
+* PulseAudio: Fixed playback startup stalls, device queries after server restarts, and initialization errors involving missing devices and resource leaks.
+* AAudio: Fixed a possible crash during rerouting and preserved device settings when reopening streams.
+* OpenSL: Fixed draining of duplex devices and handling of buffer-queue query failures.
+* Web Audio: Fixed AudioWorklet initialization and unsafe stack cleanup.
 * Emscripten: Fixed an error with ALLOW_MEMORY_GROWTH.
 * Emscripten: Fixed some issues relating to handling of 64-bit pointers.
 
