@@ -1,4 +1,4 @@
-v0.11.26 - TBD
+v0.11.26 - 2026-10-31
 =====================
 * Fixed a bug where the ends of sounds are cutoff. This affects `ma_sound`.
 * Fixed a crash when passing in null for the read or seek callbacks for a decoder.

@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.25 - 2026-03-04
+miniaudio - v0.11.26 - 2026-10-31
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 25
+#define MA_VERSION_REVISION 26
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -37,7 +37,7 @@ extern "C" {
 #endif
 
 
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__) || defined(__ppc64__)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC) || defined(__powerpc64__) || defined(__ppc64__)
     #define MA_SIZEOF_PTR   8
 #else
     #define MA_SIZEOF_PTR   4
@@ -4290,11 +4290,14 @@ struct ma_device
             /*AAudioStream**/ ma_ptr pStreamCapture;
             ma_mutex rerouteLock;
             ma_atomic_bool32 isTearingDown;
+            MA_ATOMIC(4, ma_uint32) pendingReroutes;    /* Reroute jobs posted and not yet finished. Must be used atomically. ma_device_uninit() waits for this to reach zero. */
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
             ma_aaudio_allowed_capture_policy allowedCapturePolicy;
             ma_bool32 noAutoStartAfterReroute;
+            ma_bool32 enableCompatibilityWorkarounds;
+            ma_bool32 allowSetBufferCapacity;
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -6247,7 +6250,19 @@ typedef struct
 } ma_decoding_backend_vtable;
 
 
-typedef ma_result (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);         /* Returns the number of bytes read. */
+/*
+The read callback should return MA_SUCCESS if more than zero bytes were successfully read. If zero
+bytes can be read because it reached the end of the file, return MA_AT_END. If any other error
+occurs just return any other error code (it's fine to just generically return MA_ERROR).
+
+Return the actual number of bytes read in `pBytesRead`. Important note: if the number of bytes
+actually read is less than the number of bytes requested (bytesToRead), miniaudio will treat it as
+if the end of the file has been reached and it will stop decoding. This becomes relevant for things
+like streaming data sources, such as internet streams. If you haven't yet received `bytesToRead`
+from the network, you need to have your callback wait for it and then only return when the full
+number of bytes can be output, or when you've reached the genuine end of the stream.
+*/
+typedef ma_result (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);
 typedef ma_result (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
 typedef ma_result (* ma_decoder_tell_proc)(ma_decoder* pDecoder, ma_int64* pCursor);
 
@@ -7449,6 +7464,7 @@ typedef struct
     ma_panner panner;
     ma_gainer volumeGainer;                             /* This will only be used if volumeSmoothTimeInPCMFrames is > 0. */
     ma_atomic_float volume;                             /* Defaults to 1. */
+    float oldVolume;                                    /* The volume last applied by the mixing thread. */
     MA_ATOMIC(4, float) pitch;
     float oldPitch;                                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
     float oldDopplerPitch;                              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
