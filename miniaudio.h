@@ -38273,7 +38273,7 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         bufferSizeCapture = frameCount * (pDevice->capture.internalChannels * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
-        pDevice->playback.internalPeriodSizeInFrames = frameCount;
+        pDevice->capture.internalPeriodSizeInFrames = frameCount;
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
