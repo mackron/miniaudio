@@ -31098,7 +31098,8 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
             }
         }
 
-        if ((revents & POLLIN) != 0) {
+        /* POLLERR can be set without readiness. Let the I/O call report the error for recovery below. */
+        if ((revents & (POLLIN | POLLERR)) != 0) {
             resultALSA = pContextStateALSA->snd_pcm_readi(pDeviceStateALSA->pPCMCapture, pDeviceStateALSA->pIntermediaryBufferCapture, pDevice->capture.internalPeriodSizeInFrames);
             if (resultALSA >= 0) {
                 /* Success. Process the data. */
@@ -31149,7 +31150,8 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
             }
         }
 
-        if ((revents & POLLOUT) != 0) {
+        /* POLLERR can be set without readiness. Let the I/O call report the error for recovery below. */
+        if ((revents & (POLLOUT | POLLERR)) != 0) {
             void* pFramesToWrite;
 
             /* Read data from the client only after the previous buffer has been written in full. */
