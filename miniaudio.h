@@ -30395,6 +30395,12 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
                 continue;
             }
 
+            if (channels > MA_MAX_CHANNELS) {
+                pContextStateALSA->snd_pcm_close(pPCM);
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Channel count of %u for device \"%s\" exceeds maximum supported by miniaudio of %u.", channels, pDeviceName, (unsigned int)MA_MAX_CHANNELS);
+                continue;
+            }
+
             internalChannels = (ma_uint32)channels;
         }
 
