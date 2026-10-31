@@ -35792,6 +35792,7 @@ typedef ma_pa_operation*         (* ma_pa_context_get_source_info_list_proc   )(
 typedef ma_pa_operation*         (* ma_pa_context_get_sink_info_by_name_proc  )(ma_pa_context* c, const char* name, ma_pa_sink_info_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_context_get_source_info_by_name_proc)(ma_pa_context* c, const char* name, ma_pa_source_info_cb_t cb, void* userdata);
 typedef void                     (* ma_pa_operation_unref_proc                )(ma_pa_operation* o);
+typedef void                     (* ma_pa_operation_cancel_proc               )(ma_pa_operation* o);
 typedef ma_pa_operation_state_t  (* ma_pa_operation_get_state_proc            )(const ma_pa_operation* o);
 typedef ma_pa_channel_map*       (* ma_pa_channel_map_init_extend_proc        )(ma_pa_channel_map* m, unsigned channels, ma_pa_channel_map_def_t def);
 typedef int                      (* ma_pa_channel_map_valid_proc              )(const ma_pa_channel_map* m);
@@ -35858,6 +35859,7 @@ typedef struct ma_context_state_pulseaudio
     ma_pa_context_get_sink_info_by_name_proc   pa_context_get_sink_info_by_name;
     ma_pa_context_get_source_info_by_name_proc pa_context_get_source_info_by_name;
     ma_pa_operation_unref_proc                 pa_operation_unref;
+    ma_pa_operation_cancel_proc                pa_operation_cancel;
     ma_pa_operation_get_state_proc             pa_operation_get_state;
     ma_pa_channel_map_init_extend_proc         pa_channel_map_init_extend;
     ma_pa_channel_map_valid_proc               pa_channel_map_valid;
@@ -36111,6 +36113,7 @@ static ma_result ma_wait_for_operation__pulseaudio(ma_context_state_pulseaudio* 
 
         resultPA = pContextStatePulseAudio->pa_mainloop_iterate(pMainLoop, 1, NULL);
         if (resultPA < 0) {
+            pContextStatePulseAudio->pa_operation_cancel(pOP);
             return ma_result_from_pulseaudio(resultPA);
         }
     }
@@ -36471,6 +36474,7 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
         pContextStatePulseAudio->pa_context_get_sink_info_by_name   = (ma_pa_context_get_sink_info_by_name_proc  )ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_context_get_sink_info_by_name");
         pContextStatePulseAudio->pa_context_get_source_info_by_name = (ma_pa_context_get_source_info_by_name_proc)ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_context_get_source_info_by_name");
         pContextStatePulseAudio->pa_operation_unref                 = (ma_pa_operation_unref_proc                )ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_operation_unref");
+        pContextStatePulseAudio->pa_operation_cancel                = (ma_pa_operation_cancel_proc               )ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_operation_cancel");
         pContextStatePulseAudio->pa_operation_get_state             = (ma_pa_operation_get_state_proc            )ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_operation_get_state");
         pContextStatePulseAudio->pa_channel_map_init_extend         = (ma_pa_channel_map_init_extend_proc        )ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_channel_map_init_extend");
         pContextStatePulseAudio->pa_channel_map_valid               = (ma_pa_channel_map_valid_proc              )ma_dlsym(pLog, pContextStatePulseAudio->pulseSO, "pa_channel_map_valid");
@@ -36538,6 +36542,7 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
         ma_pa_context_get_sink_info_by_name_proc   _pa_context_get_sink_info_by_name   = pa_context_get_sink_info_by_name;
         ma_pa_context_get_source_info_by_name_proc _pa_context_get_source_info_by_name = pa_context_get_source_info_by_name;
         ma_pa_operation_unref_proc                 _pa_operation_unref                 = pa_operation_unref;
+        ma_pa_operation_cancel_proc                _pa_operation_cancel                = pa_operation_cancel;
         ma_pa_operation_get_state_proc             _pa_operation_get_state             = pa_operation_get_state;
         ma_pa_channel_map_init_extend_proc         _pa_channel_map_init_extend         = pa_channel_map_init_extend;
         ma_pa_channel_map_valid_proc               _pa_channel_map_valid               = pa_channel_map_valid;
@@ -36600,6 +36605,7 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
         pContextStatePulseAudio->pa_context_get_sink_info_by_name   = _pa_context_get_sink_info_by_name;
         pContextStatePulseAudio->pa_context_get_source_info_by_name = _pa_context_get_source_info_by_name;
         pContextStatePulseAudio->pa_operation_unref                 = _pa_operation_unref;
+        pContextStatePulseAudio->pa_operation_cancel                = _pa_operation_cancel;
         pContextStatePulseAudio->pa_operation_get_state             = _pa_operation_get_state;
         pContextStatePulseAudio->pa_channel_map_init_extend         = _pa_channel_map_init_extend;
         pContextStatePulseAudio->pa_channel_map_valid               = _pa_channel_map_valid;
