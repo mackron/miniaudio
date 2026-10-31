@@ -29903,6 +29903,12 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const void* pContex
 
     result = ma_mutex_init(&pContextStateALSA->internalDeviceEnumLock);
     if (result != MA_SUCCESS) {
+        #ifndef MA_NO_RUNTIME_LINKING
+        {
+            ma_dlclose(pLog, pContextStateALSA->asoundSO);
+        }
+        #endif
+
         ma_free(pContextStateALSA, ma_context_get_allocation_callbacks(pContext));
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[ALSA] WARNING: Failed to initialize mutex for internal device enumeration.");
         return result;
