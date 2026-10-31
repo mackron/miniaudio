@@ -38370,6 +38370,7 @@ static ma_result ma_get_port_range_by_device_id__jack(const char** ppPorts, cons
 {
     char pDefaultClientName[256];
     const char* pClientName;
+    size_t clientNameLen;
     ma_uint32 index = 0;
     ma_uint32 count = 0;
     ma_uint32 iPort = 0;
@@ -38398,6 +38399,8 @@ static ma_result ma_get_port_range_by_device_id__jack(const char** ppPorts, cons
         pClientName = pDeviceID->jack;
     }
 
+    clientNameLen = strlen(pClientName);
+
     /* We need to first find the index, which is the first port with the name specified by the device ID. */
     while (ppPorts[iPort] != NULL) {
         const char* pPortClientName    = ppPorts[iPort];
@@ -38407,7 +38410,7 @@ static ma_result ma_get_port_range_by_device_id__jack(const char** ppPorts, cons
             pPortClientNameEnd = pPortClientName + strlen(pPortClientName);
         }
 
-        if (memcmp(pClientName, pPortClientName, (size_t)(pPortClientNameEnd - pPortClientName)) == 0) {
+        if (clientNameLen == (size_t)(pPortClientNameEnd - pPortClientName) && memcmp(pClientName, pPortClientName, clientNameLen) == 0) {
             if (count == 0) {
                 index = iPort;
             }
@@ -38421,6 +38424,10 @@ static ma_result ma_get_port_range_by_device_id__jack(const char** ppPorts, cons
         }
 
         iPort += 1;
+    }
+
+    if (count == 0) {
+        return MA_DOES_NOT_EXIST;
     }
 
     if (pIndex != NULL) {
