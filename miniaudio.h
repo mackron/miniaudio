@@ -36107,6 +36107,10 @@ static ma_result ma_wait_for_operation__pulseaudio(ma_context_state_pulseaudio* 
 
     for (;;) {
         state = pContextStatePulseAudio->pa_operation_get_state(pOP);
+        if (state == MA_PA_OPERATION_CANCELLED) {
+            return MA_CANCELLED;
+        }
+
         if (state != MA_PA_OPERATION_RUNNING) {
             break;  /* Done. */
         }
@@ -36687,6 +36691,7 @@ typedef struct
     ma_enum_devices_callback_proc callback;
     void* pUserData;
     ma_bool32 isTerminated;
+    ma_result result;
     ma_uint32 defaultDeviceIndexPlayback;
     ma_uint32 defaultDeviceIndexCapture;
 } ma_context_enumerate_devices_callback_data__pulseaudio;
@@ -36700,6 +36705,10 @@ static void ma_context_enumerate_devices_sink_callback__pulseaudio(ma_pa_context
     MA_ASSERT(pData != NULL);
 
     if (endOfList || pData->isTerminated) {
+        if (endOfList < 0 && !pData->isTerminated) {
+            pData->result = MA_ERROR;
+        }
+
         return;
     }
 
@@ -36742,6 +36751,10 @@ static void ma_context_enumerate_devices_source_callback__pulseaudio(ma_pa_conte
     MA_ASSERT(pData != NULL);
 
     if (endOfList || pData->isTerminated) {
+        if (endOfList < 0 && !pData->isTerminated) {
+            pData->result = MA_ERROR;
+        }
+
         return;
     }
 
@@ -36789,6 +36802,7 @@ static ma_result ma_context_enumerate_devices__pulseaudio(ma_context* pContext, 
     callbackData.callback                   = callback;
     callbackData.pUserData                  = pUserData;
     callbackData.isTerminated               = MA_FALSE;
+    callbackData.result                     = MA_SUCCESS;
     callbackData.defaultDeviceIndexPlayback = (ma_uint32)-1;
     callbackData.defaultDeviceIndexCapture  = (ma_uint32)-1;
 
@@ -36807,6 +36821,10 @@ static ma_result ma_context_enumerate_devices__pulseaudio(ma_context* pContext, 
         result = ma_wait_for_operation__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pOP);
         pContextStatePulseAudio->pa_operation_unref(pOP);
 
+        if (result == MA_SUCCESS) {
+            result = callbackData.result;
+        }
+
         if (result != MA_SUCCESS) {
             goto done;
         }
@@ -36823,6 +36841,10 @@ static ma_result ma_context_enumerate_devices__pulseaudio(ma_context* pContext, 
 
         result = ma_wait_for_operation__pulseaudio(pContextStatePulseAudio, pContextStatePulseAudio->pMainLoop, pOP);
         pContextStatePulseAudio->pa_operation_unref(pOP);
+
+        if (result == MA_SUCCESS) {
+            result = callbackData.result;
+        }
 
         if (result != MA_SUCCESS) {
             goto done;
