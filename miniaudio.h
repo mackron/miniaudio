@@ -38247,6 +38247,8 @@ static void ma_device__jack_shutdown_callback(void* pUserData)
     ma_device_stop(pDevice);
 }
 
+static void ma_device_wakeup__jack(ma_device* pDevice);
+
 static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, void* pUserData)
 {
     ma_device* pDevice = (ma_device*)pUserData;
@@ -38254,6 +38256,7 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
     size_t bufferSizeCapture  = 0;
     size_t bufferSizePlayback = 0;
     float* pNewBuffer;
+    ma_result result;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -38270,16 +38273,25 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
     pNewBuffer = (float*)ma_realloc(pDeviceStateJACK->pIntermediaryBuffer, ma_max(bufferSizeCapture, bufferSizePlayback), ma_device_get_allocation_callbacks(pDevice));
     if (pNewBuffer == NULL) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to allocate memory for intermediary buffer after JACK buffer size change.");
-        return -1;
+        goto on_error;
     }
 
     pDeviceStateJACK->pIntermediaryBuffer = pNewBuffer;
 
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        ma_device_state_async_resize(&pDeviceStateJACK->async, frameCount, frameCount, ma_device_get_allocation_callbacks(pDevice));
+        result = ma_device_state_async_resize(&pDeviceStateJACK->async, frameCount, frameCount, ma_device_get_allocation_callbacks(pDevice));
+        if (result != MA_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to resize async buffers after JACK buffer size change.");
+            goto on_error;
+        }
     }
 
     return 0;
+
+on_error:
+    ma_device_set_errored(pDevice);
+    ma_device_wakeup__jack(pDevice);
+    return -1;
 }
 
 static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* pUserData)
@@ -38289,6 +38301,11 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_uint32 iChannel;
+
+    /* JACK can still fire this callback after a failed buffer size change. */
+    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+        return -1;
+    }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         /* Channels need to be interleaved. */
@@ -38697,6 +38714,12 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
     resultJACK = pContextStateJACK->jack_activate(pDeviceStateJACK->pClient);
     if (resultJACK != 0) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to activate the JACK client.");
+        return MA_FAILED_TO_START_BACKEND_DEVICE;
+    }
+
+    /* JACK may ignore a buffer size callback failure during activation. */
+    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+        pContextStateJACK->jack_deactivate(pDeviceStateJACK->pClient);
         return MA_FAILED_TO_START_BACKEND_DEVICE;
     }
 
@@ -54652,6 +54675,7 @@ MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDevic
     size_t bufferAllocSizeInBytesCapture  = 0;
     size_t bufferAllocSizeInBytesPlayback = 0;
     void* pNewBuffer = NULL;
+    void* pOldBuffer = NULL;
 
     if (pAsyncDeviceState == NULL) {
         return MA_INVALID_ARGS;
@@ -54678,18 +54702,29 @@ MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDevic
         return MA_OUT_OF_MEMORY;
     }
 
-    ma_free(pAsyncDeviceState->internal.pBuffer, pAllocationCallbacks);
-    pAsyncDeviceState->internal.pBuffer = pNewBuffer;
+    /* Both directions share one allocation. Exclude readers while replacing it. */
+    ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
+    ma_spinlock_lock(&pAsyncDeviceState->playback.lock);
+    {
+        pOldBuffer = pAsyncDeviceState->internal.pBuffer;
+        pAsyncDeviceState->internal.pBuffer = pNewBuffer;
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        pAsyncDeviceState->capture.pBuffer  = pAsyncDeviceState->internal.pBuffer;
-        pAsyncDeviceState->capture.frameCap = sizeInFramesCapture;
-    }
+        if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+            pAsyncDeviceState->capture.pBuffer    = pAsyncDeviceState->internal.pBuffer;
+            pAsyncDeviceState->capture.frameCap   = sizeInFramesCapture;
+            pAsyncDeviceState->capture.frameCount = 0;
+        }
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
-        pAsyncDeviceState->playback.pBuffer  = ma_offset_ptr(pAsyncDeviceState->internal.pBuffer, bufferAllocSizeInBytesCapture);
-        pAsyncDeviceState->playback.frameCap = sizeInFramesPlayback;
+        if (pAsyncDeviceState->deviceType == ma_device_type_playback || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+            pAsyncDeviceState->playback.pBuffer    = ma_offset_ptr(pAsyncDeviceState->internal.pBuffer, bufferAllocSizeInBytesCapture);
+            pAsyncDeviceState->playback.frameCap   = sizeInFramesPlayback;
+            pAsyncDeviceState->playback.frameCount = 0;
+        }
     }
+    ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
+    ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
+
+    ma_free(pOldBuffer, pAllocationCallbacks);
 
     return MA_SUCCESS;
 }
