@@ -38206,11 +38206,12 @@ static ma_device_enumeration_result ma_context_enumerate_devices_from_client__ja
 
         cbResult = callback(deviceType, &deviceInfo, pUserData);
         if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
-            return cbResult;
+            break;
         }
     }
 
-    return MA_DEVICE_ENUMERATION_CONTINUE;
+    pContextStateJACK->jack_free((void*)ppPorts);
+    return cbResult;
 }
 
 static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
