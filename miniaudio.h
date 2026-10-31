@@ -30256,12 +30256,12 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
     deviceNameCount = iDeviceName;
 
 
-    /* Alias the memory allocation. */
-    pHWParams = (ma_snd_pcm_hw_params_t*)pParamsMemory;
-    pSWParams = (ma_snd_pcm_sw_params_t*)pParamsMemory;
-
     for (iDeviceName = 0; iDeviceName < deviceNameCount; iDeviceName += 1) {
         const char* pDeviceName = pDeviceNames[iDeviceName];
+
+        /* Alias the memory allocation for each device attempt. */
+        pHWParams = (ma_snd_pcm_hw_params_t*)pParamsMemory;
+        pSWParams = (ma_snd_pcm_sw_params_t*)pParamsMemory;
 
         resultALSA = pContextStateALSA->snd_pcm_open(&pPCM, pDeviceName, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode);
         if (resultALSA < 0) {
