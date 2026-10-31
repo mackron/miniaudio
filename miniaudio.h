@@ -37578,6 +37578,8 @@ static ma_result ma_device__cork_stream__pulseaudio(ma_device* pDevice, ma_conte
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_stop__pulseaudio(ma_device* pDevice);
+
 static ma_result ma_device_start__pulseaudio(ma_device* pDevice)
 {
     ma_device_state_pulseaudio* pDeviceStatePulseAudio = ma_device_get_backend_state__pulseaudio(pDevice);
@@ -37588,7 +37590,7 @@ static ma_result ma_device_start__pulseaudio(ma_device* pDevice)
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         result = ma_device__cork_stream__pulseaudio(pDevice, pContextStatePulseAudio, pDeviceStatePulseAudio, ma_device_type_capture, 0);
         if (result != MA_SUCCESS) {
-            return result;
+            goto on_error;
         }
     }
 
@@ -37609,11 +37611,16 @@ static ma_result ma_device_start__pulseaudio(ma_device* pDevice)
 
         result = ma_device__cork_stream__pulseaudio(pDevice, pContextStatePulseAudio, pDeviceStatePulseAudio, ma_device_type_playback, 0);
         if (result != MA_SUCCESS) {
-            return result;
+            goto on_error;
         }
     }
 
     return MA_SUCCESS;
+
+on_error:
+    /* A failed wait does not guarantee that the stream stayed corked. Stop both sides. */
+    ma_device_stop__pulseaudio(pDevice);
+    return result;
 }
 
 static ma_result ma_device_stop__pulseaudio(ma_device* pDevice)
@@ -37621,13 +37628,11 @@ static ma_result ma_device_stop__pulseaudio(ma_device* pDevice)
     ma_device_state_pulseaudio* pDeviceStatePulseAudio = ma_device_get_backend_state__pulseaudio(pDevice);
     ma_context_state_pulseaudio* pContextStatePulseAudio = ma_context_get_backend_state__pulseaudio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_result result;
+    ma_result resultCapture  = MA_SUCCESS;
+    ma_result resultPlayback = MA_SUCCESS;
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        result = ma_device__cork_stream__pulseaudio(pDevice, pContextStatePulseAudio, pDeviceStatePulseAudio, ma_device_type_capture, 1);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        resultCapture = ma_device__cork_stream__pulseaudio(pDevice, pContextStatePulseAudio, pDeviceStatePulseAudio, ma_device_type_capture, 1);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -37642,10 +37647,17 @@ static ma_result ma_device_stop__pulseaudio(ma_device* pDevice)
         ma_wait_for_operation_and_unref__pulseaudio(pContextStatePulseAudio, pDeviceStatePulseAudio->pMainLoop, pOP);
         #endif
 
-        result = ma_device__cork_stream__pulseaudio(pDevice, pContextStatePulseAudio, pDeviceStatePulseAudio, ma_device_type_playback, 1);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        resultPlayback = ma_device__cork_stream__pulseaudio(pDevice, pContextStatePulseAudio, pDeviceStatePulseAudio, ma_device_type_playback, 1);
+    }
+
+    if (resultCapture != MA_SUCCESS) {
+        ma_device_set_errored(pDevice);
+        return resultCapture;
+    }
+
+    if (resultPlayback != MA_SUCCESS) {
+        ma_device_set_errored(pDevice);
+        return resultPlayback;
     }
 
     return MA_SUCCESS;
