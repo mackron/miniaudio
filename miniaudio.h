@@ -30690,6 +30690,8 @@ static ma_result ma_device_init__alsa(ma_device* pDevice, const void* pDeviceBac
         return MA_OUT_OF_MEMORY;
     }
 
+    pDeviceStateALSA->wakeupfd = -1;
+
     pParamsMemory = ma_offset_ptr(pDeviceStateALSA, ma_align_64(sizeof(*pDeviceStateALSA)));
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
