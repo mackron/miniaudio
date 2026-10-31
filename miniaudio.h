@@ -4270,6 +4270,8 @@ else will invoke miniaudio's resampler which will have overhead.
   `jack.noAutoConnect` is true in the device config. Automatic connections are restored after
   each stop/start cycle. Manually configured connections are not saved or restored. The
   application must restore these connections after restarting the device.
+- With `jack.noAutoConnect` enabled, specify the channel count for each active direction to
+  initialize without physical ports. A channel count of zero still requires physical port discovery.
 
 
 16. Optimization Tips
@@ -38515,30 +38517,34 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         ma_uint32 portCount;
         ma_uint32 channels;
 
-        ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
-        if (ppPorts == NULL) {
-            ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical input ports.");
-            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-            goto on_error;
-        }
-
-        result = ma_get_port_range_by_device_id__jack(ppPorts, pDescriptorCapture->pDeviceID, &portIndex, &portCount);
-        if (result != MA_SUCCESS) {
-            pContextStateJACK->jack_free((void*)ppPorts);
-            ma_log_postf(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for client \"%s\".", (pDescriptorCapture->pDeviceID != NULL) ? pDescriptorCapture->pDeviceID->jack : "");
-            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-            goto on_error;
-        }
-
-        /* If the application has requested the default channel count, make it equal to the number of output ports of the physical input device. */
         channels = pDescriptorCapture->channels;
-        if (channels == 0) {
-            channels = portCount;
+
+        if (pDeviceConfigJACK->noAutoConnect == MA_FALSE || channels == 0) {
+            ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
+            if (ppPorts == NULL) {
+                ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical input ports.");
+                result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                goto on_error;
+            }
+
+            result = ma_get_port_range_by_device_id__jack(ppPorts, pDescriptorCapture->pDeviceID, &portIndex, &portCount);
+            if (result != MA_SUCCESS) {
+                pContextStateJACK->jack_free((void*)ppPorts);
+                ma_log_postf(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for client \"%s\".", (pDescriptorCapture->pDeviceID != NULL) ? pDescriptorCapture->pDeviceID->jack : "");
+                result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                goto on_error;
+            }
+
+            /* If the application has requested the default channel count, make it equal to the number of output ports of the physical input device. */
+            if (channels == 0) {
+                channels = portCount;
+            }
+
+            pContextStateJACK->jack_free((void*)ppPorts);
         }
 
         pDeviceStateJACK->ppPortsCapture = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsCapture) * channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsCapture == NULL) {
-            pContextStateJACK->jack_free((void*)ppPorts);
             result = MA_OUT_OF_MEMORY;
             goto on_error;
         }
@@ -38550,14 +38556,11 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
 
             pDeviceStateJACK->ppPortsCapture[iPort] = pContextStateJACK->jack_port_register(pDeviceStateJACK->pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
             if (pDeviceStateJACK->ppPortsCapture[iPort] == NULL) {    
-                pContextStateJACK->jack_free((void*)ppPorts);
                 ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
                 result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
                 goto on_error;
             }
         }
-
-        pContextStateJACK->jack_free((void*)ppPorts);
 
         pDescriptorCapture->format             = ma_format_f32;
         pDescriptorCapture->sampleRate         = sampleRate;
@@ -38576,30 +38579,34 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         ma_uint32 portCount;
         ma_uint32 channels;
         
-        ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
-        if (ppPorts == NULL) {
-            ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical input ports.");
-            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-            goto on_error;
-        }
-
-        result = ma_get_port_range_by_device_id__jack(ppPorts, pDescriptorPlayback->pDeviceID, &portIndex, &portCount);
-        if (result != MA_SUCCESS) {
-            pContextStateJACK->jack_free((void*)ppPorts);
-            ma_log_postf(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for client \"%s\".", (pDescriptorPlayback->pDeviceID != NULL) ? pDescriptorPlayback->pDeviceID->jack : "");
-            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-            goto on_error;
-        }
-
-        /* If the application has requested the default channel count, make it equal to the number of input ports of the physical output device. */
         channels = pDescriptorPlayback->channels;
-        if (channels == 0) {
-            channels = portCount;
+        
+        if (pDeviceConfigJACK->noAutoConnect == MA_FALSE || channels == 0) {
+            ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
+            if (ppPorts == NULL) {
+                ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical input ports.");
+                result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                goto on_error;
+            }
+
+            result = ma_get_port_range_by_device_id__jack(ppPorts, pDescriptorPlayback->pDeviceID, &portIndex, &portCount);
+            if (result != MA_SUCCESS) {
+                pContextStateJACK->jack_free((void*)ppPorts);
+                ma_log_postf(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for client \"%s\".", (pDescriptorPlayback->pDeviceID != NULL) ? pDescriptorPlayback->pDeviceID->jack : "");
+                result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                goto on_error;
+            }
+
+            /* If the application has requested the default channel count, make it equal to the number of input ports of the physical output device. */
+            if (channels == 0) {
+                channels = portCount;
+            }
+
+            pContextStateJACK->jack_free((void*)ppPorts);
         }
 
         pDeviceStateJACK->ppPortsPlayback = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsPlayback) * channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsPlayback == NULL) {
-            pContextStateJACK->jack_free((void*)ppPorts);
             result = MA_OUT_OF_MEMORY;
             goto on_error;
         }
@@ -38611,14 +38618,11 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
 
             pDeviceStateJACK->ppPortsPlayback[iPort] = pContextStateJACK->jack_port_register(pDeviceStateJACK->pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
             if (pDeviceStateJACK->ppPortsPlayback[iPort] == NULL) {
-                pContextStateJACK->jack_free((void*)ppPorts);
                 ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
                 result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
                 goto on_error;
             }
         }
-
-        pContextStateJACK->jack_free((void*)ppPorts);
 
         pDescriptorPlayback->format             = ma_format_f32;
         pDescriptorPlayback->sampleRate         = sampleRate;
