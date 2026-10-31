@@ -38046,6 +38046,7 @@ typedef struct ma_device_state_jack
 {
     ma_device_state_async async;    /* Only used in single-threaded mode. */
     ma_semaphore stepSemaphore;     /* Only used in multi-threaded mode. */
+    ma_atomic_bool32 isShutdown;
     ma_context_state_jack* pContextStateJACK;
     ma_bool32 noAutoConnect;
     ma_jack_client_t* pClient;
@@ -38380,11 +38381,20 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
 
 static void ma_device__jack_shutdown_callback(void* pUserData)
 {
-    /* JACK died. Stop the device. */
-    ma_device* pDevice = (ma_device*)pUserData;
-    MA_ASSERT(pDevice != NULL);
+    /*
+    JACK died. Stop the device. Note, however, that JACK does not want us to do anything async unsafe:
 
-    ma_device_stop(pDevice);
+        The function must be written as if it were an asynchonrous POSIX signal handler — use only
+        async-safe functions, and remember that it is executed from another thread. A typical
+        function might set a flag or write to a pipe so that the rest of the application knows that
+        the JACK client thread has shut down.
+
+    This means we can't just use ma_device_stop() because that is a blocking function. Instead
+    we're just going to set a flag which will be queried in ma_device_step__jack() which is where
+    the actual stopping will happen.
+    */
+    ma_device_state_jack* pDeviceStateJACK = (ma_device_state_jack*)pUserData;
+    ma_atomic_bool32_set(&pDeviceStateJACK->isShutdown, MA_TRUE);
 }
 
 static void ma_device_wakeup__jack(ma_device* pDevice);
@@ -38443,7 +38453,7 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
     ma_uint32 iChannel;
 
     /* JACK can still fire this callback after a failed buffer size change. */
-    if (ma_device_get_status(pDevice) == ma_device_status_errored) {
+    if (ma_atomic_bool32_get(&pDeviceStateJACK->isShutdown) || ma_device_get_status(pDevice) == ma_device_status_errored) {
         return -1;
     }
 
@@ -38628,7 +38638,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         goto on_error;
     }
 
-    pContextStateJACK->jack_on_shutdown(pDeviceStateJACK->pClient, ma_device__jack_shutdown_callback, pDevice);
+    pContextStateJACK->jack_on_shutdown(pDeviceStateJACK->pClient, ma_device__jack_shutdown_callback, pDeviceStateJACK);
 
 
     /* The sample rate is always the same. */
@@ -38947,8 +38957,10 @@ static ma_result ma_device_stop__jack(ma_device* pDevice)
 {
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
     ma_context_state_jack* pContextStateJACK = ma_context_get_backend_state__jack(ma_device_get_context(pDevice));
+    int resultJACK;
 
-    if (pContextStateJACK->jack_deactivate(pDeviceStateJACK->pClient) != 0) {
+    resultJACK = pContextStateJACK->jack_deactivate(pDeviceStateJACK->pClient);
+    if (resultJACK != 0) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] An error occurred when deactivating the JACK client.");
         return MA_ERROR;
     }
@@ -38956,24 +38968,65 @@ static ma_result ma_device_stop__jack(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+#ifndef MA_JACK_SHUTDOWN_CHECK_INTERVAL_IN_MILLISECONDS
+#define MA_JACK_SHUTDOWN_CHECK_INTERVAL_IN_MILLISECONDS 100
+#endif
+
 static ma_result ma_device_step__jack(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_jack* pDeviceStateJACK = ma_device_get_backend_state__jack(pDevice);
+    ma_semaphore* pSemaphore;
+    ma_result result;
 
+    pSemaphore = &pDeviceStateJACK->stepSemaphore;
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-        return ma_device_state_async_step(&pDeviceStateJACK->async, pDevice, blockingMode, NULL);
-    } else {
-        /* In multithreaded mode we don't actually do anything here except wait on a semaphore. */
-        if (blockingMode == MA_BLOCKING_MODE_BLOCKING) {
-            ma_semaphore_wait(&pDeviceStateJACK->stepSemaphore);
+        pSemaphore = &pDeviceStateJACK->async.semaphore;
+    }
+
+    for (;;) {
+        /* JACK's shutdown callback may have been fired. We need to check for that and abort. */
+        if (ma_atomic_bool32_get(&pDeviceStateJACK->isShutdown)) {
+            ma_device_set_errored(pDevice);
+            return MA_ERROR;
         }
 
         if (!ma_device_is_started(pDevice)) {
             return MA_DEVICE_NOT_STARTED;
         }
 
-        return MA_SUCCESS;
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            break;
+        }
+
+        /*
+        We need to use a timed wait here because of how we handle when JACK is shut down. In the
+        callback we just set a flag but don't wake up this semaphore. Since it's not waking up the
+        semaphore, there's a chance it could get stuck in a deadlock because since JACK has shut
+        down, it may stop posting callbacks. By using a timeout we can ensure we don't get stuck in
+        a deadlock when the JACK server shuts down for whatever reason.
+        */
+        result = ma_semaphore_timedwait(pSemaphore, MA_JACK_SHUTDOWN_CHECK_INTERVAL_IN_MILLISECONDS);
+        if (result == MA_TIMEOUT) {
+            continue;
+        }
+
+        if (result != MA_SUCCESS) {
+            ma_device_set_errored(pDevice);
+            return result;
+        }
+
+        if (!ma_device_is_started(pDevice)) {
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        break;
     }
+
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        return ma_device_state_async_step(&pDeviceStateJACK->async, pDevice, MA_BLOCKING_MODE_NON_BLOCKING, NULL);
+    }
+
+    return MA_SUCCESS;
 }
 
 static void ma_device_wakeup__jack(ma_device* pDevice)
