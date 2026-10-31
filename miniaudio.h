@@ -21362,6 +21362,10 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
 
     /* Don't read more data from the client if we're in the process of stopping. */
     if (ma_device_get_status(pDevice) == ma_device_status_stopping) {
+        if (pFramesOut != NULL) {
+            ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+        }
+
         return;
     }
 
