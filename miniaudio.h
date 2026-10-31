@@ -36911,8 +36911,24 @@ static void ma_device_on_read__pulseaudio(ma_pa_stream* pStream, size_t byteCoun
             if (pMappedPCMFrames != NULL) {
                 ma_device_handle_backend_data_callback(pDevice, NULL, pMappedPCMFrames, framesMapped);
             } else {
-                /* It's a hole. */
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[PulseAudio] ma_device_on_read__pulseaudio: Hole.");
+                ma_uint8 silentBuffer[4096];
+                ma_uint32 silentBufferCapInFrames;
+                ma_uint64 framesRemaining;
+
+                /* It's a hole. Send silence. */
+                silentBufferCapInFrames = sizeof(silentBuffer) / bpf;
+                ma_silence_pcm_frames(silentBuffer, silentBufferCapInFrames, pDeviceStatePulseAudio->capture.format, pDeviceStatePulseAudio->capture.channels);
+
+                framesRemaining = framesMapped;
+                while (framesRemaining > 0) {
+                    ma_uint32 framesToSend;
+
+                    framesToSend = (ma_uint32)ma_min(framesRemaining, silentBufferCapInFrames);
+                    ma_device_handle_backend_data_callback(pDevice, NULL, silentBuffer, framesToSend);
+                    framesRemaining -= framesToSend;
+                }
+
+                /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[PulseAudio] ma_device_on_read__pulseaudio: Hole.");*/
             }
 
             pulseResult = pContextStatePulseAudio->pa_stream_drop(pStream);
