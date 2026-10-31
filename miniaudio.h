@@ -41838,8 +41838,11 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
 
             MA_ASSERT(pAudioSession != NULL);
 
-            if (![pAudioSession setPreferredSampleRate:(double)pData->sampleRateIn error:&pError]) {
-                ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPreferredSampleRate", pError);
+            /* On input, miniaudio treats a sample rate of 0 as meaning the "native" sample rate. In this case do not set a preferred rate. */
+            if (pData->sampleRateIn != 0) {
+                if (![pAudioSession setPreferredSampleRate:(double)pData->sampleRateIn error:&pError]) {
+                    ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPreferredSampleRate", pError);
+                }
             }
 
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] Session sample rate: requested=%u, actual=%.0f", (unsigned int)pData->sampleRateIn, pAudioSession.sampleRate);
