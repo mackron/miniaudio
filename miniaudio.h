@@ -29967,6 +29967,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         ma_device_type deviceType = ma_device_type_playback;
         ma_bool32 stopEnumeration = MA_FALSE;
         ma_device_info deviceInfo;
+        ma_uint32 iDeviceType;
 
         if ((IOID == NULL || ma_strcmp(IOID, "Output") == 0)) {
             deviceType = ma_device_type_playback;
@@ -29975,201 +29976,203 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
             deviceType = ma_device_type_capture;
         }
 
-        MA_ZERO_OBJECT(&deviceInfo);
-
-        /* ID. */
-        ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), NAME, (size_t)-1);
-
         /*
-        Defualt.
-        
-        There's no good way to determine whether or not a device is the default with ALSA. We're just going to do
-        something simple and just use the name of "default" as the indicator.
-        */
-        if ((deviceType == ma_device_type_playback && !hasEnumeratedDefaultPlaybackDevice) || (deviceType == ma_device_type_capture && !hasEnumeratedDefaultCaptureDevice)) {
-            /*  */ if (ma_strcmp(deviceInfo.id.alsa, "default") == 0) {
-                deviceInfo.isDefault = MA_TRUE;
-            } else if (ma_strcmp(deviceInfo.id.alsa, "sysdefault") == 0) {
-                deviceInfo.isDefault = MA_TRUE;
-            }
-        }
-
-        if (deviceInfo.isDefault) {
-            if (deviceType == ma_device_type_playback) {
-                hasEnumeratedDefaultPlaybackDevice = MA_TRUE;
-            }
-            if (deviceType == ma_device_type_capture) {
-                hasEnumeratedDefaultCaptureDevice = MA_TRUE;
-            }
-        }
-
-        /*
-        Name.
-
-        DESC is the friendly name. It seems to be split into two lines, with the first line being the name of the device
-        and the second line being a description of the device. I don't like having the description be across two lines
-        because it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the
-        second line being put into parentheses.
-        */
-        if (DESC != NULL && DESC[0] != '\0') {
-            int lfPos;
-            const char* line2 = ma_find_char(DESC, '\n', &lfPos);
-            if (line2 != NULL) {
-                line2 += 1; /* Skip past the new-line character. */
-
-                /* Put the second line in brackets. */
-                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, lfPos);
-                ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), " (");
-                ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), line2);
-                ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), ")");
-            } else {
-                /* There's no second line. Just copy the whole description. */
-                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, (size_t)-1);
-            }
-        } else {
-            /* Getting here means the description is empty. Just set it to NAME. */
-            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), NAME, (size_t)-1);
-        }
-
-        /*
-        Data Format.
-        
-        Retrieving the data format requires us to open the device.
-        */
-        {
-            ma_snd_pcm_t* pPCM;
-            ma_snd_pcm_hw_params_t* pHWParams;
-            ma_uint32 iFormat;
-            int openMode;
-            
-            /*
-            I'm opening this in non-blocking mode because I'm concerned that ALSA will have it block when an
-            exclusive hardware device is already in use.
-            */
-            openMode = MA_SND_PCM_NONBLOCK; /*MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;*/
-
-            /*
-            For detailed info we need to open the device. I can think of two reasons why opening might fail:
-
-                1) The device is disabled or physically unplugged.
-                2) The device is a hardware device and is already opened in exclusive mode
-
-            When this happens we're still going to enumerate the device, but we're going to just not fill out
-            the detailed info.
-            */
-            if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode) == 0) {
-                /* We need to initialize a HW parameters object in order to know what formats are supported. */
-                pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(pContextStateALSA->snd_pcm_hw_params_sizeof(), ma_context_get_allocation_callbacks(pContext));
-                if (pHWParams == NULL) {
-                    pContextStateALSA->snd_pcm_close(pPCM);
-                    goto next_device;   /* Out of memory. */
-                }
-
-                resultALSA = pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
-                if (resultALSA < 0) {
-                    ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-                    pContextStateALSA->snd_pcm_close(pPCM);
-                    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters for device \"%s\". snd_pcm_hw_params_any() failed. %s.", deviceInfo.id.alsa, pContextStateALSA->snd_strerror(resultALSA));
-                    goto next_device;
-                }
-
-                /*
-                Some ALSA devices can support many permutations of formats, channels and rates. We only support
-                a fixed number of permutations which means we need to employ some strategies to ensure the best
-                combinations are returned. An example is the "pulse" device which can do its own data conversion
-                in software and as a result can support any combination of format, channels and rate.
-
-                We want to ensure that the first data formats are the best. We have a list of favored sample
-                formats and sample rates, so these will be the basis of our iteration.
-                */
-
-                /* Formats. We just iterate over our standard formats and test them, making sure we reset the configuration space each iteration. */
-                for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
-                    ma_format format = g_maFormatPriorities[iFormat];
-
-                    /*
-                    For each format we need to make sure we reset the configuration space so we don't return
-                    channel counts and rates that aren't compatible with a format.
-                    */
-                    pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
-
-                    /* Test the format first. If this fails it means the format is not supported and we can skip it. */
-                    if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format)) == 0) {
-                        /* The format is supported. */
-                        unsigned int minChannels = 0;
-                        unsigned int maxChannels = 0;
-                        unsigned int minSampleRate = 0;
-                        unsigned int maxSampleRate = 0;
-                        int sampleRateDir;  /* Not used. Just passed into snd_pcm_hw_params_get_rate_min/max(). */
-
-                        /*
-                        The configuration space needs to be restricted to this format so we can get an accurate
-                        picture of which sample rates and channel counts are support with this format.
-                        */
-                        pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
-
-                        /* Now we need to check for supported channels. */
-                        pContextStateALSA->snd_pcm_hw_params_get_channels_min(pHWParams, &minChannels);
-                        pContextStateALSA->snd_pcm_hw_params_get_channels_max(pHWParams, &maxChannels);
-
-                        if (minChannels > MA_MAX_CHANNELS) {
-                            continue;   /* Too many channels. */
-                        }
-                        if (maxChannels < MA_MIN_CHANNELS) {
-                            continue;   /* Not enough channels. */
-                        }
-
-                        /*
-                        Make sure the channel count is clamped. This is mainly intended for the max channels
-                        because some devices can report an unbound maximum.
-                        */
-                        minChannels = ma_clamp(minChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
-                        maxChannels = ma_clamp(maxChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
-
-                        pContextStateALSA->snd_pcm_hw_params_get_rate_min(pHWParams, &minSampleRate, &sampleRateDir);
-                        pContextStateALSA->snd_pcm_hw_params_get_rate_max(pHWParams, &maxSampleRate, &sampleRateDir);
-
-                        /* Make sure our sample rates are clamped to sane values. Stupid devices like "pulse" will reports rates like "1" which is ridiculous. */
-                        minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
-                        maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
-
-                        ma_device_info_add_native_data_format(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
-                    } else {
-                        /* The format is not supported. Skip. */
-                    }
-                }
-
-                ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
-
-                pContextStateALSA->snd_pcm_close(pPCM);
-            }
-        }
-
-        if (!ma_is_device_blacklisted__alsa(deviceType, NAME)) {
-            cbResult = callback(deviceType, &deviceInfo, pUserData);
-        }
-
-        /*
-        Some devices are both playback and capture, but they are only enumerated by ALSA once. We need to fire the callback
+        Some devices are both playback and capture, but they are only enumerated by ALSA once. We need to probe and fire the callback
         again for the other device type in this case. We do this for known devices and where the IOID hint is NULL, which
         means both Input and Output.
         */
-        if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE) {
-            if (ma_is_common_device_name__alsa(NAME) || IOID == NULL) {
+        for (iDeviceType = 0; iDeviceType < 2; iDeviceType += 1) {
+            if (iDeviceType == 1) {
+                if (!ma_is_common_device_name__alsa(NAME) && IOID != NULL) {
+                    break;
+                }
+
                 if (deviceType == ma_device_type_playback) {
-                    if (!ma_is_capture_device_blacklisted__alsa(NAME)) {
-                        cbResult = callback(ma_device_type_capture, &deviceInfo, pUserData);
-                    }
+                    deviceType = ma_device_type_capture;
                 } else {
-                    if (!ma_is_playback_device_blacklisted__alsa(NAME)) {
-                        cbResult = callback(ma_device_type_playback, &deviceInfo, pUserData);
-                    }
+                    deviceType = ma_device_type_playback;
                 }
             }
-        }
 
-        if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
-            stopEnumeration = MA_TRUE;
+            if (ma_is_device_blacklisted__alsa(deviceType, NAME)) {
+                continue;
+            }
+
+            MA_ZERO_OBJECT(&deviceInfo);
+
+            /* ID. */
+            ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), NAME, (size_t)-1);
+
+            /*
+            Defualt.
+
+            There's no good way to determine whether or not a device is the default with ALSA. We're just going to do
+            something simple and just use the name of "default" as the indicator.
+            */
+            if ((deviceType == ma_device_type_playback && !hasEnumeratedDefaultPlaybackDevice) || (deviceType == ma_device_type_capture && !hasEnumeratedDefaultCaptureDevice)) {
+                /*  */ if (ma_strcmp(deviceInfo.id.alsa, "default") == 0) {
+                    deviceInfo.isDefault = MA_TRUE;
+                } else if (ma_strcmp(deviceInfo.id.alsa, "sysdefault") == 0) {
+                    deviceInfo.isDefault = MA_TRUE;
+                }
+            }
+
+            if (deviceInfo.isDefault) {
+                if (deviceType == ma_device_type_playback) {
+                    hasEnumeratedDefaultPlaybackDevice = MA_TRUE;
+                }
+                if (deviceType == ma_device_type_capture) {
+                    hasEnumeratedDefaultCaptureDevice = MA_TRUE;
+                }
+            }
+
+            /*
+            Name.
+
+            DESC is the friendly name. It seems to be split into two lines, with the first line being the name of the device
+            and the second line being a description of the device. I don't like having the description be across two lines
+            because it makes formatting ugly and annoying. I'm therefore deciding to put it all on a single line with the
+            second line being put into parentheses.
+            */
+            if (DESC != NULL && DESC[0] != '\0') {
+                int lfPos;
+                const char* line2 = ma_find_char(DESC, '\n', &lfPos);
+                if (line2 != NULL) {
+                    line2 += 1; /* Skip past the new-line character. */
+
+                    /* Put the second line in brackets. */
+                    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, lfPos);
+                    ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), " (");
+                    ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), line2);
+                    ma_strcat_s (deviceInfo.name, sizeof(deviceInfo.name), ")");
+                } else {
+                    /* There's no second line. Just copy the whole description. */
+                    ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), DESC, (size_t)-1);
+                }
+            } else {
+                /* Getting here means the description is empty. Just set it to NAME. */
+                ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), NAME, (size_t)-1);
+            }
+
+            /*
+            Data Format.
+
+            Retrieving the data format requires us to open the device.
+            */
+            {
+                ma_snd_pcm_t* pPCM;
+                ma_snd_pcm_hw_params_t* pHWParams;
+                ma_uint32 iFormat;
+                int openMode;
+
+                /*
+                I'm opening this in non-blocking mode because I'm concerned that ALSA will have it block when an
+                exclusive hardware device is already in use.
+                */
+                openMode = MA_SND_PCM_NONBLOCK; /*MA_SND_PCM_NO_AUTO_RESAMPLE | MA_SND_PCM_NO_AUTO_CHANNELS | MA_SND_PCM_NO_AUTO_FORMAT;*/
+
+                /*
+                For detailed info we need to open the device. I can think of two reasons why opening might fail:
+
+                    1) The device is disabled or physically unplugged.
+                    2) The device is a hardware device and is already opened in exclusive mode
+
+                When this happens we're still going to enumerate the device, but we're going to just not fill out
+                the detailed info.
+                */
+                if (pContextStateALSA->snd_pcm_open(&pPCM, deviceInfo.id.alsa, (deviceType == ma_device_type_playback) ? MA_SND_PCM_STREAM_PLAYBACK : MA_SND_PCM_STREAM_CAPTURE, openMode) == 0) {
+                    /* We need to initialize a HW parameters object in order to know what formats are supported. */
+                    pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(pContextStateALSA->snd_pcm_hw_params_sizeof(), ma_context_get_allocation_callbacks(pContext));
+                    if (pHWParams == NULL) {
+                        pContextStateALSA->snd_pcm_close(pPCM);
+                        goto next_device;   /* Out of memory. */
+                    }
+
+                    resultALSA = pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
+                    if (resultALSA < 0) {
+                        ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
+                        pContextStateALSA->snd_pcm_close(pPCM);
+                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters for device \"%s\". snd_pcm_hw_params_any() failed. %s.", deviceInfo.id.alsa, pContextStateALSA->snd_strerror(resultALSA));
+                        goto next_device;
+                    }
+
+                    /*
+                    Some ALSA devices can support many permutations of formats, channels and rates. We only support
+                    a fixed number of permutations which means we need to employ some strategies to ensure the best
+                    combinations are returned. An example is the "pulse" device which can do its own data conversion
+                    in software and as a result can support any combination of format, channels and rate.
+
+                    We want to ensure that the first data formats are the best. We have a list of favored sample
+                    formats and sample rates, so these will be the basis of our iteration.
+                    */
+
+                    /* Formats. We just iterate over our standard formats and test them, making sure we reset the configuration space each iteration. */
+                    for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
+                        ma_format format = g_maFormatPriorities[iFormat];
+
+                        /*
+                        For each format we need to make sure we reset the configuration space so we don't return
+                        channel counts and rates that aren't compatible with a format.
+                        */
+                        pContextStateALSA->snd_pcm_hw_params_any(pPCM, pHWParams);
+
+                        /* Test the format first. If this fails it means the format is not supported and we can skip it. */
+                        if (pContextStateALSA->snd_pcm_hw_params_test_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format)) == 0) {
+                            /* The format is supported. */
+                            unsigned int minChannels = 0;
+                            unsigned int maxChannels = 0;
+                            unsigned int minSampleRate = 0;
+                            unsigned int maxSampleRate = 0;
+                            int sampleRateDir;  /* Not used. Just passed into snd_pcm_hw_params_get_rate_min/max(). */
+
+                            /*
+                            The configuration space needs to be restricted to this format so we can get an accurate
+                            picture of which sample rates and channel counts are support with this format.
+                            */
+                            pContextStateALSA->snd_pcm_hw_params_set_format(pPCM, pHWParams, ma_convert_ma_format_to_alsa_format(format));
+
+                            /* Now we need to check for supported channels. */
+                            pContextStateALSA->snd_pcm_hw_params_get_channels_min(pHWParams, &minChannels);
+                            pContextStateALSA->snd_pcm_hw_params_get_channels_max(pHWParams, &maxChannels);
+
+                            if (minChannels > MA_MAX_CHANNELS) {
+                                continue;   /* Too many channels. */
+                            }
+                            if (maxChannels < MA_MIN_CHANNELS) {
+                                continue;   /* Not enough channels. */
+                            }
+
+                            /*
+                            Make sure the channel count is clamped. This is mainly intended for the max channels
+                            because some devices can report an unbound maximum.
+                            */
+                            minChannels = ma_clamp(minChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
+                            maxChannels = ma_clamp(maxChannels, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
+
+                            pContextStateALSA->snd_pcm_hw_params_get_rate_min(pHWParams, &minSampleRate, &sampleRateDir);
+                            pContextStateALSA->snd_pcm_hw_params_get_rate_max(pHWParams, &maxSampleRate, &sampleRateDir);
+
+                            /* Make sure our sample rates are clamped to sane values. Stupid devices like "pulse" will reports rates like "1" which is ridiculous. */
+                            minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
+                            maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
+
+                            ma_device_info_add_native_data_format(&deviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
+                        } else {
+                            /* The format is not supported. Skip. */
+                        }
+                    }
+
+                    ma_free(pHWParams, ma_context_get_allocation_callbacks(pContext));
+
+                    pContextStateALSA->snd_pcm_close(pPCM);
+                }
+            }
+
+            cbResult = callback(deviceType, &deviceInfo, pUserData);
+            if (cbResult == MA_DEVICE_ENUMERATION_ABORT) {
+                stopEnumeration = MA_TRUE;
+                break;
+            }
         }
 
     next_device:
