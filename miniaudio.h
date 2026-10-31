@@ -37295,7 +37295,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         if (pDescriptorCapture->format == ma_format_unknown || pDescriptorCapture->channels == 0 || pDescriptorCapture->sampleRate == 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Capture sample spec is invalid. Device unusable by miniaudio. format=%s, channels=%d, sampleRate=%d.", ma_get_format_name(pDescriptorCapture->format), pDescriptorCapture->channels, pDescriptorCapture->sampleRate);
             result = MA_ERROR;
-            goto on_error4;
+            goto on_error2;
         }
 
 
