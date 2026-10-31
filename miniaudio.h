@@ -47773,10 +47773,13 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
     */
     result = ma_device_start_stream_internal__aaudio(pDevice, pStream);
     if (result == MA_ERROR) {
+        /* Reinitialization replaces the stream. Retrieve its new pointer before retrying. */
         if (pStream == pDeviceStateAAudio->pStreamPlayback) {
             result = ma_device_reinit__aaudio(pDevice, ma_device_type_playback);
+            pStream = pDeviceStateAAudio->pStreamPlayback;
         } else {
             result = ma_device_reinit__aaudio(pDevice, ma_device_type_capture);
+            pStream = pDeviceStateAAudio->pStreamCapture;
         }
 
         if (result != MA_SUCCESS) {
