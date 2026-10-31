@@ -38156,7 +38156,7 @@ static ma_device_enumeration_result ma_context_enumerate_devices_from_client__ja
     */
     ppPorts = pContextStateJACK->jack_get_ports(pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ((deviceType == ma_device_type_capture) ? ma_JackPortIsOutput : ma_JackPortIsInput));
     if (ppPorts == NULL) {
-        return MA_DEVICE_ENUMERATION_ABORT;
+        return MA_DEVICE_ENUMERATION_CONTINUE;    /* No ports in this direction. Continue with the other direction. */
     }
 
     iPort = 0;
