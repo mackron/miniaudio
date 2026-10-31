@@ -30840,7 +30840,7 @@ static void ma_device_uninit__alsa(ma_device* pDevice)
     ma_device_uninit_internal__alsa(pDevice, ma_device_get_backend_state__alsa(pDevice));
 }
 
-static void ma_device_prime_playback_buffer__alsa(ma_device* pDevice)
+static ma_result ma_device_prime_playback_buffer__alsa(ma_device* pDevice)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
@@ -30849,19 +30849,25 @@ static void ma_device_prime_playback_buffer__alsa(ma_device* pDevice)
     ma_uint32 framesToWrite;
     ma_uint32 framesWritten;
     ma_snd_pcm_sframes_t framesAvail;
+    ma_snd_pcm_sframes_t framesWrittenThisIteration;
 
     if (pDeviceStateALSA->pPCMPlayback == NULL) {
-        return;
+        return MA_SUCCESS;
     }
 
     bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
     framesWritten = 0;
 
-    MA_ZERO_MEMORY(buffer, sizeof(buffer));
+    ma_silence_pcm_frames(buffer, sizeof(buffer) / bpf, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
 
-    /* Guard against the available frame count reported by ALSA just in case we try writing too much and get stuck in snd_pcm_writei().. */
+    /* Guard against the available frame count reported by ALSA just in case we try writing too much and get stuck in snd_pcm_writei(). */
     framesAvail = pContextStateALSA->snd_pcm_avail(pDeviceStateALSA->pPCMPlayback);
+    if (framesAvail < 0) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve available frames while priming playback. %s.", pContextStateALSA->snd_strerror((int)framesAvail));
+        return ma_result_from_errno((int)-framesAvail);
+    }
+
     if (framesToWrite > framesAvail) {
         framesToWrite = framesAvail;
     }
@@ -30875,18 +30881,31 @@ static void ma_device_prime_playback_buffer__alsa(ma_device* pDevice)
 
         /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
         if (framesToWriteThisIteration == 0) {
-            break;
+            return MA_ERROR;
         }
 
-        pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, buffer, framesToWriteThisIteration);
-        framesWritten += framesToWriteThisIteration;
+        framesWrittenThisIteration = pContextStateALSA->snd_pcm_writei(pDeviceStateALSA->pPCMPlayback, buffer, framesToWriteThisIteration);
+        if (framesWrittenThisIteration < 0) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to prime playback buffer. %s.", pContextStateALSA->snd_strerror((int)framesWrittenThisIteration));
+            return ma_result_from_errno((int)-framesWrittenThisIteration);
+        }
+
+        if (framesWrittenThisIteration == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] No frames written while priming playback buffer.");
+            return MA_ERROR;
+        }
+
+        framesWritten += framesWrittenThisIteration;
     }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_device_start__alsa(ma_device* pDevice)
 {
     ma_device_state_alsa* pDeviceStateALSA = ma_device_get_backend_state__alsa(pDevice);
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
+    ma_result result;
     int resultALSA;
 
     /*
@@ -30895,7 +30914,10 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
     effectively non-blocking.
     */
     if (pDeviceStateALSA->pPCMPlayback != NULL) {
-        ma_device_prime_playback_buffer__alsa(pDevice);
+        result = ma_device_prime_playback_buffer__alsa(pDevice);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
     }
 
     if (pDeviceStateALSA->pPCMCapture != NULL) {
@@ -31002,6 +31024,7 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
     ma_context_state_alsa* pContextStateALSA = ma_context_get_backend_state__alsa(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
     int timeout = (blockingMode == MA_BLOCKING_MODE_BLOCKING) ? 2000 : 0;
+    ma_result result;
     int resultALSA;
     int resultPoll;
     unsigned short revents;
@@ -31148,7 +31171,10 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
                     Before restarting the PCM we need to make sure there's actually some data in the buffer. We're going to
                     fill it with silence which is consistent with what we do when we start the PCM normally.
                     */
-                    ma_device_prime_playback_buffer__alsa(pDevice);
+                    result = ma_device_prime_playback_buffer__alsa(pDevice);
+                    if (result != MA_SUCCESS) {
+                        return result;
+                    }
 
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
                     if (resultALSA < 0) {
