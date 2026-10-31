@@ -31118,17 +31118,22 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
                 ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateALSA->pIntermediaryBufferCapture, (ma_uint32)resultALSA);
             } else {
                 /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
-                if (resultALSA == -EAGAIN) {
+                if (resultALSA == -EAGAIN || resultALSA == -EINTR) {
                     /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (read)");*/
 
-                    /* Do nothing. */
-                } else if (resultALSA == -EPIPE) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (read)");
+                    /* Retry on the next step. */
+                } else if (resultALSA == -EPIPE || resultALSA == -ESTRPIPE) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Recovering capture device. %s.", pContextStateALSA->snd_strerror(resultALSA));
 
-                    /* Overrun. Recover. If this fails we need to return an error. */
-                    resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMCapture, resultALSA, MA_TRUE);
+                    /* Recover from an xrun or suspend. If this fails we need to return an error. */
+                    if (resultALSA == -ESTRPIPE) {
+                        resultALSA = pContextStateALSA->snd_pcm_prepare(pDeviceStateALSA->pPCMCapture);
+                    } else {
+                        resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMCapture, resultALSA, MA_TRUE);
+                    }
+
                     if (resultALSA < 0) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover capture device after overrun. %s.", pContextStateALSA->snd_strerror(resultALSA));
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover capture device. %s.", pContextStateALSA->snd_strerror(resultALSA));
                         return ma_result_from_errno((int)-resultALSA);
                     }
 
@@ -31142,7 +31147,7 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
 
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMCapture);
                     if (resultALSA < 0) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start capture device after overrun. %s.", pContextStateALSA->snd_strerror(resultALSA));
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start capture device after recovery. %s.", pContextStateALSA->snd_strerror(resultALSA));
                         return ma_result_from_errno((int)-resultALSA);
                     }
                 } else {
@@ -31187,17 +31192,22 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
                 pDeviceStateALSA->intermediaryBufferLenPlayback -= resultALSA;
             } else {
                 /* Failed. No data processing will be done this iteration. What we do here depends on the type of error. */
-                if (resultALSA == -EAGAIN) {
+                if (resultALSA == -EAGAIN || resultALSA == -EINTR) {
                     /*ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EGAIN (write)");*/
 
-                    /* Do nothing. */
-                } else if (resultALSA == -EPIPE) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "EPIPE (write)");
+                    /* Retry on the next step. */
+                } else if (resultALSA == -EPIPE || resultALSA == -ESTRPIPE) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Recovering playback device. %s.", pContextStateALSA->snd_strerror(resultALSA));
 
-                    /* Underrun. Recover. If this fails we need to return an error. */
-                    resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);
+                    /* Recover from an xrun or suspend. If this fails we need to return an error. */
+                    if (resultALSA == -ESTRPIPE) {
+                        resultALSA = pContextStateALSA->snd_pcm_prepare(pDeviceStateALSA->pPCMPlayback);
+                    } else {
+                        resultALSA = pContextStateALSA->snd_pcm_recover(pDeviceStateALSA->pPCMPlayback, resultALSA, MA_TRUE);
+                    }
+
                     if (resultALSA < 0) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover playback device after underrun. %s.", pContextStateALSA->snd_strerror(resultALSA));
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover playback device. %s.", pContextStateALSA->snd_strerror(resultALSA));
                         return ma_result_from_errno((int)-resultALSA);
                     }
 
@@ -31212,7 +31222,7 @@ static ma_result ma_device_step__alsa(ma_device* pDevice, ma_blocking_mode block
 
                     resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
                     if (resultALSA < 0) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device after underrun. %s.", pContextStateALSA->snd_strerror(resultALSA));
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device after recovery. %s.", pContextStateALSA->snd_strerror(resultALSA));
                         return ma_result_from_errno((int)-resultALSA);
                     }
                 } else {
