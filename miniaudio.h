@@ -46938,6 +46938,7 @@ typedef struct ma_context_state_aaudio
 typedef struct ma_device_state_aaudio
 {
     ma_device_state_async async;    /* Only used in single-threaded mode. */
+    ma_bool32 isAsyncInitialized;
     ma_semaphore stepSemaphore;
     ma_AAudioStream* pStreamPlayback;
     ma_AAudioStream* pStreamCapture;
@@ -47430,9 +47431,8 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_close_streams__aaudio(ma_device* pDevice)
+static ma_result ma_close_streams__aaudio(ma_device* pDevice, ma_device_state_aaudio* pDeviceStateAAudio)
 {
-    ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
     MA_ASSERT(pDevice != NULL);
@@ -47447,8 +47447,9 @@ static ma_result ma_close_streams__aaudio(ma_device* pDevice)
         pDeviceStateAAudio->pStreamPlayback = NULL;
     }
 
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+    if (pDeviceStateAAudio->isAsyncInitialized) {
         ma_device_state_async_uninit(&pDeviceStateAAudio->async, ma_device_get_allocation_callbacks(pDevice));
+        pDeviceStateAAudio->isAsyncInitialized = MA_FALSE;
     }
 
     return MA_SUCCESS;
@@ -47523,26 +47524,31 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_st
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pDeviceConfigAAudio, ma_device_type_capture, pDescriptorCapture, &pDeviceStateAAudio->pStreamCapture);
         if (result != MA_SUCCESS) {
-            return result;
+            goto on_error;
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pDeviceConfigAAudio, ma_device_type_playback, pDescriptorPlayback, &pDeviceStateAAudio->pStreamPlayback);
         if (result != MA_SUCCESS) {
-            return result;
+            goto on_error;
         }
     }
 
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
         result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateAAudio->async);
         if (result != MA_SUCCESS) {
-            ma_close_streams__aaudio(pDevice);
-            return result;
+            goto on_error;
         }
+
+        pDeviceStateAAudio->isAsyncInitialized = MA_TRUE;
     }
 
     return MA_SUCCESS;
+
+on_error:
+    ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
+    return result;
 }
 
 static ma_result ma_device_init__aaudio(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -47550,6 +47556,8 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const void* pDeviceB
     ma_device_state_aaudio* pDeviceStateAAudio;
     const ma_device_config_aaudio* pDeviceConfigAAudio = (const ma_device_config_aaudio*)pDeviceBackendConfig;
     ma_result result;
+
+    *ppDeviceState = NULL;
 
     pDeviceStateAAudio = (ma_device_state_aaudio*)ma_calloc(sizeof(*pDeviceStateAAudio), ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateAAudio == NULL) {
@@ -47565,7 +47573,7 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const void* pDeviceB
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
         result = ma_semaphore_init(0, &pDeviceStateAAudio->stepSemaphore);
         if (result != MA_SUCCESS) {
-            ma_close_streams__aaudio(pDevice);
+            ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
             ma_free(pDeviceStateAAudio, ma_device_get_allocation_callbacks(pDevice));
             return result;
         }
@@ -47586,7 +47594,7 @@ static void ma_device_uninit__aaudio(ma_device* pDevice)
     */
     ma_atomic_bool32_set(&pDeviceStateAAudio->isTearingDown, MA_TRUE);
 
-    ma_close_streams__aaudio(pDevice);
+    ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
 
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
         ma_semaphore_uninit(&pDeviceStateAAudio->stepSemaphore);
@@ -47619,7 +47627,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         }
 
         /* The first thing to do is close the streams. */
-        ma_close_streams__aaudio(pDevice);
+        ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
 
         /* Now we need to reinitialize each streams. The hardest part with this is just filling out the config and descriptors. */
         deviceConfigAAudio = ma_device_config_aaudio_init();
@@ -47661,7 +47669,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             result = ma_device_update_descriptor(pDevice, ma_device_type_capture, NULL, &descriptorCapture);
             if (result != MA_SUCCESS) {
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to initialize device after route change.");
-                ma_close_streams__aaudio(pDevice);
+                ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
                 break;
             }
         }
@@ -47670,7 +47678,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             result = ma_device_update_descriptor(pDevice, ma_device_type_playback, NULL, &descriptorPlayback);
             if (result != MA_SUCCESS) {
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to initialize device after route change.");
-                ma_close_streams__aaudio(pDevice);
+                ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
                 break;
             }
         }
