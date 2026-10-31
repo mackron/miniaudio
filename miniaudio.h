@@ -30936,6 +30936,18 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
             resultALSA = pContextStateALSA->snd_pcm_start(pDeviceStateALSA->pPCMPlayback);
             if (resultALSA < 0) {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device. %s.", pContextStateALSA->snd_strerror(resultALSA));
+
+                /* Capture is already running in unlinked duplex mode. Stop it and prepare it for another start attempt. */
+                if (pDeviceStateALSA->pPCMCapture != NULL) {
+                    if (pContextStateALSA->snd_pcm_drop(pDeviceStateALSA->pPCMCapture) < 0) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to stop capture device after playback start failed.");
+                    }
+
+                    if (pContextStateALSA->snd_pcm_prepare(pDeviceStateALSA->pPCMCapture) < 0) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to prepare capture device after playback start failed.");
+                    }
+                }
+
                 return ma_result_from_errno(-resultALSA);
             }
         }
