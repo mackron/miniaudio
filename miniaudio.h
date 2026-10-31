@@ -37332,16 +37332,25 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         /* Buffer. */
         pActualAttr = pContextStatePulseAudio->pa_stream_get_buffer_attr(pDeviceStatePulseAudio->capture.pStream);
         if (pActualAttr != NULL) {
+            ma_uint32 bytesPerFrame;
+            ma_uint32 bufferSizeInFrames;
+
             attr = *pActualAttr;
-        }
 
-        if (attr.fragsize > 0) {
-            pDescriptorCapture->periodCount = ma_max(attr.maxlength / attr.fragsize, 1);
+            bytesPerFrame = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels);
+            bufferSizeInFrames = ma_max(attr.maxlength / bytesPerFrame, 1);
+
+            pDescriptorCapture->periodSizeInFrames = attr.fragsize / bytesPerFrame;
+            if (pDescriptorCapture->periodSizeInFrames == 0) {
+                pDescriptorCapture->periodSizeInFrames = bufferSizeInFrames;
+            }
+
+            /* Round up so the reported buffer covers the capture queue capacity (attr.maxlength). This is just in case attr.maxlength is not evenly divisible by attr.fragsize. */
+            pDescriptorCapture->periodCount = (bufferSizeInFrames - 1) / pDescriptorCapture->periodSizeInFrames + 1;
         } else {
-            pDescriptorCapture->periodCount = 1;
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[PulseAudio] Failed to retrieve capture buffer attributes. Using the requested period size and count.");
         }
 
-        pDescriptorCapture->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / pDescriptorCapture->periodCount;
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Capture actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorCapture->periodSizeInFrames);
 
         pDeviceStatePulseAudio->capture.format   = pDescriptorCapture->format;
@@ -37500,16 +37509,25 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         /* Buffer. */
         pActualAttr = pContextStatePulseAudio->pa_stream_get_buffer_attr(pDeviceStatePulseAudio->playback.pStream);
         if (pActualAttr != NULL) {
+            ma_uint32 bytesPerFrame;
+            ma_uint32 bufferSizeInFrames;
+
             attr = *pActualAttr;
-        }
 
-        if (attr.tlength > 0) {
-            pDescriptorPlayback->periodCount = ma_max(attr.maxlength / attr.tlength, 1);
+            bytesPerFrame = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
+            bufferSizeInFrames = ma_max(attr.tlength / bytesPerFrame, 1);
+
+            pDescriptorPlayback->periodSizeInFrames = attr.minreq / bytesPerFrame;
+            if (pDescriptorPlayback->periodSizeInFrames == 0) {
+                pDescriptorPlayback->periodSizeInFrames = bufferSizeInFrames;
+            }
+
+            /* Round up so the reported buffer covers the playback target (attr.tlenth). This is just in case the buffer size is not evenly divisible by the period size.  */
+            pDescriptorPlayback->periodCount = (bufferSizeInFrames - 1) / pDescriptorPlayback->periodSizeInFrames + 1;
         } else {
-            pDescriptorPlayback->periodCount = 1;
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[PulseAudio] Failed to retrieve playback buffer attributes. Using the requested period size and count.");
         }
 
-        pDescriptorPlayback->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) / pDescriptorPlayback->periodCount;
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
     
         pDeviceStatePulseAudio->playback.format   = pDescriptorPlayback->format;
