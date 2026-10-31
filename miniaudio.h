@@ -47603,9 +47603,10 @@ static void ma_device_uninit__aaudio(ma_device* pDevice)
     ma_free(pDeviceStateAAudio, ma_device_get_allocation_callbacks(pDevice));
 }
 
-static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type deviceType)
+static ma_result ma_device_reinit__aaudio(ma_device* pDevice)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
     const ma_int32 maxAttempts = 4; /* Reasonable retry limit. */
 
     ma_result result;
@@ -47629,7 +47630,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         /* The first thing to do is close the streams. */
         ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
 
-        /* Now we need to reinitialize each streams. The hardest part with this is just filling out the config and descriptors. */
+        /* Now we need to reinitialize each stream. The hardest part with this is just filling out the config and descriptors. */
         deviceConfigAAudio = ma_device_config_aaudio_init();
         deviceConfigAAudio.usage                   = pDeviceStateAAudio->usage;
         deviceConfigAAudio.contentType             = pDeviceStateAAudio->contentType;
@@ -47637,6 +47638,9 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfigAAudio.allowedCapturePolicy    = pDeviceStateAAudio->allowedCapturePolicy;
         deviceConfigAAudio.noAutoStartAfterReroute = pDeviceStateAAudio->noAutoStartAfterReroute;
         deviceConfigAAudio.noSetBufferCapacity     = pDeviceStateAAudio->noSetBufferCapacity;
+
+        MA_ZERO_OBJECT(&descriptorPlayback);
+        MA_ZERO_OBJECT(&descriptorCapture);
 
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
             descriptorCapture.pDeviceID           = NULL;   /* Only doing rerouting with default devices. */
@@ -47769,21 +47773,32 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
     /*
     If the stream is disconnected while the stream is in a stopped state, starting the stream will fail during the state
     transition. When starting fails, we'll attempt to reinitialize the stream and try starting again. We'll only attempt
-    this once.
+    this once. During rerouting of a started device, ma_device_reinit__aaudio() owns the retries.
     */
     result = ma_device_start_stream_internal__aaudio(pDevice, pStream);
-    if (result == MA_ERROR) {
-        /* Reinitialization replaces the stream. Retrieve its new pointer before retrying. */
-        if (pStream == pDeviceStateAAudio->pStreamPlayback) {
-            result = ma_device_reinit__aaudio(pDevice, ma_device_type_playback);
-            pStream = pDeviceStateAAudio->pStreamPlayback;
-        } else {
-            result = ma_device_reinit__aaudio(pDevice, ma_device_type_capture);
-            pStream = pDeviceStateAAudio->pStreamCapture;
-        }
+    if (result == MA_ERROR && ma_device_get_status(pDevice) == ma_device_status_starting) {
+        ma_bool32 isPlayback;
 
+        isPlayback = (pStream == pDeviceStateAAudio->pStreamPlayback);
+
+        result = ma_device_reinit__aaudio(pDevice);
         if (result != MA_SUCCESS) {
             return result;
+        }
+
+        /* Reinitialization replaces both streams. Restart capture if it was already started before playback failed. */
+        if (isPlayback && ma_device_get_type(pDevice) == ma_device_type_duplex) {
+            result = ma_device_start_stream_internal__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+
+        /* Reinitialization replaces the stream. Retrieve its new pointer before retrying. */
+        if (isPlayback) {
+            pStream = pDeviceStateAAudio->pStreamPlayback;
+        } else {
+            pStream = pDeviceStateAAudio->pStreamCapture;
         }
 
         result = ma_device_start_stream_internal__aaudio(pDevice, pStream);
@@ -47907,7 +47922,7 @@ static ma_result ma_device_step_extra__aaudio(ma_device* pDevice)
     if (ma_atomic_bool32_get(&pDeviceStateAAudio->isReroutingCapture)) {
         ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingCapture, MA_FALSE);
 
-        result = ma_device_reinit__aaudio(pDevice, ma_device_type_capture);
+        result = ma_device_reinit__aaudio(pDevice);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to capture reroute failure.");
             ma_device_stop(pDevice);
@@ -47917,7 +47932,7 @@ static ma_result ma_device_step_extra__aaudio(ma_device* pDevice)
     if (ma_atomic_bool32_get(&pDeviceStateAAudio->isReroutingPlayback)) {
         ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingPlayback, MA_FALSE);
 
-        result = ma_device_reinit__aaudio(pDevice, ma_device_type_playback);
+        result = ma_device_reinit__aaudio(pDevice);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to playback reroute failure.");
             ma_device_stop(pDevice);
