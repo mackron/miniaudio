@@ -7033,6 +7033,7 @@ MA_API ma_result ma_event_signal(ma_event* pEvent);
 MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore);
 MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore);
 MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore);
+MA_API ma_result ma_semaphore_timedwait(ma_semaphore* pSemaphore, ma_uint32 timeoutInMilliseconds); /* Returns MA_TIMEOUT if no signal is received within the timeout. Zero checks without waiting. */
 MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore);
 #endif  /* MA_NO_THREADING */
 
@@ -18378,6 +18379,125 @@ MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 
 
 
+#ifdef MA_APPLE
+    #include <AvailabilityMacros.h>
+    #if MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+        #include <mach/mach_time.h> /* For mach_absolute_time() */
+    #endif
+#endif
+
+/*******************************************************************************
+
+Timing
+
+*******************************************************************************/
+#if defined(MA_WIN32) && !defined(MA_POSIX)
+    static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
+    MA_API void ma_timer_init(ma_timer* pTimer)
+    {
+        LARGE_INTEGER counter;
+
+        if (g_ma_TimerFrequency.QuadPart == 0) {
+            QueryPerformanceFrequency(&g_ma_TimerFrequency);
+        }
+
+        QueryPerformanceCounter(&counter);
+        pTimer->counter = counter.QuadPart;
+    }
+
+    MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    {
+        LARGE_INTEGER counter;
+        if (!QueryPerformanceCounter(&counter)) {
+            return 0;
+        }
+
+        return (double)(counter.QuadPart - pTimer->counter) / g_ma_TimerFrequency.QuadPart;
+    }
+#elif defined(MA_APPLE) && (MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
+    static ma_uint64 g_ma_TimerFrequency = 0;
+    MA_API void ma_timer_init(ma_timer* pTimer)
+    {
+        mach_timebase_info_data_t baseTime;
+        mach_timebase_info(&baseTime);
+        g_ma_TimerFrequency = (baseTime.denom * 1e9) / baseTime.numer;
+
+        pTimer->counter = mach_absolute_time();
+    }
+
+    MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    {
+        ma_uint64 newTimeCounter = mach_absolute_time();
+        ma_uint64 oldTimeCounter = pTimer->counter;
+
+        return (newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
+    }
+#elif defined(MA_EMSCRIPTEN)
+    MA_API void ma_timer_init(ma_timer* pTimer)
+    {
+        pTimer->counterD = emscripten_get_now();
+    }
+
+    MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    {
+        return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
+    }
+#else
+    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+        #if defined(CLOCK_MONOTONIC)
+            #define MA_CLOCK_ID CLOCK_MONOTONIC
+        #else
+            #define MA_CLOCK_ID CLOCK_REALTIME
+        #endif
+
+        MA_API void ma_timer_init(ma_timer* pTimer)
+        {
+            struct timespec newTime;
+            clock_gettime(MA_CLOCK_ID, &newTime);
+
+            pTimer->counter = ((ma_int64)newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+        }
+
+        MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+        {
+            ma_uint64 newTimeCounter;
+            ma_uint64 oldTimeCounter;
+
+            struct timespec newTime;
+            clock_gettime(MA_CLOCK_ID, &newTime);
+
+            newTimeCounter = ((ma_uint64)newTime.tv_sec * 1000000000) + newTime.tv_nsec;
+            oldTimeCounter = pTimer->counter;
+
+            return (newTimeCounter - oldTimeCounter) / 1000000000.0;
+        }
+    #else
+        MA_API void ma_timer_init(ma_timer* pTimer)
+        {
+            struct timeval newTime;
+            gettimeofday(&newTime, NULL);
+
+            pTimer->counter = ((ma_int64)newTime.tv_sec * 1000000) + newTime.tv_usec;
+        }
+
+        MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+        {
+            ma_uint64 newTimeCounter;
+            ma_uint64 oldTimeCounter;
+
+            struct timeval newTime;
+            gettimeofday(&newTime, NULL);
+
+            newTimeCounter = ((ma_uint64)newTime.tv_sec * 1000000) + newTime.tv_usec;
+            oldTimeCounter = pTimer->counter;
+
+            return (newTimeCounter - oldTimeCounter) / 1000000.0;
+        }
+    #endif
+#endif
+
+
+
 #if defined(MA_THREADING_BACKEND_WIN32)
     #define MA_THREADCALL WINAPI
     typedef unsigned long ma_thread_result;
@@ -18679,6 +18799,56 @@ static ma_result ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
     return MA_SUCCESS;
 }
 
+static ma_result ma_semaphore_timedwait__posix(ma_semaphore* pSemaphore, ma_uint32 timeoutInMilliseconds)
+{
+    struct timeval currentTime;
+    struct timespec deadline;
+    int result;
+
+    /* The condition variable uses CLOCK_REALTIME. Keep the same deadline after spurious wakeups. */
+    if (gettimeofday(&currentTime, NULL) != 0) {
+        return ma_result_from_errno(errno);
+    }
+
+    deadline.tv_sec  = currentTime.tv_sec + timeoutInMilliseconds / 1000;
+    deadline.tv_nsec = currentTime.tv_usec * 1000 + (timeoutInMilliseconds % 1000) * 1000000;
+    if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000;
+    }
+
+    result = pthread_mutex_lock((pthread_mutex_t*)&pSemaphore->lock);
+    if (result != 0) {
+        return ma_result_from_errno(result);
+    }
+
+    while (pSemaphore->value == 0) {
+        if (timeoutInMilliseconds == 0) {
+            result = ETIMEDOUT;
+            break;
+        }
+
+        result = pthread_cond_timedwait((pthread_cond_t*)&pSemaphore->cond, (pthread_mutex_t*)&pSemaphore->lock, &deadline);
+        if (result != 0) {
+            break;
+        }
+    }
+
+    /* A release can race with the timeout while the condition wait reacquires the mutex. */
+    if ((result == 0 || result == ETIMEDOUT) && pSemaphore->value > 0) {
+        pSemaphore->value -= 1;
+        result = 0;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&pSemaphore->lock);
+
+    if (result == ETIMEDOUT) {
+        return MA_TIMEOUT;
+    }
+
+    return ma_result_from_errno(result);
+}
+
 static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
@@ -18823,6 +18993,30 @@ static ma_result ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
     }
 
     return ma_result_from_GetLastError(GetLastError());
+}
+
+static ma_result ma_semaphore_timedwait__win32(ma_semaphore* pSemaphore, ma_uint32 timeoutInMilliseconds)
+{
+    DWORD result;
+    DWORD waitTimeInMilliseconds;
+
+    for (;;) {
+        /* INFINITE is reserved by Win32. Split that value into two finite waits. */
+        waitTimeInMilliseconds = ma_min(timeoutInMilliseconds, INFINITE - 1);
+        result = WaitForSingleObject((HANDLE)*pSemaphore, waitTimeInMilliseconds);
+        if (result == WAIT_OBJECT_0) {
+            return MA_SUCCESS;
+        }
+
+        if (result != WAIT_TIMEOUT) {
+            return ma_result_from_GetLastError(GetLastError());
+        }
+
+        timeoutInMilliseconds -= waitTimeInMilliseconds;
+        if (timeoutInMilliseconds == 0) {
+            return MA_TIMEOUT;
+        }
+    }
 }
 
 static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
@@ -19077,6 +19271,15 @@ static ma_result ma_semaphore_wait__vita(ma_semaphore* pSemaphore)
     return MA_SUCCESS;
 }
 
+static ma_result ma_semaphore_timedwait__vita(ma_semaphore* pSemaphore, ma_uint32 timeoutInMilliseconds)
+{
+    (void)pSemaphore;
+    (void)timeoutInMilliseconds;
+
+    MA_ASSERT(MA_FALSE); /* Not implemented for Vita. */
+    return MA_NOT_IMPLEMENTED;
+}
+
 static ma_result ma_semaphore_release__vita(ma_semaphore* pSemaphore)
 {
     int result;
@@ -19203,6 +19406,27 @@ static ma_result ma_semaphore_wait__none(ma_semaphore* pSemaphore)
     }
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_semaphore_timedwait__none(ma_semaphore* pSemaphore, ma_uint32 timeoutInMilliseconds)
+{
+    ma_timer timer;
+    ma_uint32 oldValue;
+
+    ma_timer_init(&timer);
+
+    for (;;) {
+        oldValue = ma_atomic_load_32(pSemaphore);
+        if (oldValue > 0 && ma_atomic_compare_exchange_strong_32(pSemaphore, &oldValue, oldValue - 1)) {
+            return MA_SUCCESS;
+        }
+
+        if (timeoutInMilliseconds == 0 || ma_timer_get_time_in_seconds(&timer) * 1000 >= timeoutInMilliseconds) {
+            return MA_TIMEOUT;
+        }
+
+        ma_yield();
+    }
 }
 
 static ma_result ma_semaphore_release__none(ma_semaphore* pSemaphore)
@@ -19541,6 +19765,24 @@ MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
     return ma_semaphore_wait__win32(pSemaphore);
 #else
     return ma_semaphore_wait__none(pSemaphore);
+#endif
+}
+
+MA_API ma_result ma_semaphore_timedwait(ma_semaphore* pSemaphore, ma_uint32 timeoutInMilliseconds)
+{
+    if (pSemaphore == NULL) {
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
+        return MA_INVALID_ARGS;
+    }
+
+#if defined(MA_THREADING_BACKEND_VITA)
+    return ma_semaphore_timedwait__vita(pSemaphore, timeoutInMilliseconds);
+#elif defined(MA_THREADING_BACKEND_POSIX)
+    return ma_semaphore_timedwait__posix(pSemaphore, timeoutInMilliseconds);
+#elif defined(MA_THREADING_BACKEND_WIN32)
+    return ma_semaphore_timedwait__win32(pSemaphore, timeoutInMilliseconds);
+#else
+    return ma_semaphore_timedwait__none(pSemaphore, timeoutInMilliseconds);
 #endif
 }
 
@@ -20727,15 +20969,7 @@ DEVICE I/O
 *************************************************************************************************************************************************************
 ************************************************************************************************************************************************************/
 
-#ifdef MA_APPLE
-    #include <AvailabilityMacros.h>
-#endif
-
 #ifndef MA_NO_DEVICE_IO
-
-#if defined(MA_APPLE) && (MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
-    #include <mach/mach_time.h> /* For mach_absolute_time() */
-#endif
 
 #ifdef MA_POSIX
     #include <sys/types.h>
@@ -21187,115 +21421,6 @@ MA_API int ma_strcpy_s_WCHAR(WCHAR* dst, size_t dstCap, const WCHAR* src)
 
 
 
-/*******************************************************************************
-
-Timing
-
-*******************************************************************************/
-#if defined(MA_WIN32) && !defined(MA_POSIX)
-    static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
-    MA_API void ma_timer_init(ma_timer* pTimer)
-    {
-        LARGE_INTEGER counter;
-
-        if (g_ma_TimerFrequency.QuadPart == 0) {
-            QueryPerformanceFrequency(&g_ma_TimerFrequency);
-        }
-
-        QueryPerformanceCounter(&counter);
-        pTimer->counter = counter.QuadPart;
-    }
-
-    MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-    {
-        LARGE_INTEGER counter;
-        if (!QueryPerformanceCounter(&counter)) {
-            return 0;
-        }
-
-        return (double)(counter.QuadPart - pTimer->counter) / g_ma_TimerFrequency.QuadPart;
-    }
-#elif defined(MA_APPLE) && (MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
-    static ma_uint64 g_ma_TimerFrequency = 0;
-    MA_API void ma_timer_init(ma_timer* pTimer)
-    {
-        mach_timebase_info_data_t baseTime;
-        mach_timebase_info(&baseTime);
-        g_ma_TimerFrequency = (baseTime.denom * 1e9) / baseTime.numer;
-
-        pTimer->counter = mach_absolute_time();
-    }
-
-    MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-    {
-        ma_uint64 newTimeCounter = mach_absolute_time();
-        ma_uint64 oldTimeCounter = pTimer->counter;
-
-        return (newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
-    }
-#elif defined(MA_EMSCRIPTEN)
-    MA_API void ma_timer_init(ma_timer* pTimer)
-    {
-        pTimer->counterD = emscripten_get_now();
-    }
-
-    MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-    {
-        return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
-    }
-#else
-    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
-        #if defined(CLOCK_MONOTONIC)
-            #define MA_CLOCK_ID CLOCK_MONOTONIC
-        #else
-            #define MA_CLOCK_ID CLOCK_REALTIME
-        #endif
-
-        MA_API void ma_timer_init(ma_timer* pTimer)
-        {
-            struct timespec newTime;
-            clock_gettime(MA_CLOCK_ID, &newTime);
-
-            pTimer->counter = ((ma_int64)newTime.tv_sec * 1000000000) + newTime.tv_nsec;
-        }
-
-        MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-        {
-            ma_uint64 newTimeCounter;
-            ma_uint64 oldTimeCounter;
-
-            struct timespec newTime;
-            clock_gettime(MA_CLOCK_ID, &newTime);
-
-            newTimeCounter = ((ma_uint64)newTime.tv_sec * 1000000000) + newTime.tv_nsec;
-            oldTimeCounter = pTimer->counter;
-
-            return (newTimeCounter - oldTimeCounter) / 1000000000.0;
-        }
-    #else
-        MA_API void ma_timer_init(ma_timer* pTimer)
-        {
-            struct timeval newTime;
-            gettimeofday(&newTime, NULL);
-
-            pTimer->counter = ((ma_int64)newTime.tv_sec * 1000000) + newTime.tv_usec;
-        }
-
-        MA_API double ma_timer_get_time_in_seconds(ma_timer* pTimer)
-        {
-            ma_uint64 newTimeCounter;
-            ma_uint64 oldTimeCounter;
-
-            struct timeval newTime;
-            gettimeofday(&newTime, NULL);
-
-            newTimeCounter = ((ma_uint64)newTime.tv_sec * 1000000) + newTime.tv_usec;
-            oldTimeCounter = pTimer->counter;
-
-            return (newTimeCounter - oldTimeCounter) / 1000000.0;
-        }
-    #endif
-#endif
 
 
 
