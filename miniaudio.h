@@ -55593,8 +55593,8 @@ static MA_INLINE void ma_pcm_u8_to_f32__reference(void* dst, const void* src, ma
     ma_uint64 i;
     for (i = 0; i < count; i += 1) {
         float x = (float)src_u8[i];
-        x = x * 0.00784313725490196078f;    /* 0..255 to 0..2 */
-        x = x - 1;                          /* 0..2 to -1..1 */
+        x = x - 128;        /* 0..255 to -128..127 */
+        x = x * 0.0078125f; /* -128..127 to -1..0.9921875 */
 
         dst_f32[i] = x;
     }
