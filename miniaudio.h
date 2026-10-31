@@ -38339,8 +38339,6 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
     return 0;
 }
 
-static void ma_device_uninit__jack(ma_device* pDevice);
-
 static ma_result ma_get_port_range_by_device_id__jack(const char** ppPorts, const ma_device_id* pDeviceID, ma_uint32* pIndex, ma_uint32* pCount)
 {
     char pDefaultClientName[256];
@@ -38421,6 +38419,8 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
     size_t bufferSizePlayback = 0;
     ma_uint32 sampleRate;
 
+    *ppDeviceState = NULL;
+
     if (pDeviceConfigJACK == NULL) {
         defaultConfigJACK = ma_device_config_jack_init();
         pDeviceConfigJACK = &defaultConfigJACK;
@@ -38438,7 +38438,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    pDeviceStateJACK = (ma_device_state_jack*)ma_malloc(sizeof(*pDeviceStateJACK), ma_device_get_allocation_callbacks(pDevice));
+    pDeviceStateJACK = (ma_device_state_jack*)ma_calloc(sizeof(*pDeviceStateJACK), ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateJACK == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -38448,21 +38448,20 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
     /* Open the client. */
     result = ma_context_open_client__jack(pContextStateJACK, &pDeviceStateJACK->pClient);
     if (result != MA_SUCCESS) {
-        ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
         ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to open client.");
-        return result;
+        goto on_error;
     }
 
     /* Callbacks. */
     if (pContextStateJACK->jack_set_process_callback(pDeviceStateJACK->pClient, ma_device__jack_process_callback, pDevice) != 0) {
-        ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
         ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to set process callback.");
-        return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        goto on_error;
     }
     if (pContextStateJACK->jack_set_buffer_size_callback(pDeviceStateJACK->pClient, ma_device__jack_buffer_size_callback, pDevice) != 0) {
-        ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
         ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to set buffer size callback.");
-        return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        goto on_error;
     }
 
     pContextStateJACK->jack_on_shutdown(pDeviceStateJACK->pClient, ma_device__jack_shutdown_callback, pDevice);
@@ -38485,14 +38484,16 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
         if (ppPorts == NULL) {
             ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical input ports.");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
         }
 
         result = ma_get_port_range_by_device_id__jack(ppPorts, pDescriptorCapture->pDeviceID, &portIndex, &portCount);
         if (result != MA_SUCCESS) {
             pContextStateJACK->jack_free((void*)ppPorts);
             ma_log_postf(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for client \"%s\".", (pDescriptorCapture->pDeviceID != NULL) ? pDescriptorCapture->pDeviceID->jack : "");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
         }
 
         /* If the application has requested the default channel count, make it equal to the number of output ports of the physical input device. */
@@ -38507,8 +38508,8 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         pDeviceStateJACK->ppPortsCapture = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsCapture) * channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsCapture == NULL) {
             pContextStateJACK->jack_free((void*)ppPorts);
-            ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
-            return MA_OUT_OF_MEMORY;
+            result = MA_OUT_OF_MEMORY;
+            goto on_error;
         }
 
         for (iPort = 0; iPort < channels; iPort += 1) {
@@ -38518,10 +38519,10 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
 
             pDeviceStateJACK->ppPortsCapture[iPort] = pContextStateJACK->jack_port_register(pDeviceStateJACK->pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
             if (pDeviceStateJACK->ppPortsCapture[iPort] == NULL) {    
-                ma_device_uninit__jack(pDevice);
                 pContextStateJACK->jack_free((void*)ppPorts);
                 ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
-                return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                goto on_error;
             }
 
             if (pDeviceConfigJACK->noAutoConnect == MA_FALSE) {
@@ -38557,14 +38558,16 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         ppPorts = pContextStateJACK->jack_get_ports(pDeviceStateJACK->pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
         if (ppPorts == NULL) {
             ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical input ports.");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
         }
 
         result = ma_get_port_range_by_device_id__jack(ppPorts, pDescriptorPlayback->pDeviceID, &portIndex, &portCount);
         if (result != MA_SUCCESS) {
             pContextStateJACK->jack_free((void*)ppPorts);
             ma_log_postf(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Could not find ports for client \"%s\".", (pDescriptorPlayback->pDeviceID != NULL) ? pDescriptorPlayback->pDeviceID->jack : "");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
         }
 
         /* If the application has requested the default channel count, make it equal to the number of input ports of the physical output device. */
@@ -38579,8 +38582,8 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
         pDeviceStateJACK->ppPortsPlayback = (ma_jack_port_t**)ma_malloc(sizeof(*pDeviceStateJACK->ppPortsPlayback) * channels, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateJACK->ppPortsPlayback == NULL) {
             pContextStateJACK->jack_free((void*)ppPorts);
-            ma_free(pDeviceStateJACK->ppPortsCapture, ma_device_get_allocation_callbacks(pDevice));
-            return MA_OUT_OF_MEMORY;
+            result = MA_OUT_OF_MEMORY;
+            goto on_error;
         }
 
         for (iPort = 0; iPort < channels; iPort += 1) {
@@ -38590,10 +38593,10 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
 
             pDeviceStateJACK->ppPortsPlayback[iPort] = pContextStateJACK->jack_port_register(pDeviceStateJACK->pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
             if (pDeviceStateJACK->ppPortsPlayback[iPort] == NULL) {
-                ma_device_uninit__jack(pDevice);
                 pContextStateJACK->jack_free((void*)ppPorts);
                 ma_log_post(pContextStateJACK->pLog, MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
-                return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                goto on_error;
             }
 
             /* Connect the port if we're auto-connecting. */
@@ -38622,28 +38625,39 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const void* pDeviceBac
     /* We need an intermediary buffer for interleaving and deinterleaving. */
     pDeviceStateJACK->pIntermediaryBuffer = (float*)ma_calloc(ma_max(bufferSizeCapture, bufferSizePlayback), ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateJACK->pIntermediaryBuffer == NULL) {
-        ma_device_uninit__jack(pDevice);
-        return MA_OUT_OF_MEMORY;
+        result = MA_OUT_OF_MEMORY;
+        goto on_error;
     }
 
 
+    /* Initialize synchronization last so no later failure requires its cleanup. */
     if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
         result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateJACK->async);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__jack(pDevice);
-            return result;
+            goto on_error;
         }
     } else {
         result = ma_semaphore_init(0, &pDeviceStateJACK->stepSemaphore);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__jack(pDevice);
-            return result;
+            goto on_error;
         }
     }
 
     *ppDeviceState = pDeviceStateJACK;
 
     return MA_SUCCESS;
+
+on_error:
+    if (pDeviceStateJACK->pClient != NULL) {
+        pContextStateJACK->jack_client_close(pDeviceStateJACK->pClient);
+    }
+
+    ma_free(pDeviceStateJACK->ppPortsCapture, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateJACK->ppPortsPlayback, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateJACK->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
+
+    return result;
 }
 
 static void ma_device_uninit__jack(ma_device* pDevice)
