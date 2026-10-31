@@ -30552,7 +30552,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
 
         /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
         {
-            if (pDeviceConfigALSA->assumeDefaultChannelLayout) {
+            if (!pDeviceConfigALSA->assumeDefaultChannelLayout) {
                 ma_snd_pcm_chmap_t* pChmap = NULL;
                 if (pContextStateALSA->snd_pcm_get_chmap != NULL) {
                     pChmap = pContextStateALSA->snd_pcm_get_chmap(pPCM);
