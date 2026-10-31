@@ -38000,6 +38000,8 @@ static ma_result ma_context_init__jack(ma_context* pContext, const void* pContex
         return MA_OUT_OF_MEMORY;
     }
 
+    pContextStateJACK->pLog = pLog;
+
     if (pContextConfigJACK->pClientName != NULL) {
         pContextStateJACK->pClientName = (char*)ma_offset_ptr(pContextStateJACK, ma_align_64(sizeof(*pContextStateJACK)));
         ma_strcpy_s(pContextStateJACK->pClientName, clientNameSize, pContextConfigJACK->pClientName);
