@@ -48277,6 +48277,7 @@ typedef struct ma_device_state_opensl
     SLAndroidSimpleBufferQueueItf pBufferQueueCapture;
     ma_atomic_bool32 isDrainingCapture;
     ma_atomic_bool32 isDrainingPlayback;
+    ma_atomic_bool32 isQueueErrored;
     ma_uint32 currentBufferIndexPlayback;
     ma_uint32 currentBufferIndexCapture;
     ma_uint8* pBufferPlayback;      /* This is malloc()'d and is used for storing audio data. Typed as ma_uint8 for easy offsetting. */
@@ -48610,6 +48611,10 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
 
     (void)pBufferQueue;
 
+    if (ma_atomic_bool32_get(&pDeviceStateOpenSL->isQueueErrored)) {
+        return;
+    }
+
     periodSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     pBuffer = pDeviceStateOpenSL->pBufferCapture + (pDeviceStateOpenSL->currentBufferIndexCapture * periodSizeInBytes);
 
@@ -48618,6 +48623,9 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
     if (!ma_atomic_bool32_get(&pDeviceStateOpenSL->isDrainingCapture)) {
         resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue(pDeviceStateOpenSL->pBufferQueueCapture, pBuffer, periodSizeInBytes);
         if (resultSL != SL_RESULT_SUCCESS) {
+            ma_atomic_bool32_set(&pDeviceStateOpenSL->isQueueErrored, MA_TRUE);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue capture buffer. resultSL=%d", (int)resultSL);
+            ma_device_state_async_release(&pDeviceStateOpenSL->async);
             return;
         }
     }
@@ -48637,6 +48645,10 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
 
     (void)pBufferQueue;
 
+    if (ma_atomic_bool32_get(&pDeviceStateOpenSL->isQueueErrored)) {
+        return;
+    }
+
     periodSizeInBytes = pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     pBuffer = pDeviceStateOpenSL->pBufferPlayback + (pDeviceStateOpenSL->currentBufferIndexPlayback * periodSizeInBytes);
 
@@ -48645,6 +48657,9 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
     if (!ma_atomic_bool32_get(&pDeviceStateOpenSL->isDrainingPlayback)) {
         resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue(pDeviceStateOpenSL->pBufferQueuePlayback, pBuffer, periodSizeInBytes);
         if (resultSL != SL_RESULT_SUCCESS) {
+            ma_atomic_bool32_set(&pDeviceStateOpenSL->isQueueErrored, MA_TRUE);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue playback buffer. resultSL=%d", (int)resultSL);
+            ma_device_state_async_release(&pDeviceStateOpenSL->async);
             return;
         }
     }
@@ -49318,7 +49333,17 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
 static ma_result ma_device_step__opensl(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
-    return ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice, blockingMode, NULL);
+
+    if (blockingMode == MA_BLOCKING_MODE_BLOCKING && !ma_atomic_bool32_get(&pDeviceStateOpenSL->isQueueErrored)) {
+        ma_device_state_async_wait(&pDeviceStateOpenSL->async);
+    }
+
+    if (ma_atomic_bool32_get(&pDeviceStateOpenSL->isQueueErrored)) {
+        ma_device_set_errored(pDevice);
+        return MA_ERROR;
+    }
+
+    return ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice, MA_BLOCKING_MODE_NON_BLOCKING, NULL);
 }
 
 static void ma_device_wakeup__opensl(ma_device* pDevice)
