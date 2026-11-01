@@ -49309,6 +49309,12 @@ static ma_result ma_device_step__opensl(ma_device* pDevice, ma_blocking_mode blo
     return ma_device_state_async_step(&pDeviceStateOpenSL->async, pDevice, blockingMode, NULL);
 }
 
+static void ma_device_wakeup__opensl(ma_device* pDevice)
+{
+    ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
+    ma_device_state_async_release(&pDeviceStateOpenSL->async);
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
 {
     ma_backend_info__opensl,
@@ -49320,7 +49326,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_OpenSL =
     ma_device_start__opensl,
     ma_device_stop__opensl,
     ma_device_step__opensl,
-    NULL    /* onDeviceWakeup */
+    ma_device_wakeup__opensl
 };
 
 ma_device_backend_vtable* ma_device_backend_opensl = &ma_gDeviceBackendVTable_OpenSL;
