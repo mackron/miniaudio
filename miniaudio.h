@@ -49454,11 +49454,9 @@ Web Audio Backend
 #define MA_AUDIO_WORKLETS_THREAD_STACK_SIZE     131072
 #endif
 
-#if defined(MA_USE_AUDIO_WORKLETS)
 #define MA_WEBAUDIO_LATENCY_HINT_BALANCED       "balanced"
 #define MA_WEBAUDIO_LATENCY_HINT_INTERACTIVE    "interactive"
 #define MA_WEBAUDIO_LATENCY_HINT_PLAYBACK       "playback"
-#endif
 
 
 typedef struct ma_context_state_webaudio
@@ -50230,6 +50228,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
     const ma_device_config_webaudio* pDeviceConfigWebAudio = (const ma_device_config_webaudio*)pDeviceBackendConfig;
     ma_device_config_webaudio defaultConfigWebAudio;
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    const char* pLatencyHint = NULL;
 
     *ppDeviceState = NULL;
 
@@ -50249,6 +50248,16 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         return MA_OUT_OF_MEMORY;
     }
 
+    /*  */ if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_interactive) {
+        pLatencyHint = MA_WEBAUDIO_LATENCY_HINT_INTERACTIVE;
+    } else if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_playback) {
+        pLatencyHint = MA_WEBAUDIO_LATENCY_HINT_PLAYBACK;
+    } else if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_balanced) {
+        pLatencyHint = MA_WEBAUDIO_LATENCY_HINT_BALANCED;
+    } else {
+        /* Leave the latency hint unset. */
+    }
+
     /*
     With AudioWorklets we'll have just a single AudioContext. I'm not sure why I'm not doing this for ScriptProcessorNode so
     it might be worthwhile to look into that as well.
@@ -50260,15 +50269,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         void* pStackBuffer = NULL;
 
         MA_ZERO_OBJECT(&audioContextAttributes);
-        /*  */ if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_interactive) {
-            audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_INTERACTIVE;
-        } else if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_playback) {
-            audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_PLAYBACK;
-        } else if (pDeviceConfigWebAudio->latencyHint == ma_webaudio_latency_hint_balanced) {
-            audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_BALANCED;
-        } else {
-            /* Leave the latency hint unset. */
-        }
+        audioContextAttributes.latencyHint = pLatencyHint;
 
         /*
         In my testing, Firefox does not seem to capture audio data properly if the sample rate is set
@@ -50520,6 +50521,10 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
 
                 /* First thing we need is an AudioContext. */
                 var audioContextOptions = {};
+                if ($6 != 0) {
+                    audioContextOptions.latencyHint = UTF8ToString($6);
+                }
+
                 if (deviceType == window.miniaudio.device_type.playback && sampleRate != 0) {
                     audioContextOptions.sampleRate = sampleRate;
                 }
@@ -50664,7 +50669,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                 }
                 return -1;
             }
-        }, deviceType, channels, sampleRate, periodSizeInFrames, (ma_uintptr)pDeviceStateWebAudio->pIntermediaryBuffer, (ma_uintptr)pDevice);
+        }, deviceType, channels, sampleRate, periodSizeInFrames, (ma_uintptr)pDeviceStateWebAudio->pIntermediaryBuffer, (ma_uintptr)pDevice, pLatencyHint);
 
         if (deviceIndex < 0) {
             ma_free(pDeviceStateWebAudio->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
