@@ -49504,6 +49504,11 @@ static ma_device_state_webaudio* ma_device_get_backend_state__webaudio(ma_device
 #ifdef __cplusplus
 extern "C" {
 #endif
+ma_bool32 EMSCRIPTEN_KEEPALIVE ma_device_is_started_emscripten(const ma_device* pDevice)
+{
+    return ma_device_is_started(pDevice);
+}
+
 void EMSCRIPTEN_KEEPALIVE ma_device_post_notification_unlocked_emscripten(ma_device* pDevice)
 {
     ma_device_post_notification_unlocked(pDevice);
@@ -50528,7 +50533,11 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
 
                 /* The node processing callback. */
                 device.scriptNode.onaudioprocess = function(e) {
-                    if (device.closed) {
+                    if (device.closed || !_ma_device_is_started_emscripten(pDevice)) {
+                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; iChannel += 1) {
+                            e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                        }
+
                         return;
                     }
 
