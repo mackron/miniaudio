@@ -18496,6 +18496,12 @@ Timing
             newTimeCounter = ((ma_uint64)newTime.tv_sec * 1000000000) + newTime.tv_nsec;
             oldTimeCounter = pTimer->counter;
 
+            /* A wall-clock adjustment can move the time before the timer's starting value. */
+            if (newTimeCounter < oldTimeCounter) {
+                pTimer->counter = newTimeCounter;
+                return 0;
+            }
+
             return (newTimeCounter - oldTimeCounter) / 1000000000.0;
         }
     #else
@@ -18517,6 +18523,12 @@ Timing
 
             newTimeCounter = ((ma_uint64)newTime.tv_sec * 1000000) + newTime.tv_usec;
             oldTimeCounter = pTimer->counter;
+
+            /* A wall-clock adjustment can move the time before the timer's starting value. */
+            if (newTimeCounter < oldTimeCounter) {
+                pTimer->counter = newTimeCounter;
+                return 0;
+            }
 
             return (newTimeCounter - oldTimeCounter) / 1000000.0;
         }
