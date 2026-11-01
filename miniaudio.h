@@ -50356,11 +50356,20 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
 
             if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
                 if (pDescriptorCapture != NULL) {
+                    if (pDescriptorCapture->periodSizeInFrames == 0) {
+                        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorCapture->periodSizeInMilliseconds, sampleRate);
+                    }
+
                     if (periodSizeInFrames < pDescriptorCapture->periodSizeInFrames) {
                         periodSizeInFrames = pDescriptorCapture->periodSizeInFrames;
                     }
                 }
+
                 if (pDescriptorPlayback != NULL) {
+                    if (pDescriptorPlayback->periodSizeInFrames == 0) {
+                        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorPlayback->periodSizeInMilliseconds, sampleRate);
+                    }
+
                     if (periodSizeInFrames < pDescriptorPlayback->periodSizeInFrames) {
                         periodSizeInFrames = pDescriptorPlayback->periodSizeInFrames;
                     }
