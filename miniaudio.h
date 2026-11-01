@@ -48699,6 +48699,7 @@ static ma_result ma_SLDataFormat_PCM_init__opensl(ma_format format, ma_uint32 ch
 #ifdef MA_ANDROID
     if (pDataFormat->numChannels > 2) {
         pDataFormat->numChannels = 2;
+        pDataFormat->channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
     }
 #if __ANDROID_API__ >= 21
     if (pDataFormat->formatType == SL_ANDROID_DATAFORMAT_PCM_EX) {
