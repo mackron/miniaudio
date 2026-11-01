@@ -48275,8 +48275,8 @@ typedef struct ma_device_state_opensl
     SLRecordItf pAudioRecorder;
     SLAndroidSimpleBufferQueueItf pBufferQueuePlayback;
     SLAndroidSimpleBufferQueueItf pBufferQueueCapture;
-    ma_bool32 isDrainingCapture;
-    ma_bool32 isDrainingPlayback;
+    ma_atomic_bool32 isDrainingCapture;
+    ma_atomic_bool32 isDrainingPlayback;
     ma_uint32 currentBufferIndexPlayback;
     ma_uint32 currentBufferIndexCapture;
     ma_uint8* pBufferPlayback;      /* This is malloc()'d and is used for storing audio data. Typed as ma_uint8 for easy offsetting. */
@@ -48615,7 +48615,7 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
 
     ma_device_state_async_process(&pDeviceStateOpenSL->async, pDevice, NULL, pBuffer, pDevice->capture.internalPeriodSizeInFrames);
 
-    if (!pDeviceStateOpenSL->isDrainingCapture) {
+    if (!ma_atomic_bool32_get(&pDeviceStateOpenSL->isDrainingCapture)) {
         resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue(pDeviceStateOpenSL->pBufferQueueCapture, pBuffer, periodSizeInBytes);
         if (resultSL != SL_RESULT_SUCCESS) {
             return;
@@ -48642,7 +48642,7 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
 
     ma_device_state_async_process(&pDeviceStateOpenSL->async, pDevice, pBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
-    if (!pDeviceStateOpenSL->isDrainingPlayback) {
+    if (!ma_atomic_bool32_get(&pDeviceStateOpenSL->isDrainingPlayback)) {
         resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue(pDeviceStateOpenSL->pBufferQueuePlayback, pBuffer, periodSizeInBytes);
         if (resultSL != SL_RESULT_SUCCESS) {
             return;
@@ -49128,20 +49128,25 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
 
     /* Queue all buffers before starting each stream so callbacks cannot change the initial queue order. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        pDeviceStateOpenSL->currentBufferIndexCapture = 0;
+        ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture, MA_TRUE);
+        {
+            pDeviceStateOpenSL->currentBufferIndexCapture = 0;
 
-        periodSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-        for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
-            resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueueCapture, pDeviceStateOpenSL->pBufferCapture + (periodSizeInBytes * iPeriod), periodSizeInBytes);
-            if (resultSL != SL_RESULT_SUCCESS) {
-                MA_OPENSL_RECORD(pDeviceStateOpenSL->pAudioRecorder)->SetRecordState((SLRecordItf)pDeviceStateOpenSL->pAudioRecorder, SL_RECORDSTATE_STOPPED);
-                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for capture device.");
-                return ma_result_from_OpenSL(resultSL);
+            periodSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+            for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
+                resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueueCapture, pDeviceStateOpenSL->pBufferCapture + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+                if (resultSL != SL_RESULT_SUCCESS) {
+                    MA_OPENSL_RECORD(pDeviceStateOpenSL->pAudioRecorder)->SetRecordState((SLRecordItf)pDeviceStateOpenSL->pAudioRecorder, SL_RECORDSTATE_STOPPED);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for capture device.");
+                    return ma_result_from_OpenSL(resultSL);
+                }
             }
         }
+        ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture, MA_FALSE);
 
         resultSL = MA_OPENSL_RECORD(pDeviceStateOpenSL->pAudioRecorder)->SetRecordState((SLRecordItf)pDeviceStateOpenSL->pAudioRecorder, SL_RECORDSTATE_RECORDING);
         if (resultSL != SL_RESULT_SUCCESS) {
+            ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture, MA_TRUE);
             MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueueCapture);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal capture device.");
             return ma_result_from_OpenSL(resultSL);
@@ -49149,27 +49154,32 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        pDeviceStateOpenSL->currentBufferIndexPlayback = 0;
+        ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_TRUE);
+        {
+            pDeviceStateOpenSL->currentBufferIndexPlayback = 0;
 
-        /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueue silent buffers. */
-        if (deviceType == ma_device_type_duplex) {
-            MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferPlayback, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
-        } else {
-            ma_device__read_frames_from_client(pDevice, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods, pDeviceStateOpenSL->pBufferPlayback);
-        }
+            /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueue silent buffers. */
+            if (deviceType == ma_device_type_duplex) {
+                MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferPlayback, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+            } else {
+                ma_device__read_frames_from_client(pDevice, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods, pDeviceStateOpenSL->pBufferPlayback);
+            }
 
-        periodSizeInBytes = pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ++iPeriod) {
-            resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback, pDeviceStateOpenSL->pBufferPlayback + (periodSizeInBytes * iPeriod), periodSizeInBytes);
-            if (resultSL != SL_RESULT_SUCCESS) {
-                MA_OPENSL_PLAY(pDeviceStateOpenSL->pAudioPlayer)->SetPlayState((SLPlayItf)pDeviceStateOpenSL->pAudioPlayer, SL_PLAYSTATE_STOPPED);
-                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for playback device.");
-                return ma_result_from_OpenSL(resultSL);
+            periodSizeInBytes = pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ++iPeriod) {
+                resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback, pDeviceStateOpenSL->pBufferPlayback + (periodSizeInBytes * iPeriod), periodSizeInBytes);
+                if (resultSL != SL_RESULT_SUCCESS) {
+                    MA_OPENSL_PLAY(pDeviceStateOpenSL->pAudioPlayer)->SetPlayState((SLPlayItf)pDeviceStateOpenSL->pAudioPlayer, SL_PLAYSTATE_STOPPED);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for playback device.");
+                    return ma_result_from_OpenSL(resultSL);
+                }
             }
         }
+        ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_FALSE);
 
         resultSL = MA_OPENSL_PLAY(pDeviceStateOpenSL->pAudioPlayer)->SetPlayState((SLPlayItf)pDeviceStateOpenSL->pAudioPlayer, SL_PLAYSTATE_PLAYING);
         if (resultSL != SL_RESULT_SUCCESS) {
+            ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_TRUE);
             MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal playback device.");
             return ma_result_from_OpenSL(resultSL);
@@ -49188,10 +49198,10 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
 
     if (deviceType == ma_device_type_capture) {
         pBufferQueue = pDeviceStateOpenSL->pBufferQueueCapture;
-        pDeviceStateOpenSL->isDrainingCapture  = MA_TRUE;
+        ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture, MA_TRUE);
     } else {
         pBufferQueue = pDeviceStateOpenSL->pBufferQueuePlayback;
-        pDeviceStateOpenSL->isDrainingPlayback = MA_TRUE;
+        ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_TRUE);
     }
 
     for (;;) {
@@ -49209,12 +49219,6 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
         }
 
         ma_sleep(10);
-    }
-
-    if (deviceType == ma_device_type_capture) {
-        pDeviceStateOpenSL->isDrainingCapture  = MA_FALSE;
-    } else {
-        pDeviceStateOpenSL->isDrainingPlayback = MA_FALSE;
     }
 
     return MA_SUCCESS;
