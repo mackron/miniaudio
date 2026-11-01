@@ -49136,9 +49136,8 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
             for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
                 resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Enqueue((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueueCapture, pDeviceStateOpenSL->pBufferCapture + (periodSizeInBytes * iPeriod), periodSizeInBytes);
                 if (resultSL != SL_RESULT_SUCCESS) {
-                    MA_OPENSL_RECORD(pDeviceStateOpenSL->pAudioRecorder)->SetRecordState((SLRecordItf)pDeviceStateOpenSL->pAudioRecorder, SL_RECORDSTATE_STOPPED);
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for capture device.");
-                    return ma_result_from_OpenSL(resultSL);
+                    goto on_error;
                 }
             }
         }
@@ -49146,10 +49145,8 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
 
         resultSL = MA_OPENSL_RECORD(pDeviceStateOpenSL->pAudioRecorder)->SetRecordState((SLRecordItf)pDeviceStateOpenSL->pAudioRecorder, SL_RECORDSTATE_RECORDING);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture, MA_TRUE);
-            MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueueCapture);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal capture device.");
-            return ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
     }
 
@@ -49169,9 +49166,8 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
             for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ++iPeriod) {
                 resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback, pDeviceStateOpenSL->pBufferPlayback + (periodSizeInBytes * iPeriod), periodSizeInBytes);
                 if (resultSL != SL_RESULT_SUCCESS) {
-                    MA_OPENSL_PLAY(pDeviceStateOpenSL->pAudioPlayer)->SetPlayState((SLPlayItf)pDeviceStateOpenSL->pAudioPlayer, SL_PLAYSTATE_STOPPED);
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to enqueue buffer for playback device.");
-                    return ma_result_from_OpenSL(resultSL);
+                    goto on_error;
                 }
             }
         }
@@ -49179,14 +49175,39 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
 
         resultSL = MA_OPENSL_PLAY(pDeviceStateOpenSL->pAudioPlayer)->SetPlayState((SLPlayItf)pDeviceStateOpenSL->pAudioPlayer, SL_PLAYSTATE_PLAYING);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_TRUE);
-            MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to start internal playback device.");
-            return ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
     }
 
     return MA_SUCCESS;
+
+on_error:
+    /* Stop both directions and clear partial queues before another start can be attempted. */
+    ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture,  MA_TRUE);
+    ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_TRUE);
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        if (MA_OPENSL_RECORD(pDeviceStateOpenSL->pAudioRecorder)->SetRecordState((SLRecordItf)pDeviceStateOpenSL->pAudioRecorder, SL_RECORDSTATE_STOPPED) != SL_RESULT_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Failed to stop internal capture device after startup failure.");
+        }
+
+        if (MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueueCapture) != SL_RESULT_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Failed to clear capture buffer queue after startup failure.");
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        if (MA_OPENSL_PLAY(pDeviceStateOpenSL->pAudioPlayer)->SetPlayState((SLPlayItf)pDeviceStateOpenSL->pAudioPlayer, SL_PLAYSTATE_STOPPED) != SL_RESULT_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Failed to stop internal playback device after startup failure.");
+        }
+
+        if (MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->Clear((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback) != SL_RESULT_SUCCESS) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Failed to clear playback buffer queue after startup failure.");
+        }
+    }
+
+    return ma_result_from_OpenSL(resultSL);
 }
 
 static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type deviceType)
