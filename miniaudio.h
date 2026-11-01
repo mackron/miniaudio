@@ -48760,7 +48760,7 @@ static ma_result ma_deconstruct_SLDataFormat_PCM__opensl(ma_SLDataFormat_PCM* pD
 }
 
 
-static void ma_device_uninit__opensl(ma_device* pDevice);
+static void ma_device_uninit_objects__opensl(ma_device* pDevice, ma_device_state_opensl* pDeviceStateOpenSL);
 
 static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -48782,6 +48782,8 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         SL_BOOLEAN_FALSE    /* SL_IID_ANDROIDCONFIGURATION */
     };
 #endif
+
+    *ppDeviceState = NULL;
 
     if (pDeviceConfigOpenSL == NULL) {
         defaultConfigOpenSL = ma_device_config_opensl_init();
@@ -48855,9 +48857,9 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         }
 
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to create audio recorder.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
 
@@ -48875,30 +48877,30 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioRecorderObj)->Realize((SLObjectItf)pDeviceStateOpenSL->pAudioRecorderObj, SL_BOOLEAN_FALSE);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio recorder.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioRecorderObj)->GetInterface((SLObjectItf)pDeviceStateOpenSL->pAudioRecorderObj, pContextStateOpenSL->SL_IID_RECORD, &pDeviceStateOpenSL->pAudioRecorder);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_RECORD interface.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioRecorderObj)->GetInterface(pDeviceStateOpenSL->pAudioRecorderObj, pContextStateOpenSL->SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDeviceStateOpenSL->pBufferQueueCapture);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueueCapture)->RegisterCallback(pDeviceStateOpenSL->pBufferQueueCapture, ma_buffer_queue_callback_capture__opensl_android, pDevice);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to register buffer queue callback.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         /* The internal format is determined by the "pcm" object. */
@@ -48922,23 +48924,23 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 
         resultSL = (*g_maEngineSL)->CreateOutputMix(g_maEngineSL, (SLObjectItf*)&pDeviceStateOpenSL->pOutputMixObj, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to create output mix.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pOutputMixObj)->Realize(pDeviceStateOpenSL->pOutputMixObj, SL_BOOLEAN_FALSE);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize output mix object.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pOutputMixObj)->GetInterface(pDeviceStateOpenSL->pOutputMixObj, pContextStateOpenSL->SL_IID_OUTPUTMIX, &pDeviceStateOpenSL->pOutputMix);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         /* Set the output device. */
@@ -48971,9 +48973,9 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         }
 
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to create audio player.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
 
@@ -48991,30 +48993,30 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioPlayerObj)->Realize(pDeviceStateOpenSL->pAudioPlayerObj, SL_BOOLEAN_FALSE);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio player.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioPlayerObj)->GetInterface(pDeviceStateOpenSL->pAudioPlayerObj, pContextStateOpenSL->SL_IID_PLAY, &pDeviceStateOpenSL->pAudioPlayer);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_OBJ(pDeviceStateOpenSL->pAudioPlayerObj)->GetInterface(pDeviceStateOpenSL->pAudioPlayerObj, pContextStateOpenSL->SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDeviceStateOpenSL->pBufferQueuePlayback);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         resultSL = MA_OPENSL_BUFFERQUEUE(pDeviceStateOpenSL->pBufferQueuePlayback)->RegisterCallback((SLAndroidSimpleBufferQueueItf)pDeviceStateOpenSL->pBufferQueuePlayback, ma_buffer_queue_callback_playback__opensl_android, pDevice);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to register buffer queue callback.");
-            return ma_result_from_OpenSL(resultSL);
+            result = ma_result_from_OpenSL(resultSL);
+            goto on_error;
         }
 
         /* The internal format is determined by the "pcm" object. */
@@ -49039,8 +49041,8 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 
         pNewDeviceStateOpenSL = (ma_device_state_opensl*)ma_realloc(pDeviceStateOpenSL, newDeviceStateAllocSize, ma_device_get_allocation_callbacks(pDevice));
         if (pNewDeviceStateOpenSL == NULL) {
-            ma_device_uninit__opensl(pDevice);
-            return MA_OUT_OF_MEMORY;
+            result = MA_OUT_OF_MEMORY;
+            goto on_error;
         }
 
         pDeviceStateOpenSL = pNewDeviceStateOpenSL;
@@ -49058,21 +49060,24 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
 
     result = ma_device_state_async_init(deviceType, pDescriptorPlayback, pDescriptorCapture, ma_device_get_allocation_callbacks(pDevice), &pDeviceStateOpenSL->async);
     if (result != MA_SUCCESS) {
-        ma_device_uninit__opensl(pDevice);
-        return result;
+        goto on_error;
     }
 
     *ppDeviceState = pDeviceStateOpenSL;
 
     return MA_SUCCESS;
+
+on_error:
+    ma_device_uninit_objects__opensl(pDevice, pDeviceStateOpenSL);
+    ma_free(pDeviceStateOpenSL, ma_device_get_allocation_callbacks(pDevice));
+    return result;
 #else
     return MA_NO_BACKEND;   /* Non-Android implementations are not supported. */
 #endif
 }
 
-static void ma_device_uninit__opensl(ma_device* pDevice)
+static void ma_device_uninit_objects__opensl(ma_device* pDevice, ma_device_state_opensl* pDeviceStateOpenSL)
 {
-    ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
     MA_ASSERT(pDevice != NULL);
@@ -49096,9 +49101,13 @@ static void ma_device_uninit__opensl(ma_device* pDevice)
             MA_OPENSL_OBJ(pDeviceStateOpenSL->pOutputMixObj)->Destroy(pDeviceStateOpenSL->pOutputMixObj);
         }
     }
+}
 
+static void ma_device_uninit__opensl(ma_device* pDevice)
+{
+    ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
+    ma_device_uninit_objects__opensl(pDevice, pDeviceStateOpenSL);
     ma_device_state_async_uninit(&pDeviceStateOpenSL->async, ma_device_get_allocation_callbacks(pDevice));
-
     ma_free(pDeviceStateOpenSL, ma_device_get_allocation_callbacks(pDevice));
 }
 
