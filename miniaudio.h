@@ -50537,7 +50537,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                     }
 
                     /* Do the capture side first. */
-                    if (deviceType == window.miniaudio.device_type.capture || deviceType == window.miniaudio.device_type.duplex) {
+                    if (deviceType == window.miniaudio.device_type.capture || deviceType == window.miniaudio.device_type.duplex || deviceType == window.miniaudio.device_type.loopback) {
                         /* The data must be interleaved before being processed miniaudio. */
                         for (var iChannel = 0; iChannel < channels; iChannel += 1) {
                             var inputBuffer = e.inputBuffer.getChannelData(iChannel);
@@ -55204,7 +55204,7 @@ MA_API ma_result ma_device_state_async_init(ma_device_type deviceType, const ma_
         return result;
     }
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         if (pDescriptorCapture == NULL) {
             return MA_INVALID_ARGS;
         }
@@ -55258,7 +55258,7 @@ MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDevic
         return MA_INVALID_ARGS;
     }
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex || pAsyncDeviceState->deviceType == ma_device_type_loopback) {
         if (sizeInFramesCapture == 0) {
             return MA_INVALID_ARGS;
         }
@@ -55286,7 +55286,7 @@ MA_API ma_result ma_device_state_async_resize(ma_device_state_async* pAsyncDevic
         pOldBuffer = pAsyncDeviceState->internal.pBuffer;
         pAsyncDeviceState->internal.pBuffer = pNewBuffer;
 
-        if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+        if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex || pAsyncDeviceState->deviceType == ma_device_type_loopback) {
             pAsyncDeviceState->capture.pBuffer    = pAsyncDeviceState->internal.pBuffer;
             pAsyncDeviceState->capture.frameCap   = sizeInFramesCapture;
             pAsyncDeviceState->capture.frameCount = 0;
@@ -55312,7 +55312,7 @@ MA_API void ma_device_state_async_flush(ma_device_state_async* pAsyncDeviceState
         return;
     }
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex || pAsyncDeviceState->deviceType == ma_device_type_loopback) {
         ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
         {
             pAsyncDeviceState->capture.frameCount = 0;
@@ -55355,7 +55355,7 @@ static ma_result ma_device_state_async_step_internal(ma_device_state_async* pAsy
         return MA_INVALID_ARGS;
     }
 
-    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
+    if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex || pAsyncDeviceState->deviceType == ma_device_type_loopback) {
         ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
         {
             if (pAsyncDeviceState->capture.frameCount > 0) {
