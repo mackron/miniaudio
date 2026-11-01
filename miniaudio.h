@@ -21892,7 +21892,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
     Sitting in the ring buffer should be captured data from the capture callback in external format. If there's not enough data in there for
     the whole frameCount frames we just use silence instead for the input data.
     */
-    MA_ZERO_MEMORY(silentInputFrames, sizeof(silentInputFrames));
+    ma_silence_pcm_frames(silentInputFrames, sizeof(silentInputFrames) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels), pDevice->capture.format, pDevice->capture.channels);
 
     while (totalFramesReadOut < frameCount && ma_device_is_started(pDevice)) {
         /*
@@ -22122,6 +22122,7 @@ static void ma_normalize_descriptor__null(ma_device_descriptor* pDescriptor, ma_
     }
 
     pDescriptor->periodSizeInFrames = periodSizeInFrames;
+    pDescriptor->periodCount        = 1;
 }
 
 static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -54317,7 +54318,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_device_op_do_uninit(pDevice, NULL);
     }
 
-    if (pDevice->type == ma_device_type_duplex) {
+    if (pDevice->pDuplexRB != NULL) {
         ma_duplex_rb_uninit(pDevice->pDuplexRB);
         ma_aligned_free(pDevice->pDuplexRB, ma_device_get_allocation_callbacks(pDevice));
     }
@@ -71793,7 +71794,7 @@ MA_API ma_result ma_audio_ring_buffer_write_pcm_frames(ma_audio_ring_buffer* pRi
             if (pFrames != NULL) {
                 MA_COPY_MEMORY(pMappedBuffer, pFrames, bytesToCopy);
             } else {
-                MA_ZERO_MEMORY(pMappedBuffer, bytesToCopy);
+                ma_silence_pcm_frames(pMappedBuffer, mappedFrameCount, pRingBuffer->format, pRingBuffer->channels);
             }
         }
     }
