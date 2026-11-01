@@ -50771,6 +50771,10 @@ static ma_result ma_device_start__webaudio(ma_device* pDevice)
 {
     ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
 
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        ma_device_state_async_flush(&pDeviceStateWebAudio->async);
+    }
+
     EM_ASM({
         var device = window.miniaudio.get_device_by_index($0);
         device.webaudio.resume();
