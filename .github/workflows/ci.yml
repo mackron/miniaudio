@@ -179,7 +179,11 @@ jobs:
         arch: [arm64-v8a, armeabi-v7a, x86_64]
         config:
           - name: "Default"
+            platform: android-21
             cmake_args: "-DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
+          - name: "No Runtime Linking"
+            platform: android-27
+            cmake_args: "-DMINIAUDIO_NO_RUNTIME_LINKING=ON -DMINIAUDIO_BUILD_EXAMPLES=ON -DMINIAUDIO_BUILD_TESTS=ON"
 
     steps:
       - uses: actions/checkout@v7
@@ -193,12 +197,14 @@ jobs:
       - name: Configure CMake
         env:
           NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+          # Do not use host Linux packages when cross-compiling for Android.
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/android-pkgconfig
         run: |
           TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake"
           cmake -B build -DMINIAUDIO_WARNINGS_AS_ERRORS=ON \
             -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
             -DANDROID_ABI=${{ matrix.arch }} \
-            -DANDROID_PLATFORM=android-21 \
+            -DANDROID_PLATFORM=${{ matrix.config.platform }} \
             ${{ matrix.config.cmake_args }}
 
       - name: Build

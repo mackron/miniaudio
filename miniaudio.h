@@ -46682,7 +46682,7 @@ AAudio Backend
 #ifdef MA_HAS_AAUDIO
 
 #ifdef MA_NO_RUNTIME_LINKING
-    #include <AAudio/AAudio.h>
+    #include <aaudio/AAudio.h>
 #endif
 
 typedef int32_t                                         ma_aaudio_result_t;
@@ -46696,8 +46696,8 @@ typedef int32_t                                         ma_aaudio_content_type_t
 typedef int32_t                                         ma_aaudio_input_preset_t;
 typedef int32_t                                         ma_aaudio_allowed_capture_policy_t;
 typedef int32_t                                         ma_aaudio_data_callback_result_t;
-typedef struct ma_AAudioStreamBuilder_t*                ma_AAudioStreamBuilder;
-typedef struct ma_AAudioStream_t*                       ma_AAudioStream;
+typedef struct AAudioStreamBuilderStruct                ma_AAudioStreamBuilder;
+typedef struct AAudioStreamStruct                       ma_AAudioStream;
 
 #define MA_AAUDIO_UNSPECIFIED                           0
 
@@ -47063,9 +47063,11 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
         pContextStateAAudio->AAudioStreamBuilder_setDataCallback           = AAudioStreamBuilder_setDataCallback;
         pContextStateAAudio->AAudioStreamBuilder_setErrorCallback          = AAudioStreamBuilder_setErrorCallback;
         pContextStateAAudio->AAudioStreamBuilder_setPerformanceMode        = AAudioStreamBuilder_setPerformanceMode;
+        #if defined(__ANDROID_API__) && __ANDROID_API__ >= 28
         pContextStateAAudio->AAudioStreamBuilder_setUsage                  = AAudioStreamBuilder_setUsage;
         pContextStateAAudio->AAudioStreamBuilder_setContentType            = AAudioStreamBuilder_setContentType;
         pContextStateAAudio->AAudioStreamBuilder_setInputPreset            = AAudioStreamBuilder_setInputPreset;
+        #endif
         #if defined(__ANDROID_API__) && __ANDROID_API__ >= 29
         pContextStateAAudio->AAudioStreamBuilder_setAllowedCapturePolicy   = AAudioStreamBuilder_setAllowedCapturePolicy;
         #endif
@@ -48031,7 +48033,7 @@ OpenSL|ES Backend
 #include <SLES/OpenSLES_Android.h>
 #endif
 
-typedef SLresult (SLAPIENTRY * ma_slCreateEngine_proc)(SLObjectItf* pEngine, SLuint32 numOptions, SLEngineOption* pEngineOptions, SLuint32 numInterfaces, SLInterfaceID* pInterfaceIds, SLboolean* pInterfaceRequired);
+typedef SLresult (SLAPIENTRY * ma_slCreateEngine_proc)(SLObjectItf* pEngine, SLuint32 numOptions, const SLEngineOption* pEngineOptions, SLuint32 numInterfaces, const SLInterfaceID* pInterfaceIds, const SLboolean* pInterfaceRequired);
 
 /* OpenSL|ES has one-per-application objects :( */
 static SLObjectItf g_maEngineObjectSL    = NULL;
@@ -48299,6 +48301,7 @@ static void ma_backend_info__opensl(ma_device_backend_info* pBackendInfo)
 }
 
 
+#if !defined(MA_NO_RUNTIME_LINKING)
 static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, ma_context_state_opensl* pContextStateOpenSL, const char* pName, SLInterfaceID* pHandle)
 {
     /* We need to return an error if the symbol cannot be found. This is important because there have been reports that some symbols do not exist. */
@@ -48311,6 +48314,7 @@ static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, ma_context
     *pHandle = *p;
     return MA_SUCCESS;
 }
+#endif
 
 static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext, ma_context_state_opensl* pContextStateOpenSL)
 {

@@ -671,6 +671,11 @@ if (UNIX)
     endif()
 endif()
 
+if(ANDROID AND MINIAUDIO_NO_RUNTIME_LINKING)
+    set(ANDROID_LINK_LIBRARIES aaudio OpenSLES)
+    list(APPEND COMMON_LINK_LIBRARIES ${ANDROID_LINK_LIBRARIES})
+endif()
+
 function(set_source_file_language_cxx source)
     set_source_files_properties("${source}" PROPERTIES LANGUAGE CXX)
 
@@ -866,6 +871,10 @@ endif()
 
 # Link external libraries if runtime linking is disabled.
 if(MINIAUDIO_NO_RUNTIME_LINKING)
+    if(ANDROID)
+        target_link_libraries(miniaudio PRIVATE ${ANDROID_LINK_LIBRARIES})
+    endif()
+
     if (NOT MINIAUDIO_NO_PIPEWIRE)
         if(TARGET PkgConfig::PipeWire AND TARGET PkgConfig::SPA)
             target_link_libraries(miniaudio      PRIVATE   PkgConfig::PipeWire PkgConfig::SPA)
