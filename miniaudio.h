@@ -47876,11 +47876,6 @@ static ma_result ma_device_start__aaudio(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
-            /* Prepare the async buffer before starting playback. */
-            ma_device_step__aaudio(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
-        }
-
         result = ma_device_start_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
         if (result != MA_SUCCESS) {
             if (deviceType == ma_device_type_duplex) {
