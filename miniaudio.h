@@ -46949,6 +46949,7 @@ typedef struct ma_device_state_aaudio
     ma_aaudio_content_type contentType;
     ma_aaudio_input_preset inputPreset;
     ma_aaudio_allowed_capture_policy allowedCapturePolicy;
+    ma_aaudio_performance_mode performanceMode;
     ma_bool32 noAutoStartAfterReroute;
     ma_bool32 noSetBufferCapacity;
 } ma_device_state_aaudio;
@@ -47518,6 +47519,7 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, ma_device_st
     pDeviceStateAAudio->contentType             = pDeviceConfigAAudio->contentType;
     pDeviceStateAAudio->inputPreset             = pDeviceConfigAAudio->inputPreset;
     pDeviceStateAAudio->allowedCapturePolicy    = pDeviceConfigAAudio->allowedCapturePolicy;
+    pDeviceStateAAudio->performanceMode         = pDeviceConfigAAudio->performanceMode;
     pDeviceStateAAudio->noAutoStartAfterReroute = pDeviceConfigAAudio->noAutoStartAfterReroute;
     pDeviceStateAAudio->noSetBufferCapacity     = pDeviceConfigAAudio->noSetBufferCapacity;
 
@@ -47636,6 +47638,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice)
         deviceConfigAAudio.contentType             = pDeviceStateAAudio->contentType;
         deviceConfigAAudio.inputPreset             = pDeviceStateAAudio->inputPreset;
         deviceConfigAAudio.allowedCapturePolicy    = pDeviceStateAAudio->allowedCapturePolicy;
+        deviceConfigAAudio.performanceMode         = pDeviceStateAAudio->performanceMode;
         deviceConfigAAudio.noAutoStartAfterReroute = pDeviceStateAAudio->noAutoStartAfterReroute;
         deviceConfigAAudio.noSetBufferCapacity     = pDeviceStateAAudio->noSetBufferCapacity;
 
