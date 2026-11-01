@@ -49520,6 +49520,13 @@ static ma_bool32 ma_is_capture_supported__webaudio(void)
     }, 0) != 0; /* Must pass in a dummy argument for C99 compatibility. */
 }
 
+static void ma_device_set_init_error__webaudio(ma_device* pDevice, ma_device_state_webaudio* pDeviceStateWebAudio, ma_result result)
+{
+    pDeviceStateWebAudio->initResult = result;
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to initialize device. %s", ma_result_description(result));
+    ma_device_set_errored(pDevice);
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -49549,6 +49556,18 @@ EMSCRIPTEN_WEBAUDIO_T EMSCRIPTEN_KEEPALIVE ma_webaudio_create_worklet_node_emscr
     return emscripten_create_wasm_audio_worklet_node(audioContext, pName, pOptions, callback, pUserData);
 }
 #endif
+
+void EMSCRIPTEN_KEEPALIVE ma_device_capture_initialized__webaudio(ma_device* pDevice, ma_result result)
+{
+    ma_device_state_webaudio* pDeviceStateWebAudio = ma_device_get_backend_state__webaudio(pDevice);
+
+    if (result != MA_SUCCESS) {
+        ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, result);
+        return;
+    }
+
+    pDeviceStateWebAudio->initResult = MA_SUCCESS;
+}
 
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_capture__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
@@ -49976,13 +49995,6 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     return result;
 }
 
-static void ma_device_set_init_error__webaudio(ma_device* pDevice, ma_device_state_webaudio* pDeviceStateWebAudio, ma_result result)
-{
-    pDeviceStateWebAudio->initResult = result;
-    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to initialize AudioWorklet. %s", ma_result_description(result));
-    ma_device_set_errored(pDevice);
-}
-
 static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, ma_device* pDevice, ma_webaudio_callback_data* pCallbackData)
 {
     ma_device_state_webaudio* pDeviceStateWebAudio;
@@ -50072,11 +50084,15 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
                                 device.streamNode = audioContext.createMediaStreamSource(stream);
                                 device.streamNode.connect(audioWorklet);
                                 audioWorklet.connect(audioContext.destination);
-                                getMediaResult = 0;   /* 0 = MA_SUCCESS */
+                                _ma_device_capture_initialized__webaudio(device.pDevice, 0);  /* MA_SUCCESS */
                             })
                             .catch(function(error) {
+                                if (device.closed) {
+                                    return;
+                                }
+
                                 console.log("navigator.mediaDevices.getDisplayMedia Failed: " + error);
-                                getMediaResult = -1;  /* -1 = MA_ERROR */
+                                _ma_device_capture_initialized__webaudio(device.pDevice, -1);  /* MA_ERROR */
                             });
                     }
                 } else {
@@ -50091,11 +50107,15 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
                             device.streamNode = audioContext.createMediaStreamSource(stream);
                             device.streamNode.connect(audioWorklet);
                             audioWorklet.connect(audioContext.destination);
-                            getMediaResult = 0;   /* 0 = MA_SUCCESS */
+                            _ma_device_capture_initialized__webaudio(device.pDevice, 0);  /* MA_SUCCESS */
                         })
                         .catch(function(error) {
+                            if (device.closed) {
+                                return;
+                            }
+
                             console.log("navigator.mediaDevices.getUserMedia Failed: " + error);
-                            getMediaResult = -1;  /* -1 = MA_ERROR */
+                            _ma_device_capture_initialized__webaudio(device.pDevice, -1);  /* MA_ERROR */
                         });
                 }
             } catch (error) {
@@ -50136,7 +50156,9 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
 
     /* At this point we're done and we can return. */
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "AudioWorklets: Created worklet node: %d", pDeviceStateWebAudio->audioWorklet);
-    pDeviceStateWebAudio->initResult = MA_SUCCESS;
+    if (deviceType == ma_device_type_playback) {
+        pDeviceStateWebAudio->initResult = MA_SUCCESS;
+    }
 }
 
 static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, void* pUserData)
@@ -50462,6 +50484,10 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
             return MA_OUT_OF_MEMORY;
         }
 
+        if (deviceType != ma_device_type_playback) {
+            pDeviceStateWebAudio->initResult = MA_BUSY;
+        }
+
         deviceIndex = EM_ASM_INT({
             var deviceType = $0;
             var channels   = $1;
@@ -50562,9 +50588,15 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                             device.streamNode = device.webaudio.createMediaStreamSource(stream);
                             device.streamNode.connect(device.scriptNode);
                             device.scriptNode.connect(device.webaudio.destination);
+                            _ma_device_capture_initialized__webaudio(device.pDevice, 0);  /* MA_SUCCESS */
                         })
                         .catch(function(error) {
+                            if (device.closed) {
+                                return;
+                            }
+
                             console.log("Failed to get user media: " + error);
+                            _ma_device_capture_initialized__webaudio(device.pDevice, -1);  /* MA_ERROR */
                         });
                 }
 
@@ -50584,9 +50616,15 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                             device.streamNode = device.webaudio.createMediaStreamSource(stream);
                             device.streamNode.connect(device.scriptNode);
                             device.scriptNode.connect(device.webaudio.destination);
+                            _ma_device_capture_initialized__webaudio(device.pDevice, 0);  /* MA_SUCCESS */
                         })
                         .catch(function(error) {
+                            if (device.closed) {
+                                return;
+                            }
+
                             console.log("Failed to get user media: " + error);
+                            _ma_device_capture_initialized__webaudio(device.pDevice, -1);  /* MA_ERROR */
                         });
                 }
 
