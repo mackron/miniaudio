@@ -50803,8 +50803,6 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
         device.state = window.miniaudio.device_status.stopped;
     }, pDeviceStateWebAudio->deviceIndex);
 
-    ma_device_post_notification_stopped(pDevice);
-
     return MA_SUCCESS;
 }
 
