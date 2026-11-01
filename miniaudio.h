@@ -47897,22 +47897,22 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result resultCapture  = MA_SUCCESS;
+    ma_result resultPlayback = MA_SUCCESS;
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        resultCapture = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamCapture);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        resultPlayback = ma_device_stop_stream__aaudio(pDevice, pDeviceStateAAudio->pStreamPlayback);
     }
 
-    return MA_SUCCESS;
+    if (resultCapture != MA_SUCCESS) {
+        return resultCapture;
+    }
+
+    return resultPlayback;
 }
 
 
