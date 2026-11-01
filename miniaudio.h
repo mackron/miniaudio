@@ -55129,7 +55129,7 @@ MA_API void ma_device_state_async_flush(ma_device_state_async* pAsyncDeviceState
     if (pAsyncDeviceState->deviceType == ma_device_type_capture || pAsyncDeviceState->deviceType == ma_device_type_duplex) {
         ma_spinlock_lock(&pAsyncDeviceState->capture.lock);
         {
-            pAsyncDeviceState->capture.frameCount = pAsyncDeviceState->capture.frameCap;
+            pAsyncDeviceState->capture.frameCount = 0;
         }
         ma_spinlock_unlock(&pAsyncDeviceState->capture.lock);
     }
