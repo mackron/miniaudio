@@ -49976,6 +49976,13 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     return result;
 }
 
+static void ma_device_set_init_error__webaudio(ma_device* pDevice, ma_device_state_webaudio* pDeviceStateWebAudio, ma_result result)
+{
+    pDeviceStateWebAudio->initResult = result;
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to initialize AudioWorklet. %s", ma_result_description(result));
+    ma_device_set_errored(pDevice);
+}
+
 static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, ma_device* pDevice, ma_webaudio_callback_data* pCallbackData)
 {
     ma_device_state_webaudio* pDeviceStateWebAudio;
@@ -49991,7 +49998,7 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
     deviceType = ma_device_get_type(pDevice);
 
     if (success == EM_FALSE) {
-        pDeviceStateWebAudio->initResult = MA_ERROR;
+        ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, MA_ERROR);
         return;
     }
 
@@ -50032,7 +50039,7 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
     }, audioContext, "miniaudio", &audioWorkletOptions, &ma_audio_worklet_process_callback__webaudio, pCallbackData);
 
     if (pDeviceStateWebAudio->audioWorklet == 0) {
-        pDeviceStateWebAudio->initResult = MA_ERROR;
+        ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, MA_ERROR);
         return;
     }
 
@@ -50102,7 +50109,7 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect capture node.");
             emscripten_destroy_web_audio_node(pDeviceStateWebAudio->audioWorklet);
             pDeviceStateWebAudio->audioWorklet = 0;
-            pDeviceStateWebAudio->initResult = attachmentResult;
+            ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, attachmentResult);
             return;
         }
     }
@@ -50122,7 +50129,7 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
 
         if (attachmentResult != MA_SUCCESS) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect playback node.");
-            pDeviceStateWebAudio->initResult = attachmentResult;
+            ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, attachmentResult);
             return;
         }
     }
@@ -50155,7 +50162,7 @@ static void ma_audio_worklet_thread_initialized_internal__webaudio(EMSCRIPTEN_WE
 
     pDeviceStateWebAudio = pCallbackData->pDeviceStateWebAudio;
     if (success == EM_FALSE) {
-        pDeviceStateWebAudio->initResult = MA_ERROR;
+        ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, MA_ERROR);
         return;
     }
 
@@ -50170,7 +50177,7 @@ static void ma_audio_worklet_thread_initialized_internal__webaudio(EMSCRIPTEN_WE
             return 0;
         }
     }, audioContext, &workletProcessorOptions, &ma_audio_worklet_processor_created__webaudio, pCallbackData) == 0) {
-        pDeviceStateWebAudio->initResult = MA_ERROR;
+        ma_device_set_init_error__webaudio(pDevice, pDeviceStateWebAudio, MA_ERROR);
     }
 }
 
@@ -50196,6 +50203,8 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
     const ma_device_config_webaudio* pDeviceConfigWebAudio = (const ma_device_config_webaudio*)pDeviceBackendConfig;
     ma_device_config_webaudio defaultConfigWebAudio;
     ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    *ppDeviceState = NULL;
 
     if (pDeviceConfigWebAudio == NULL) {
         defaultConfigWebAudio = ma_device_config_webaudio_init();
@@ -50391,6 +50400,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
         retained cost is 128 KiB per stack, plus the callback record and allocation overhead.
         */
         emscripten_start_wasm_audio_worklet_thread_async(pDeviceStateWebAudio->audioContext, pStackBuffer, MA_AUDIO_WORKLETS_THREAD_STACK_SIZE, ma_audio_worklet_thread_initialized__webaudio, pDeviceStateWebAudio->pCallbackData);
+
         *ppDeviceState = pDeviceStateWebAudio;
         return MA_SUCCESS;
 
@@ -54105,7 +54115,27 @@ MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDev
         }
     }
 
-    MA_ASSERT(ma_device_get_status(pDevice) == ma_device_status_stopped);
+    {
+        ma_device_status status = ma_device_get_status(pDevice);
+
+        /*
+        Some backends initialize asynchronously which means the backends initialization callback
+        can return successfully, but then later have the device put into an errored state through
+        its asynchronous initialization routine. A practical example of this is the Web Audio
+        backend. For this reason we do a quick check of the status just in case between the time
+        we called the initialization callback and now the device was put into an errored state.
+        Note that it is still possible for this function to return successfully and then later have
+        the device put into an errored state, but that should only happen for specific backends.
+        */
+        if (status == ma_device_status_errored) {
+            ma_device_uninit(pDevice);
+            return MA_ERROR;
+        }
+
+        MA_ASSERT(status == ma_device_status_stopped);
+    }
+
+    
     return MA_SUCCESS;
 }
 
