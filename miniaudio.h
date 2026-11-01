@@ -18457,7 +18457,7 @@ Timing
         ma_uint64 newTimeCounter = mach_absolute_time();
         ma_uint64 oldTimeCounter = pTimer->counter;
 
-        return (newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
+        return (double)(newTimeCounter - oldTimeCounter) / g_ma_TimerFrequency;
     }
 #elif defined(MA_EMSCRIPTEN)
     MA_API void ma_timer_init(ma_timer* pTimer)
