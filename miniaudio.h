@@ -49126,6 +49126,8 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
         return MA_INVALID_OPERATION;
     }
 
+    ma_device_state_async_flush(&pDeviceStateOpenSL->async);
+
     /* Queue all buffers before starting each stream so callbacks cannot change the initial queue order. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingCapture, MA_TRUE);
