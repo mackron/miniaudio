@@ -49913,8 +49913,14 @@ static EM_BOOL ma_audio_worklet_process_callback_internal__webaudio(int inputCou
     if (inputCount > 0) {
         /* Input data needs to be interleaved before we hand it to the client. */
         for (ma_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; iChannel += 1) {
-            for (ma_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                pDeviceStateWebAudio->pIntermediaryBuffer[iFrame*pDevice->capture.internalChannels + iChannel] = pInputs[0].data[frameCount*iChannel + iFrame];
+            if (iChannel < (ma_uint32)pInputs[0].numberOfChannels) {
+                for (ma_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    pDeviceStateWebAudio->pIntermediaryBuffer[iFrame*pDevice->capture.internalChannels + iChannel] = pInputs[0].data[frameCount*iChannel + iFrame];
+                }
+            } else {
+                for (ma_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    pDeviceStateWebAudio->pIntermediaryBuffer[iFrame*pDevice->capture.internalChannels + iChannel] = 0;
+                }
             }
         }
 
@@ -49993,11 +49999,9 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
     MA_ZERO_OBJECT(&audioWorkletOptions);
 
     /*
-    The way channel counts work with Web Audio is confusing. As far as I can tell, there's no way to know the channel
-    count from MediaStreamAudioSourceNode (what we use for capture)? The only way to have control is to configure an
-    output channel count on the capture side. This is slightly confusing for capture mode because intuitively you
-    wouldn't actually connect an output to an input-only node, but this is what we'll have to do in order to have
-    proper control over the channel count. In the capture case, we'll have to output silence to its output node.
+    The input channel count is configured explicitly below, independently of the output channel
+    count. For capture mode we still connect an output to the destination to keep the graph
+    processing. In that case, we'll output silence to its output node.
     */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
         MA_ASSERT(ma_device_get_internal_channels(pDevice, ma_device_type_capture) > 0);   /* Should have been initialized to a valid value earlier. */
@@ -50042,6 +50046,9 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
             var deviceType   = $2;
 
             try {
+                audioWorklet.channelCount = $4;
+                audioWorklet.channelCountMode = 'explicit';
+
                 if (deviceType == window.miniaudio.device_type.loopback) {
                     if (typeof navigator.mediaDevices.getDisplayMedia === 'undefined') {
                         console.log("navigator.mediaDevices.getDisplayMedia undefined. Cannot use loopback mode.");
@@ -50089,7 +50096,7 @@ static void ma_audio_worklet_processor_created_internal__webaudio(EMSCRIPTEN_WEB
             }
 
             return getMediaResult;
-        }, pDeviceStateWebAudio->audioWorklet, audioContext, deviceType, pDeviceStateWebAudio->deviceIndex);
+        }, pDeviceStateWebAudio->audioWorklet, audioContext, deviceType, pDeviceStateWebAudio->deviceIndex, ma_device_get_internal_channels(pDevice, ma_device_type_capture));
 
         if (attachmentResult != MA_SUCCESS) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Web Audio: Failed to connect capture node.");
