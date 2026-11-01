@@ -50518,6 +50518,11 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const void* pDevic
                     if (deviceType == window.miniaudio.device_type.playback || deviceType == window.miniaudio.device_type.duplex) {
                         _ma_device_process_pcm_frames_playback__webaudio(pDevice, bufferSize, pIntermediaryBuffer);
 
+                        /* The C callback can grow Wasm memory and invalidate the cached view. */
+                        if (device.intermediaryBufferView.buffer !== HEAPF32.buffer) {
+                            device.intermediaryBufferView = new Float32Array(HEAPF32.buffer, Number(pIntermediaryBuffer), bufferSize * channels);
+                        }
+
                         for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
                             var outputBuffer = e.outputBuffer.getChannelData(iChannel);
                             var intermediaryBuffer = device.intermediaryBufferView;
