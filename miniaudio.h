@@ -47702,7 +47702,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice)
                     }
                 }
             } else {
-                ma_device_stop(pDevice); /* Do a full device stop so we set internal state correctly. */
+                return MA_DEVICE_NOT_STARTED;  /* Let the step function handle the stop without restarting these streams. */
             }
         }
 
@@ -47916,30 +47916,35 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
 static ma_result ma_device_step_extra__aaudio(ma_device* pDevice)
 {
     ma_device_state_aaudio* pDeviceStateAAudio = ma_device_get_backend_state__aaudio(pDevice);
+    ma_bool32 rerouteCapture;
+    ma_bool32 reroutePlayback;
     ma_result result;
 
-    /* Do device rerouting if necessary. */
-    if (ma_atomic_bool32_get(&pDeviceStateAAudio->isReroutingCapture)) {
-        ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingCapture, MA_FALSE);
-
-        result = ma_device_reinit__aaudio(pDevice);
-        if (result != MA_SUCCESS) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to capture reroute failure.");
-            ma_device_stop(pDevice);
-        }
+    /* Recovery replaces both streams. Consume both pending requests before opening their replacements. */
+    rerouteCapture  = ma_atomic_bool32_exchange(&pDeviceStateAAudio->isReroutingCapture,  MA_FALSE);
+    reroutePlayback = ma_atomic_bool32_exchange(&pDeviceStateAAudio->isReroutingPlayback, MA_FALSE);
+    
+    if (!rerouteCapture && !reroutePlayback) {
+        return MA_SUCCESS;
     }
 
-    if (ma_atomic_bool32_get(&pDeviceStateAAudio->isReroutingPlayback)) {
-        ma_atomic_bool32_set(&pDeviceStateAAudio->isReroutingPlayback, MA_FALSE);
-
-        result = ma_device_reinit__aaudio(pDevice);
-        if (result != MA_SUCCESS) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to playback reroute failure.");
-            ma_device_stop(pDevice);
-        }
+    result = ma_device_reinit__aaudio(pDevice);
+    if (result == MA_SUCCESS) {
+        return MA_SUCCESS;
     }
 
-    return MA_SUCCESS;
+    if (result == MA_DEVICE_NOT_STARTED) {
+        /* Single-threaded devices have no audio thread to complete the stop after this step returns. */
+        if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_device_stop(pDevice);
+        }
+    } else {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to reroute failure.");
+        ma_close_streams__aaudio(pDevice, pDeviceStateAAudio);
+        ma_device_set_errored(pDevice);
+    }
+
+    return result;
 }
 
 static ma_result ma_device_step__aaudio(ma_device* pDevice, ma_blocking_mode blockingMode)
