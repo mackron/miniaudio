@@ -49214,6 +49214,8 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
 {
     ma_device_state_opensl* pDeviceStateOpenSL = ma_device_get_backend_state__opensl(pDevice);
     SLAndroidSimpleBufferQueueItf pBufferQueue;
+    ma_timer timer;
+    double drainTimeoutInSeconds = 5;
 
     MA_ASSERT(deviceType == ma_device_type_capture || deviceType == ma_device_type_playback);
 
@@ -49224,6 +49226,8 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
         pBufferQueue = pDeviceStateOpenSL->pBufferQueuePlayback;
         ma_atomic_bool32_set(&pDeviceStateOpenSL->isDrainingPlayback, MA_TRUE);
     }
+
+    ma_timer_init(&timer);
 
     for (;;) {
         SLresult resultSL;
@@ -49236,6 +49240,11 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
         }
 
         if (state.count == 0) {
+            break;
+        }
+
+        if (ma_timer_get_time_in_seconds(&timer) >= drainTimeoutInSeconds) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[OpenSL] Timed out waiting for the buffer queue to drain. Skipping drain.");
             break;
         }
 
