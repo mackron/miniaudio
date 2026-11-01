@@ -516,6 +516,18 @@ by default with PlayAndRecord, set the following option before initializing the 
     contextConfig.coreaudio.sessionCategoryOptions |= ma_ios_session_category_option_default_to_speaker;
     ```
 
+To opt out of interruptions on route disconnect (iOS 17.0+) and request fewer interruptions from
+system alerts (iOS 14.5+), set these options before initializing the context:
+
+    ```c
+    contextConfig.coreaudio.noInterruptionsOnRouteDisconnect = MA_TRUE;
+    contextConfig.coreaudio.noInterruptionsFromSystemAlerts = MA_TRUE;
+    ```
+
+Both options default to false, leaving the existing session preferences unchanged. They are ignored
+when the SDK or OS does not support them. System alert suppression is a preference and does not
+prevent every interruption, such as when the user accepts an incoming call.
+
 Set `ma_device_config.pContext` to the address of this context, or copy the context config into
 `ma_device_config.contextConfig` for an internally managed context. When using multiple devices, share one
 context and choose a session category that supports all of them. Multiple contexts do not provide
@@ -7512,6 +7524,8 @@ typedef struct ma_context_config_coreaudio
     ma_uint32 sessionCategoryOptions;
     ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not explicitly activate the audio session or automatically resume after an interruption. */
     ma_bool32 noAudioSessionDeactivate; /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:false] on uninitialization. */
+    ma_bool32 noInterruptionsOnRouteDisconnect;     /* iOS 17.0+ only. Opts out of audio session interruptions when the active route disconnects. */
+    ma_bool32 noInterruptionsFromSystemAlerts;      /* iOS 14.5+ only. Requests that system alerts do not interrupt the audio session. */
 } ma_context_config_coreaudio;
 
 MA_API ma_context_config_coreaudio ma_context_config_coreaudio_init(void);
@@ -8803,6 +8817,19 @@ can then be set directly on the structure. Below are the members of the `ma_cont
 
     coreaudio.noAudioSessionDeactivate
         iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstance] setActive:false] on uninitialization.
+
+    coreaudio.noInterruptionsOnRouteDisconnect
+        iOS 17.0+, tvOS 17.0+ and watchOS 10.0+ only. When set to true, calls setPrefersInterruptionOnRouteDisconnect:false to opt out of audio session
+        interruptions when the active route disconnects. Defaults to false, which leaves the existing session preference unchanged.
+
+    coreaudio.noInterruptionsFromSystemAlerts
+        iOS 14.5+, tvOS 14.5+ and watchOS 7.3+ only. When set to true, calls setPrefersNoInterruptionsFromSystemAlerts:true to request that system alerts
+        do not interrupt the audio session. This is a preference, not a guarantee that all interruptions are suppressed. Defaults to false, which leaves
+        the existing session preference unchanged.
+
+    Both interruption preferences apply to the application's shared audio session before activation. They are ignored when building with an SDK or
+    running on an OS version that does not support them. Failures are logged as warnings and do not prevent context initialization. Uninitialization
+    does not restore the previous preferences.
 
     jack.pClientName
         The name of the client to pass to `jack_client_open()`.
@@ -40797,6 +40824,33 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
 
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[Core Audio] AVAudioSession setCategory succeeded.");
             }
+
+            /* Leave existing session preferences unchanged unless explicitly requested. */
+            #if defined(__IPHONE_17_0) || defined(__TVOS_17_0) || defined(__WATCHOS_10_0)
+            {
+                if (pContextConfigCoreAudio->noInterruptionsOnRouteDisconnect) {
+                    if (@available(iOS 17.0, tvOS 17.0, watchOS 10.0, *)) {
+                        pError = nil;
+                        if (![pAudioSession setPrefersInterruptionOnRouteDisconnect:false error:&pError]) {
+                            ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPrefersInterruptionOnRouteDisconnect", pError);
+                        }
+                    }
+                }
+            }
+            #endif
+
+            #if defined(__IPHONE_14_5) || defined(__TVOS_14_5) || defined(__WATCHOS_7_3)
+            {
+                if (pContextConfigCoreAudio->noInterruptionsFromSystemAlerts) {
+                    if (@available(iOS 14.5, tvOS 14.5, watchOS 7.3, *)) {
+                        pError = nil;
+                        if (![pAudioSession setPrefersNoInterruptionsFromSystemAlerts:true error:&pError]) {
+                            ma_log_post_nserror__coreaudio(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "AVAudioSession setPrefersNoInterruptionsFromSystemAlerts", pError);
+                        }
+                    }
+                }
+            }
+            #endif
 
             if (!pContextConfigCoreAudio->noAudioSessionActivate) {
                 pError = nil;
