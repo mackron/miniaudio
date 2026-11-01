@@ -48331,7 +48331,12 @@ static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext, ma_
             return ma_result_from_OpenSL(resultSL);
         }
 
-        (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
+        resultSL = (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
+            g_maOpenSLInitCounter -= 1;
+            return ma_result_from_OpenSL(resultSL);
+        }
 
         resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, pContextStateOpenSL->SL_IID_ENGINE, &g_maEngineSL);
         if (resultSL != SL_RESULT_SUCCESS) {
