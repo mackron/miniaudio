@@ -49159,7 +49159,7 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
 
             /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueue silent buffers. */
             if (deviceType == ma_device_type_duplex) {
-                MA_ZERO_MEMORY(pDeviceStateOpenSL->pBufferPlayback, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+                ma_silence_pcm_frames(pDeviceStateOpenSL->pBufferPlayback, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             } else {
                 ma_device__read_frames_from_client(pDevice, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods, pDeviceStateOpenSL->pBufferPlayback);
             }
@@ -55374,7 +55374,7 @@ MA_API void ma_device_state_async_process(ma_device_state_async* pAsyncDeviceSta
                 /* Silence any remaining data in the output buffer. */
                 if (framesToCopy < frameCount) {
                     ma_uint32 framesToSilence = frameCount - framesToCopy;
-                    MA_ZERO_MEMORY(ma_offset_ptr(pOutput, bytesPerFrame * framesToCopy), bytesPerFrame * framesToSilence);
+                    ma_silence_pcm_frames(ma_offset_ptr(pOutput, bytesPerFrame * framesToCopy), framesToSilence, pAsyncDeviceState->playback.format, pAsyncDeviceState->playback.channels);
                 }
             }
             ma_spinlock_unlock(&pAsyncDeviceState->playback.lock);
