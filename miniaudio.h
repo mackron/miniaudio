@@ -46305,6 +46305,7 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     int ossChannels;
     int ossSampleRate;
     int ossFragment;
+    audio_buf_info ossBufferInfo;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pDeviceConfigOSS != NULL);
@@ -46398,12 +46399,40 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
         }
     }
 
+    /*
+    We configured the buffer size with SNDCTL_DSP_SETFRAGMENT, but we can't use the returned value. From the OSS Programmer's Guide:
+
+        The value returned in the argument by SNDCTL_DSP_SETFRAGMENT is just a meaningless (random)
+        value. It has nothing to do with the fragment size that will actually be used. Also there
+        is no guarantee that the requested value will be used even when the ioctl call doesn't
+        return any errors.
+        
+        The only way to find out the fragment size being used is calling any of the
+        SNDCTL_DSP_GETBLKSIZE, SNDCTL_DSP_GETISPACE or SNDCTL_DSP_GETOSPACE ioctl calls. Any
+        application using SNDCTL_DSP_SETFRAGMENT has responsibility to check the actual fragment
+        size being used using these calls.
+
+    We'll use SNDCTL_DSP_GETISPACE and SNDCTL_DSP_GETOSPACE depending on the direction.
+    */
+    if (deviceType == ma_device_type_capture) {
+        ossResult = ioctl(fd, SNDCTL_DSP_GETISPACE, &ossBufferInfo);
+    } else {
+        ossResult = ioctl(fd, SNDCTL_DSP_GETOSPACE, &ossBufferInfo);
+    }
+
+    if (ossResult == -1) {
+        result = ma_result_from_errno(errno);
+        close(fd);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve fragment size and period count.");
+        return result;
+    }
+
     pDescriptor->format             = ma_format_from_oss(ossFormat);
     pDescriptor->channels           = ossChannels;
     pDescriptor->sampleRate         = ossSampleRate;
     ma_channel_map_init_standard(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
-    pDescriptor->periodCount        = (ma_uint32)(ossFragment >> 16);
-    pDescriptor->periodSizeInFrames = (ma_uint32)(1 << (ossFragment & 0xFFFF)) / ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels);
+    pDescriptor->periodCount        = (ma_uint32)ossBufferInfo.fragstotal;
+    pDescriptor->periodSizeInFrames = (ma_uint32)ossBufferInfo.fragsize / ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels);
 
     *pFD = fd;
 
