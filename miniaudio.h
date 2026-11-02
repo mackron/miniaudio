@@ -46333,6 +46333,12 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
         return ma_result_from_errno(errno);
     }
 
+    if (ma_format_from_oss(ossFormat) == ma_format_unknown) {
+        close(fd);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by miniaudio.");
+        return MA_FORMAT_NOT_SUPPORTED;
+    }
+
     /* Channels. */
     ossResult = ioctl(fd, SNDCTL_DSP_CHANNELS, &ossChannels);
     if (ossResult == -1) {
@@ -46391,12 +46397,6 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     ma_channel_map_init_standard(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
     pDescriptor->periodCount        = (ma_uint32)(ossFragment >> 16);
     pDescriptor->periodSizeInFrames = (ma_uint32)(1 << (ossFragment & 0xFFFF)) / ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels);
-
-    if (pDescriptor->format == ma_format_unknown) {
-        close(fd);
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by miniaudio.");
-        return MA_FORMAT_NOT_SUPPORTED;
-    }
 
     *pFD = fd;
 
