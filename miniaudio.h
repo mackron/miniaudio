@@ -65679,23 +65679,29 @@ static ma_result ma_stbvorbis_init_internal_decoder_push(ma_stbvorbis* pVorbis)
         size_t bytesRead;
         ma_uint8* pNewData;
 
-        /* Allocate memory for the new chunk. */
-        dataCapacity += MA_VORBIS_DATA_CHUNK_SIZE;
-        pNewData = (ma_uint8*)ma_realloc(pData, dataCapacity, &pVorbis->allocationCallbacks);
-        if (pNewData == NULL) {
-            ma_free(pData, &pVorbis->allocationCallbacks);
-            return MA_OUT_OF_MEMORY;
+        /*
+        Make room for the next chunk. stb_vorbis_open_pushdata() starts again from the beginning of the data each time
+        it's called, so the buffer needs to grow geometrically. Otherwise opening a file with large headers, such as
+        embedded cover art, takes quadratic time.
+        */
+        if (dataSize == dataCapacity) {
+            dataCapacity = (dataCapacity == 0) ? MA_VORBIS_DATA_CHUNK_SIZE : (dataCapacity * 2);
+            pNewData = (ma_uint8*)ma_realloc(pData, dataCapacity, &pVorbis->allocationCallbacks);
+            if (pNewData == NULL) {
+                ma_free(pData, &pVorbis->allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            pData = pNewData;
         }
 
-        pData = pNewData;
-
-        /* Read in the next chunk. */
+        /* Read in the next chunk. Reaching the end of the file is only a problem if there's nothing new to look at. */
         result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, ma_offset_ptr(pData, dataSize), (dataCapacity - dataSize), &bytesRead);
         dataSize += bytesRead;
 
-        if (result != MA_SUCCESS) {
+        if (bytesRead == 0 || (result != MA_SUCCESS && result != MA_AT_END)) {
             ma_free(pData, &pVorbis->allocationCallbacks);
-            return result;
+            return (result == MA_SUCCESS) ? MA_AT_END : result;
         }
 
         /* We have a maximum of 31 bits with stb_vorbis. */
