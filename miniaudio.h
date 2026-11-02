@@ -46336,31 +46336,31 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     /* Format. */
     ossResult = ioctl(fd, SNDCTL_DSP_SETFMT, &ossFormat);
     if (ossResult == -1) {
-        close(fd);
+        result = ma_result_from_errno(errno);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to set format.");
-        return ma_result_from_errno(errno);
+        goto on_error;
     }
 
     if (ma_format_from_oss(ossFormat) == ma_format_unknown) {
-        close(fd);
+        result = MA_FORMAT_NOT_SUPPORTED;
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] The device's internal format is not supported by miniaudio.");
-        return MA_FORMAT_NOT_SUPPORTED;
+        goto on_error;
     }
 
     /* Channels. */
     ossResult = ioctl(fd, SNDCTL_DSP_CHANNELS, &ossChannels);
     if (ossResult == -1) {
-        close(fd);
+        result = ma_result_from_errno(errno);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to set channel count.");
-        return ma_result_from_errno(errno);
+        goto on_error;
     }
 
     /* Sample Rate. */
     ossResult = ioctl(fd, SNDCTL_DSP_SPEED, &ossSampleRate);
     if (ossResult == -1) {
-        close(fd);
+        result = ma_result_from_errno(errno);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to set sample rate.");
-        return ma_result_from_errno(errno);
+        goto on_error;
     }
 
     /*
@@ -46393,9 +46393,9 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
         ossFragment = (int)((pDescriptor->periodCount << 16) | ossFragmentSizePower);
         ossResult = ioctl(fd, SNDCTL_DSP_SETFRAGMENT, &ossFragment);
         if (ossResult == -1) {
-            close(fd);
+            result = ma_result_from_errno(errno);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to set fragment size and period count.");
-            return ma_result_from_errno(errno);
+            goto on_error;
         }
     }
 
@@ -46422,9 +46422,8 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
 
     if (ossResult == -1) {
         result = ma_result_from_errno(errno);
-        close(fd);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve fragment size and period count.");
-        return result;
+        goto on_error;
     }
 
     pDescriptor->format             = ma_format_from_oss(ossFormat);
@@ -46437,6 +46436,10 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     *pFD = fd;
 
     return MA_SUCCESS;
+
+on_error:
+    close(fd);
+    return result;
 }
 
 static void ma_device_uninit_internal__oss(ma_device* pDevice, ma_device_state_oss* pDeviceStateOSS)
