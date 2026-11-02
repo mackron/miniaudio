@@ -52613,7 +52613,7 @@ MA_API ma_result ma_device_op_completion_event_result(ma_device_op_completion_ev
 static ma_result ma_device_op_do_init(ma_device* pDevice, ma_device_op_params params, ma_device_op_completion_event* pCompletionEvent)
 {
     ma_result result;
-    void* pBackendState;
+    void* pBackendState = NULL;
 
     if (pDevice->pContext->pVTable->onDeviceInit != NULL) {
         result = pDevice->pContext->pVTable->onDeviceInit(pDevice, params.init.pDeviceBackendConfig, params.init.pDescriptorPlayback, params.init.pDescriptorCapture, &pBackendState);
@@ -52621,6 +52621,11 @@ static ma_result ma_device_op_do_init(ma_device* pDevice, ma_device_op_params pa
         /* Should never hit this. */
         MA_ASSERT(!"No onDeviceInit callback.");
         return MA_NOT_IMPLEMENTED;
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_device_op_completion_event_signal(pCompletionEvent, result);
+        return result;
     }
 
     /* Store the backend state as soon as possible. */
