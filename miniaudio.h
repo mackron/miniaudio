@@ -46405,13 +46405,11 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
 
 static void ma_device_uninit_internal__oss(ma_device* pDevice, ma_device_state_oss* pDeviceStateOSS)
 {
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (pDeviceStateOSS->fdCapture != -1) {
         close(pDeviceStateOSS->fdCapture);
     }
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+    if (pDeviceStateOSS->fdPlayback != -1) {
         close(pDeviceStateOSS->fdPlayback);
     }
 
@@ -46437,6 +46435,9 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
     if (pDeviceStateOSS == NULL) {
         return MA_OUT_OF_MEMORY;
     }
+
+    pDeviceStateOSS->fdPlayback = -1;
+    pDeviceStateOSS->fdCapture  = -1;
 
     if (deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
