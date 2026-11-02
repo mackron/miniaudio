@@ -46709,13 +46709,14 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
     ma_result result;
 
     if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
-        tv.tv_sec  = 0;
-        tv.tv_usec = 0;
         pTimeout = &tv;
     }
 
     do
     {
+        tv.tv_sec  = 0;
+        tv.tv_usec = 0;
+
         FD_ZERO(&fdsRead);
         FD_ZERO(&fdsWrite);
 
@@ -46734,8 +46735,18 @@ static ma_result ma_device_step__oss(ma_device* pDevice, ma_blocking_mode blocki
         selectResult = select(fdMax + 1, &fdsRead, &fdsWrite, NULL, pTimeout);
     } while (selectResult < 0 && errno == EINTR);
 
+    if (selectResult < 0) {
+        result = ma_result_from_errno(errno);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to wait for the device.");
+        return result;
+    }
+
     if (!ma_device_is_started(pDevice)) {
         return MA_DEVICE_NOT_STARTED;
+    }
+
+    if (selectResult == 0) {
+        return MA_SUCCESS;
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
