@@ -66557,7 +66557,7 @@ static ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decod
         If we get to this point and we still haven't found a decoder, and the caller has requested a
         specific encoding format, there's no hope for it. Abort.
         */
-        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+        if (result != MA_SUCCESS && pConfig->encodingFormat != ma_encoding_format_unknown) {
             return MA_NO_BACKEND;
         }
 
@@ -67123,7 +67123,8 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
         If we get to this point and we still haven't found a decoder, and the caller has requested a
         specific encoding format, there's no hope for it. Abort.
         */
-        if (config.encodingFormat != ma_encoding_format_unknown) {
+        if (result != MA_SUCCESS && config.encodingFormat != ma_encoding_format_unknown) {
+            ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
             return MA_NO_BACKEND;
         }
 
@@ -67254,7 +67255,8 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
         If we get to this point and we still haven't found a decoder, and the caller has requested a
         specific encoding format, there's no hope for it. Abort.
         */
-        if (config.encodingFormat != ma_encoding_format_unknown) {
+        if (result != MA_SUCCESS && config.encodingFormat != ma_encoding_format_unknown) {
+            ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
             return MA_NO_BACKEND;
         }
 
