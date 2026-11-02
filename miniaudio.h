@@ -79959,14 +79959,12 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
         /* Not strictly necessary, but keeping here for safety in case we change the default value of pDecoder->inputCacheCap. */
         inputCacheCapSizeInBytes = pDecoder->inputCacheCap * ma_get_bytes_per_frame(internalFormat, internalChannels);
         if (inputCacheCapSizeInBytes > MA_SIZE_MAX) {
-            ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
-            return MA_OUT_OF_MEMORY;
+            return MA_OUT_OF_MEMORY;    /* ma_decoder__postinit() will uninitialize the converter with the rest of the decoder. */
         }
 
         pDecoder->pInputCache = ma_malloc((size_t)inputCacheCapSizeInBytes, &pDecoder->allocationCallbacks);    /* Safe cast to size_t. */
         if (pDecoder->pInputCache == NULL) {
-            ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
-            return MA_OUT_OF_MEMORY;
+            return MA_OUT_OF_MEMORY;    /* ma_decoder__postinit() will uninitialize the converter with the rest of the decoder. */
         }
     }
 
@@ -80196,26 +80194,6 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
     return result;
 }
 
-static ma_result ma_decoder__postinit_or_uninit(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-
-    result = ma_decoder__postinit(pConfig, pDecoder);
-    if (result != MA_SUCCESS) {
-        /*
-        The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-        due to an out of memory error. We're going to abort with an error here and not try to recover.
-        */
-        if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-            pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
-        }
-
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
 
 static ma_bool32 ma_can_decoding_backend_possibly_handle_encoding_format(const ma_decoding_backend_vtable* pBackendVTable, void* pBackendUserData, ma_encoding_format encodingFormat)
 {
@@ -80270,7 +80248,7 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
             /* Getting here means the backend may support the encoding format. */
             result = ma_decoder_init_from_vtable__internal(pConfig->ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(pConfig, iBackend), pConfig, pDecoder);
             if (result == MA_SUCCESS) {
-                return ma_decoder__postinit_or_uninit(pConfig, pDecoder);
+                return ma_decoder__postinit(pConfig, pDecoder);
             } else {
                 /*
                 Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from
@@ -80443,7 +80421,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
             /* Getting here means the backend may support the encoding format. */
             result = ma_decoder_init_from_memory__internal(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), pData, dataSize, &config, pDecoder);
             if (result == MA_SUCCESS) {
-                return ma_decoder__postinit_or_uninit(&config, pDecoder);
+                return ma_decoder__postinit(&config, pDecoder);
             } else {
                 /*
                 Initialization failed, but it could just be because the backend does not implement onInitMemory. In this case we need to
@@ -80458,7 +80436,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
 
                     result = ma_decoder_init__internal(&config, pDecoder);
                     if (result == MA_SUCCESS) {
-                        return result;  /* Don't return ma_decoder__postinit_or_uninit() here because ma_decoder_init__internal() will already have done it. */
+                        return result;  /* Don't return ma_decoder__postinit() here because ma_decoder_init__internal() will already have done it. */
                     }
                 } else {
                     /* Initialization failed. Probably an unsupported format. Skip. */
@@ -80536,7 +80514,7 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
 
     result = ma_decoder_init__internal(&config, pDecoder);
     if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit_or_uninit(&config, pDecoder);
+        result = ma_decoder__postinit(&config, pDecoder);
     }
 
     /* If we failed to initialize a decoder make sure our file handle is closed. */
@@ -80598,7 +80576,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
 
     result = ma_decoder_init__internal(&config, pDecoder);
     if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit_or_uninit(&config, pDecoder);
+        result = ma_decoder__postinit(&config, pDecoder);
     }
 
     /* If we failed to initialize a decoder make sure our file handle is closed. */
