@@ -45878,7 +45878,6 @@ static ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_typ
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pfd != NULL);
-    (void)pContext;
 
     *pfd = -1;
 
@@ -45900,6 +45899,14 @@ static ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_typ
     *pfd = open(deviceName, flags, 0);
     if (*pfd == -1) {
         return ma_result_from_errno(errno);
+    }
+
+    /* select() cannot represent descriptors at or above FD_SETSIZE. Cannot use poll() because we need to support ancient versions of Linux. */
+    if (*pfd >= FD_SETSIZE) {
+        close(*pfd);
+        *pfd = -1;
+        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Device file descriptor exceeds select() capacity.");
+        return MA_OUT_OF_RANGE;
     }
 
     return MA_SUCCESS;
