@@ -46627,20 +46627,42 @@ static ma_result ma_device_stop__oss(ma_device* pDevice)
 static ma_result ma_device_write__oss(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
     ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
-    int resultOSS;
+    ma_result result;
+    ssize_t resultOSS;
+    ma_uint32 bytesPerFrame;
+    size_t bytesToWrite;
+    size_t totalBytesWritten = 0;
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
     }
 
-    resultOSS = write(pDeviceStateOSS->fdPlayback, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
-    if (resultOSS < 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to send data from the client to the device.");
-        return ma_result_from_errno(errno);
-    }
+    bytesPerFrame = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    bytesToWrite  = (size_t)frameCount * bytesPerFrame;
 
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = (ma_uint32)resultOSS / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    /* A short write must not discard the rest of the client's data. */
+    while (totalBytesWritten < bytesToWrite) {
+        resultOSS = write(pDeviceStateOSS->fdPlayback, ma_offset_ptr(pPCMFrames, totalBytesWritten), bytesToWrite - totalBytesWritten);
+        if (resultOSS < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+
+            result = ma_result_from_errno(errno);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to send data from the client to the device.");
+            return result;
+        }
+
+        if (resultOSS == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to make progress writing to the device.");
+            return MA_IO_ERROR;
+        }
+
+        totalBytesWritten += (size_t)resultOSS;
+
+        if (pFramesWritten != NULL) {
+            *pFramesWritten = (ma_uint32)(totalBytesWritten / bytesPerFrame);
+        }
     }
 
     return MA_SUCCESS;
@@ -46649,16 +46671,22 @@ static ma_result ma_device_write__oss(ma_device* pDevice, const void* pPCMFrames
 static ma_result ma_device_read__oss(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
     ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
-    int resultOSS;
+    ma_result result;
+    ssize_t resultOSS;
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
     }
 
-    resultOSS = read(pDeviceStateOSS->fdCapture, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+    do
+    {
+        resultOSS = read(pDeviceStateOSS->fdCapture, pPCMFrames, (size_t)frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+    } while (resultOSS < 0 && errno == EINTR);
+
     if (resultOSS < 0) {
+        result = ma_result_from_errno(errno);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to read data from the device to be sent to the client.");
-        return ma_result_from_errno(errno);
+        return result;
     }
 
     if (pFramesRead != NULL) {
