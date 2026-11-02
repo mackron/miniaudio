@@ -7179,6 +7179,7 @@ struct ma_device_config
         ma_bool32 noAutoStartAfterReroute;
         ma_bool32 enableCompatibilityWorkarounds;
         ma_bool32 allowSetBufferCapacity;
+        ma_bool32 allocateSessionId;
     } aaudio;
 };
 
@@ -7699,6 +7700,7 @@ struct ma_context
             ma_proc AAudioStreamBuilder_setContentType;
             ma_proc AAudioStreamBuilder_setInputPreset;
             ma_proc AAudioStreamBuilder_setAllowedCapturePolicy;
+            ma_proc AAudioStreamBuilder_setSessionId;
             ma_proc AAudioStreamBuilder_openStream;
             ma_proc AAudioStream_close;
             ma_proc AAudioStream_getState;
@@ -8025,6 +8027,7 @@ struct ma_device
             ma_bool32 noAutoStartAfterReroute;
             ma_bool32 enableCompatibilityWorkarounds;
             ma_bool32 allowSetBufferCapacity;
+            ma_bool32 allocateSessionId;
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -8851,6 +8854,11 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         AAudio only. Controls whether or not the device should be automatically restarted after a
         stream reroute. When set to false (default) the device will be restarted automatically;
         otherwise the device will be stopped.
+
+    aaudio.allocateSessionId
+        AAudio only. When set to true, a session ID is allocated for the stream. AAudio never uses
+        the MMAP path for a stream with a session ID, so a low latency stream stays on the legacy
+        path. Requires API level 28.
 
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
@@ -39241,6 +39249,7 @@ typedef int32_t                                         ma_aaudio_usage_t;
 typedef int32_t                                         ma_aaudio_content_type_t;
 typedef int32_t                                         ma_aaudio_input_preset_t;
 typedef int32_t                                         ma_aaudio_allowed_capture_policy_t;
+typedef int32_t                                         ma_aaudio_session_id_t;
 typedef int32_t                                         ma_aaudio_data_callback_result_t;
 typedef struct ma_AAudioStreamBuilder_t*                ma_AAudioStreamBuilder;
 typedef struct ma_AAudioStream_t*                       ma_AAudioStream;
@@ -39320,6 +39329,9 @@ typedef struct ma_AAudioStream_t*                       ma_AAudioStream;
 #define MA_AAUDIO_ALLOW_CAPTURE_BY_SYSTEM               2
 #define MA_AAUDIO_ALLOW_CAPTURE_BY_NONE                 3
 
+/* Session IDs */
+#define MA_AAUDIO_SESSION_ID_ALLOCATE                   0
+
 /* Callback results. */
 #define MA_AAUDIO_CALLBACK_RESULT_CONTINUE              0
 #define MA_AAUDIO_CALLBACK_RESULT_STOP                  1
@@ -39345,6 +39357,7 @@ typedef void                     (* MA_PFN_AAudioStreamBuilder_setUsage)        
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setContentType)           (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_content_type_t contentType);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setInputPreset)           (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_input_preset_t inputPreset);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setAllowedCapturePolicy)  (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_allowed_capture_policy_t policy);
+typedef void                     (* MA_PFN_AAudioStreamBuilder_setSessionId)             (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_session_id_t sessionId);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStreamBuilder_openStream)               (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream** ppStream);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStream_close)                           (ma_AAudioStream* pStream);
 typedef ma_aaudio_stream_state_t (* MA_PFN_AAudioStream_getState)                        (ma_AAudioStream* pStream);
@@ -39597,6 +39610,11 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         Beware though, with a conservative performance profile, AAudio will indeed take the legacy path.
         */
         ((MA_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MA_AAUDIO_PERFORMANCE_MODE_NONE);
+
+        /* AAudio never uses MMAP for a stream with a session ID, so this keeps a low latency stream on the legacy path. */
+        if (pConfig->aaudio.allocateSessionId && pContext->aaudio.AAudioStreamBuilder_setSessionId != NULL) {
+            ((MA_PFN_AAudioStreamBuilder_setSessionId)pContext->aaudio.AAudioStreamBuilder_setSessionId)(pBuilder, MA_AAUDIO_SESSION_ID_ALLOCATE);
+        }
 
         /* We need to set an error callback to detect device changes. */
         if (pDevice != NULL) {  /* <-- pDevice should never be null if pDescriptor is not null, which is always the case if we hit this branch. Check anyway for safety. */
@@ -39901,6 +39919,7 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, const ma_dev
     pDevice->aaudio.noAutoStartAfterReroute        = pConfig->aaudio.noAutoStartAfterReroute;
     pDevice->aaudio.enableCompatibilityWorkarounds = pConfig->aaudio.enableCompatibilityWorkarounds;
     pDevice->aaudio.allowSetBufferCapacity         = pConfig->aaudio.allowSetBufferCapacity;
+    pDevice->aaudio.allocateSessionId              = pConfig->aaudio.allocateSessionId;
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_capture, pDescriptorCapture, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
@@ -40110,6 +40129,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfig.aaudio.noAutoStartAfterReroute        = pDevice->aaudio.noAutoStartAfterReroute;
         deviceConfig.aaudio.enableCompatibilityWorkarounds = pDevice->aaudio.enableCompatibilityWorkarounds;
         deviceConfig.aaudio.allowSetBufferCapacity         = pDevice->aaudio.allowSetBufferCapacity;
+        deviceConfig.aaudio.allocateSessionId              = pDevice->aaudio.allocateSessionId;
 
         /* Try to get an accurate period size. */
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -40263,6 +40283,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setContentType");
     pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setInputPreset");
     pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setAllowedCapturePolicy");
+    pContext->aaudio.AAudioStreamBuilder_setSessionId              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setSessionId");
     pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
     pContext->aaudio.AAudioStream_close                            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_close");
     pContext->aaudio.AAudioStream_getState                         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getState");
@@ -40292,6 +40313,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)AAudioStreamBuilder_setUsage;
     pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)AAudioStreamBuilder_setContentType;
     pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)AAudioStreamBuilder_setInputPreset;
+    pContext->aaudio.AAudioStreamBuilder_setSessionId              = (ma_proc)AAudioStreamBuilder_setSessionId;
     #if defined(__ANDROID_API__) && __ANDROID_API__ >= 29
     pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (ma_proc)AAudioStreamBuilder_setAllowedCapturePolicy;
     #endif
