@@ -44958,69 +44958,79 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD)
+static int ma_device_open__audio4(const ma_device_id* pDeviceID, int flags, int* pSharedFD, const char** ppDeviceName)
 {
     const char* pDefaultDeviceNames[] = {
         "/dev/audio",
         "/dev/audio0"
     };
-    
+    size_t iDefaultDevice;
     int fd;
-    int fdFlags = 0;
-    size_t iDefaultDevice = (size_t)-1;
+
+    #if !defined(MA_AUDIO4_USE_NEW_API)
+    (void)pSharedFD;
+    #endif
+
+    for (iDefaultDevice = 0; iDefaultDevice < ma_countof(pDefaultDeviceNames); iDefaultDevice += 1) {
+        if (pDeviceID != NULL) {
+            *ppDeviceName = pDeviceID->audio4;
+        } else {
+            *ppDeviceName = pDefaultDeviceNames[iDefaultDevice];
+        }
+
+        #if defined(MA_AUDIO4_USE_NEW_API)
+        {
+            if (pSharedFD != NULL && *pSharedFD != -1) {
+                struct stat sharedInfo;
+                struct stat deviceInfo;
+
+                /* OpenBSD needs one O_RDWR handle when both paths refer to the same audio device. */
+                if (fstat(*pSharedFD, &sharedInfo) == 0 && stat(*ppDeviceName, &deviceInfo) == 0 && S_ISCHR(sharedInfo.st_mode) && S_ISCHR(deviceInfo.st_mode) && sharedInfo.st_rdev == deviceInfo.st_rdev) {
+                    close(*pSharedFD);
+                    *pSharedFD = -1;
+                    flags = O_RDWR;
+                }
+            }
+        }
+        #endif
+
+        fd = open(*ppDeviceName, flags, 0);
+        if (fd != -1) {
+            if (flags == O_RDWR) {
+                *pSharedFD = fd;
+            }
+
+            return fd;
+        }
+
+        if (pDeviceID != NULL || flags == O_RDWR) {
+            break;
+        }
+    }
+
+    return -1;
+}
+
+static ma_result ma_device_configure__audio4(ma_device* pDevice, int fd, const char* pDeviceName, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+{
+    ma_device_descriptor* pDescriptor;
+    ma_result result;
     ma_format internalFormat;
     ma_uint32 internalChannels;
     ma_uint32 internalSampleRate;
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
 
-    MA_ASSERT(deviceType != ma_device_type_duplex);
-    MA_ASSERT(pDevice    != NULL);
-    MA_ASSERT(pFD        != NULL);
-
-    /* The first thing to do is open the file. */
     if (deviceType == ma_device_type_capture) {
-        fdFlags = O_RDONLY;
+        pDescriptor = pDescriptorCapture;
     } else {
-        fdFlags = O_WRONLY;
-    }
-    /*fdFlags |= O_NONBLOCK;*/
-
-    /* Find the index of the default device as a start. We'll use this index later. Set it to (size_t)-1 otherwise. */
-    if (pDescriptor->pDeviceID == NULL) {
-        /* Default device. */
-        for (iDefaultDevice = 0; iDefaultDevice < ma_countof(pDefaultDeviceNames); ++iDefaultDevice) {
-            fd = open(pDefaultDeviceNames[iDefaultDevice], fdFlags, 0);
-            if (fd != -1) {
-                break;
-            }
-        }
-    } else {
-        /* Specific device. */
-        fd = open(pDescriptor->pDeviceID->audio4, fdFlags, 0);
-
-        for (iDefaultDevice = 0; iDefaultDevice < ma_countof(pDefaultDeviceNames); iDefaultDevice += 1) {
-            if (ma_strcmp(pDefaultDeviceNames[iDefaultDevice], pDescriptor->pDeviceID->audio4) == 0) {
-                break;
-            }
-        }
-
-        if (iDefaultDevice == ma_countof(pDefaultDeviceNames)) {
-            iDefaultDevice = (size_t)-1;
-        }
-    }
-
-    if (fd == -1) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open device.");
-        return ma_result_from_errno(errno);
+        pDescriptor = pDescriptorPlayback;
     }
 
     #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
     {
-        const char* pDefaultDeviceCtlNames[] = {
-            "/dev/audioctl",
-            "/dev/audioctl0"
-        };
+        const char* pDeviceCtlName = NULL;
+        int fdFlags;
         audio_info_t fdInfo;
         int fdInfoResult = -1;
 
@@ -45046,9 +45056,22 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         Get the default format from the audioctl file if we're asking for a default device. If we
         retrieve it from /dev/audio it'll default to mono 8000Hz.
         */
-        if (iDefaultDevice != (size_t)-1) {
+        if (ma_strcmp(pDeviceName, "/dev/audio") == 0) {
+            pDeviceCtlName = "/dev/audioctl";
+        } else if (ma_strcmp(pDeviceName, "/dev/audio0") == 0) {
+            pDeviceCtlName = "/dev/audioctl0";
+        }
+
+        if (pDeviceCtlName != NULL) {
+            int fdctl;
+
+            fdFlags = O_WRONLY;
+            if (deviceType == ma_device_type_capture) {
+                fdFlags = O_RDONLY;
+            }
+
             /* We're using a default device. Get the info from the /dev/audioctl file instead of /dev/audio. */
-            int fdctl = open(pDefaultDeviceCtlNames[iDefaultDevice], fdFlags, 0);
+            fdctl = open(pDeviceCtlName, fdFlags, 0);
             if (fdctl != -1) {
 #if defined(__NetBSD__) && (__NetBSD_Version__ >= 900000000)
                 fdInfoResult = ioctl(fdctl, AUDIO_GETFORMAT, &fdInfo);
@@ -45062,9 +45085,9 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         if (fdInfoResult == -1) {
             /* We still don't have the default device info so just retrieve it from the main audio device. */
             if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
-                close(fd);
+                result = ma_result_from_errno(errno);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.");
-                return ma_result_from_errno(errno);
+                return result;
             }
         }
 
@@ -45110,15 +45133,15 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         }
 
         if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
-            close(fd);
+            result = ma_result_from_errno(errno);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to set device format. AUDIO_SETINFO failed.");
-            return ma_result_from_errno(errno);
+            return result;
         }
 
         if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
-            close(fd);
+            result = ma_result_from_errno(errno);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.");
-            return ma_result_from_errno(errno);
+            return result;
         }
 
         if (deviceType == ma_device_type_capture) {
@@ -45132,9 +45155,9 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         }
 
         if (internalFormat == ma_format_unknown) {
-            close(fd);
+            result = MA_FORMAT_NOT_SUPPORTED;
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.");
-            return MA_FORMAT_NOT_SUPPORTED;
+            return result;
         }
 
         /* Buffer. */
@@ -45172,9 +45195,9 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
             fdInfo.lowat     = internalPeriods-1;
             fdInfo.blocksize = internalPeriodSizeInBytes;
             if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
-                close(fd);
+                result = ma_result_from_errno(errno);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.");
-                return ma_result_from_errno(errno);
+                return result;
             }
 
             internalPeriods            = fdInfo.hiwat;
@@ -45186,11 +45209,13 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
     {
         struct audio_swpar fdPar;
 
+        (void)pDeviceName;
+
         /* We need to retrieve the format of the device so we can know the channel count and sample rate. Then we can calculate the buffer size. */
         if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
-            close(fd);
+            result = ma_result_from_errno(errno);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve initial device parameters.");
-            return ma_result_from_errno(errno);
+            return result;
         }
 
         internalFormat     = ma_format_from_swpar__audio4(&fdPar);
@@ -45198,9 +45223,9 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         internalSampleRate = fdPar.rate;
 
         if (internalFormat == ma_format_unknown) {
-            close(fd);
+            result = MA_FORMAT_NOT_SUPPORTED;
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.");
-            return MA_FORMAT_NOT_SUPPORTED;
+            return result;
         }
 
         /* Buffer. */
@@ -45212,33 +45237,47 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
             fdPar.round = internalPeriodSizeInFrames;
 
             if (ioctl(fd, AUDIO_SETPAR, &fdPar) < 0) {
-                close(fd);
+                result = ma_result_from_errno(errno);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to set device parameters.");
-                return ma_result_from_errno(errno);
+                return result;
             }
 
             if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
-                close(fd);
+                result = ma_result_from_errno(errno);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve actual device parameters.");
-                return ma_result_from_errno(errno);
+                return result;
             }
         }
 
         /* Put the device into a stopped state initially. If we don't do this, the first AUDIO_START will fail. */
-        ioctl(fd, AUDIO_STOP, 0);
+        if (ioctl(fd, AUDIO_STOP, 0) < 0) {
+            result = ma_result_from_errno(errno);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device during initialization.");
+            return result;
+        }
 
         internalFormat             = ma_format_from_swpar__audio4(&fdPar);
         internalChannels           = (deviceType == ma_device_type_capture) ? fdPar.rchan : fdPar.pchan;
         internalSampleRate         = fdPar.rate;
         internalPeriods            = fdPar.nblks;
         internalPeriodSizeInFrames = fdPar.round;
+
+        if (deviceType == ma_device_type_duplex) {
+            /* Both directions share the format, rate and block size, but can have different channel counts. */
+            pDescriptorCapture->format             = internalFormat;
+            pDescriptorCapture->channels           = fdPar.rchan;
+            pDescriptorCapture->sampleRate         = internalSampleRate;
+            pDescriptorCapture->periodSizeInFrames = internalPeriodSizeInFrames;
+            pDescriptorCapture->periodCount        = internalPeriods;
+            ma_channel_map_init_standard(ma_standard_channel_map_sound4, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
+        }
     }
     #endif
 
     if (internalFormat == ma_format_unknown) {
-        close(fd);
+        result = MA_FORMAT_NOT_SUPPORTED;
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.");
-        return MA_FORMAT_NOT_SUPPORTED;
+        return result;
     }
 
     pDescriptor->format             = internalFormat;
@@ -45248,20 +45287,16 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
     pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
     pDescriptor->periodCount        = internalPeriods;
 
-    *pFD = fd;
-
     return MA_SUCCESS;
 }
 
 static void ma_device_uninit_internal__audio4(ma_device* pDevice, ma_device_state_audio4* pDeviceStateAudio4)
 {
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (pDeviceStateAudio4->fdCapture != -1) {
         close(pDeviceStateAudio4->fdCapture);
     }
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+    if (pDeviceStateAudio4->fdPlayback != -1 && pDeviceStateAudio4->fdPlayback != pDeviceStateAudio4->fdCapture) {
         close(pDeviceStateAudio4->fdPlayback);
     }
 
@@ -45271,6 +45306,9 @@ static void ma_device_uninit_internal__audio4(ma_device* pDevice, ma_device_stat
 static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_audio4* pDeviceStateAudio4;
+    ma_result result;
+    const char* pDeviceNameCapture = NULL;
+    const char* pDeviceNamePlayback = NULL;
     const ma_device_config_audio4* pDeviceConfigAudio4 = (const ma_device_config_audio4*)pDeviceBackendConfig;
     ma_device_config_audio4 defaultConfigAudio4;
     ma_device_type deviceType = ma_device_get_type(pDevice);
@@ -45314,23 +45352,57 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
     }
     #endif
 
+    /* Open both directions before configuring them. OpenBSD can require one shared descriptor. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture);
-        if (result != MA_SUCCESS) {
-            ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
-            return result;
+        pDeviceStateAudio4->fdCapture = ma_device_open__audio4(pDescriptorCapture->pDeviceID, O_RDONLY, NULL, &pDeviceNameCapture);
+        if (pDeviceStateAudio4->fdCapture == -1) {
+            result = ma_result_from_errno(errno);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open capture device.");
+            goto on_error;
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        int* pSharedFD = NULL;
+
+        if (deviceType == ma_device_type_duplex) {
+            pSharedFD = &pDeviceStateAudio4->fdCapture;
         }
 
+        pDeviceStateAudio4->fdPlayback = ma_device_open__audio4(pDescriptorPlayback->pDeviceID, O_WRONLY, pSharedFD, &pDeviceNamePlayback);
+        if (pDeviceStateAudio4->fdPlayback == -1) {
+            result = ma_result_from_errno(errno);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open playback device.");
+            goto on_error;
+        }
+    }
+
+    if (pDeviceStateAudio4->fdCapture != -1 && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
+        result = ma_device_configure__audio4(pDevice, pDeviceStateAudio4->fdCapture, pDeviceNameCapture, ma_device_type_capture, NULL, pDescriptorCapture);
+        if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+    }
+
+    if (pDeviceStateAudio4->fdPlayback != -1) {
+        ma_device_type playbackDeviceType;
+
+        playbackDeviceType = ma_device_type_playback;
+        if (pDeviceStateAudio4->fdPlayback == pDeviceStateAudio4->fdCapture) {
+            playbackDeviceType = ma_device_type_duplex;
+        }
+
+        result = ma_device_configure__audio4(pDevice, pDeviceStateAudio4->fdPlayback, pDeviceNamePlayback, playbackDeviceType, pDescriptorPlayback, pDescriptorCapture);
+        if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateAudio4->fdPlayback);
-        if (result != MA_SUCCESS) {
-            ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
-            return result;
-        }
-
         intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
     }
 
@@ -45350,8 +45422,8 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
 
         pDeviceStateAudio4New = (ma_device_state_audio4*)ma_realloc(pDeviceStateAudio4, deviceStateAllocationSizeNew, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateAudio4New == NULL) {
-            ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
-            return MA_OUT_OF_MEMORY;
+            result = MA_OUT_OF_MEMORY;
+            goto on_error;
         }
 
         pDeviceStateAudio4 = pDeviceStateAudio4New;
@@ -45363,6 +45435,10 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
     *ppDeviceState = pDeviceStateAudio4;
 
     return MA_SUCCESS;
+
+on_error:
+    ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
+    return result;
 }
 
 static void ma_device_uninit__audio4(ma_device* pDevice)
@@ -45410,7 +45486,7 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
         if (pDeviceStateAudio4->fdCapture == -1) {
             return MA_INVALID_ARGS;
         }
@@ -45443,8 +45519,15 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
         #else
         {
             if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_START, 0) < 0) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. errno=%d, %s.", errno, ma_result_description(ma_result_from_errno(errno)));
-                return ma_result_from_errno(errno);
+                int errorCode;
+
+                errorCode = errno;
+                if (pDeviceStateAudio4->fdCapture == pDeviceStateAudio4->fdPlayback) {
+                    ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_STOP, 0);
+                }
+
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. errno=%d, %s.", errorCode, ma_result_description(ma_result_from_errno(errorCode)));
+                return ma_result_from_errno(errorCode);
             }
         }
         #endif
@@ -45492,7 +45575,7 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
         ma_result result;
 
         result = ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdCapture);
