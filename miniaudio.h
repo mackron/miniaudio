@@ -46123,6 +46123,7 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_fd_legacy__
 static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     struct stat stDefault;  /* For detecting the default device. */
+    ma_result result;
 
     if (stat(MA_OSS_DEFAULT_DEVICE_NAME, &stDefault) < 0) {
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Could not find default device.");
@@ -46130,9 +46131,16 @@ static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, 
     }
 
     {
-        DIR *d = opendir("/dev");
+        DIR *d;
         struct dirent *e;
         ma_bool32 isTerminating = MA_FALSE;
+
+        d = opendir("/dev");
+        if (d == NULL) {
+            result = ma_result_from_errno(errno);
+            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open /dev for device enumeration.");
+            return result;
+        }
 
         while ((e = readdir(d)) != NULL) {
             if (isTerminating) {
