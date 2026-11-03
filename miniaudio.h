@@ -46468,6 +46468,10 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
     ma_uint32 intermediaryBufferSizePlayback = 0;
     ma_uint32 intermediaryBufferAllocationSize = 0;
 
+    if (deviceType == ma_device_type_loopback) {
+        return MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
     if (pDeviceConfigOSS == NULL) {
         defaultConfigOSS = ma_device_config_oss_init();
         pDeviceConfigOSS = &defaultConfigOSS;
@@ -46480,10 +46484,6 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
 
     pDeviceStateOSS->fdPlayback = -1;
     pDeviceStateOSS->fdCapture  = -1;
-
-    if (deviceType == ma_device_type_loopback) {
-        return MA_DEVICE_TYPE_NOT_SUPPORTED;
-    }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorCapture, ma_device_type_capture, &pDeviceStateOSS->fdCapture);
