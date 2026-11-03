@@ -46542,39 +46542,7 @@ static void ma_device_uninit__oss(ma_device* pDevice)
 }
 
 
-static void ma_device_prime_playback_buffer__oss(ma_device* pDevice)
-{
-    ma_device_state_oss* pDeviceStateOSS = ma_device_get_backend_state__oss(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_uint8 buffer[4096];
-    ma_uint32 bpf;
-    ma_uint32 framesToWrite;
-    ma_uint32 framesWritten;
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-        framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
-        framesWritten = 0;
-    
-        MA_ZERO_MEMORY(buffer, sizeof(buffer));
-    
-        while (framesWritten < framesToWrite) {
-            ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
-            ma_uint32 framesRemaining = framesToWrite - framesWritten;
-            if (framesToWriteThisIteration > framesRemaining) {
-                framesToWriteThisIteration = framesRemaining;
-            }
-    
-            /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
-            if (framesToWriteThisIteration == 0) {
-                break;
-            }
-    
-            write(pDeviceStateOSS->fdPlayback, buffer, framesToWriteThisIteration * bpf);
-            framesWritten += framesToWriteThisIteration;
-        }
-    }
-}
+static ma_result ma_device_write__oss(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
 
 /*
 Note on Starting and Stopping
@@ -46598,14 +46566,51 @@ UPDATE: 2026-01-14
 static ma_result ma_device_start__oss(ma_device* pDevice)
 {
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
+    ma_uint8 buffer[4096];
+    ma_uint32 bpf;
+    ma_uint32 framesToWrite;
+    ma_uint32 framesWritten;
 
     /*
-    For playback we'll start the device by priming it with silence. Otherwise we'll do nothing
-    and let it start in step(). We want the playback buffer to be initially filled with silence
-    for the benefit of duplex mode.
+    For playback we'll start the device by priming it with data from the client. In duplex mode
+    we use silence because capture data is not yet available. Capture-only devices start in step().
     */
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_device_prime_playback_buffer__oss(pDevice);
+        bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
+        framesWritten = 0;
+    
+        if (deviceType == ma_device_type_duplex) {
+            ma_silence_pcm_frames(buffer, sizeof(buffer) / bpf, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        }
+    
+        while (framesWritten < framesToWrite) {
+            ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
+            ma_uint32 framesRemaining = framesToWrite - framesWritten;
+            if (framesToWriteThisIteration > framesRemaining) {
+                framesToWriteThisIteration = framesRemaining;
+            }
+    
+            /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
+            if (framesToWriteThisIteration == 0) {
+                return MA_INVALID_OPERATION;
+            }
+    
+            if (deviceType == ma_device_type_playback) {
+                result = ma_device_handle_backend_data_callback(pDevice, buffer, NULL, framesToWriteThisIteration);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+            }
+
+            result = ma_device_write__oss(pDevice, buffer, framesToWriteThisIteration, NULL);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            framesWritten += framesToWriteThisIteration;
+        }
     }
 
     return MA_SUCCESS;
