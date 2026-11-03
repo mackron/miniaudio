@@ -45981,6 +45981,24 @@ static void ma_context_add_native_data_format__oss(ma_context* pContext, oss_aud
 
     ma_device_info_add_native_data_format(pDeviceInfo, format, minChannels, maxChannels, minSampleRate, maxSampleRate);
 }
+
+static void ma_context_get_native_data_formats__oss(ma_context* pContext, oss_audioinfo* pAudioInfo, int formatMask, ma_device_info* pDeviceInfo)
+{
+    /* Data Format. */
+    pDeviceInfo->nativeDataFormatCount = 0;
+
+    if (((formatMask & AFMT_S16_LE) != 0 && ma_is_little_endian()) || ((formatMask & AFMT_S16_BE) != 0 && ma_is_big_endian())) {
+        ma_context_add_native_data_format__oss(pContext, pAudioInfo, ma_format_s16, pDeviceInfo);
+    }
+    #if defined(AFMT_S32_LE) && defined(AFMT_S32_BE)
+    if (((formatMask & AFMT_S32_LE) != 0 && ma_is_little_endian()) || ((formatMask & AFMT_S32_BE) != 0 && ma_is_big_endian())) {
+        ma_context_add_native_data_format__oss(pContext, pAudioInfo, ma_format_s32, pDeviceInfo);
+    }
+    #endif
+    if ((formatMask & AFMT_U8) != 0) {
+        ma_context_add_native_data_format__oss(pContext, pAudioInfo, ma_format_u8, pDeviceInfo);
+    }
+}
 #endif
 
 static ma_result ma_context_add_native_data_format_legacy__oss(ma_context* pContext, int fdDevice, ma_format format, ma_device_info* pDeviceInfo)
@@ -46064,6 +46082,8 @@ static ma_device_enumeration_result ma_context_enumerate_device_from_fd_legacy__
     struct stat stDevice;
     int formats;
 
+    MA_ZERO_OBJECT(pDeviceInfo);
+
     /* Default. */
     if (fstat(fd, &stDevice) == 0) {
         if ((stDefault->st_dev == stDevice.st_dev) && (stDefault->st_ino == stDevice.st_ino)) {
@@ -46124,8 +46144,6 @@ static ma_result ma_context_enumerate_devices_legacy__oss(ma_context* pContext, 
                 int fdDevice;
                 struct audio_buf_info bufInfo;
                 ma_device_info deviceInfo;
-
-                MA_ZERO_OBJECT(&deviceInfo);
 
                 ma_strcpy_s(devnode, sizeof(devnode), "/dev/");
                 ma_strcat_s(devnode, sizeof(devnode), e->d_name);
@@ -46199,7 +46217,6 @@ static ma_result ma_context_enumerate_devices_modern__oss(ma_context* pContext, 
                     if (ai.devnode[0] != '\0') {    /* <-- Can be blank, according to documentation. */
                         ma_device_info deviceInfo;
                         struct stat stDevice;
-                        int formatMask;
 
                         MA_ZERO_OBJECT(&deviceInfo);
 
@@ -46226,33 +46243,13 @@ static ma_result ma_context_enumerate_devices_modern__oss(ma_context* pContext, 
                             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), ai.name, (size_t)-1);
                         }
 
-                        /* Data Format. */
-                        deviceInfo.nativeDataFormatCount = 0;
-
-                        if ((ai.caps & PCM_CAP_OUTPUT) != 0) {
-                            formatMask = ai.oformats;
-                        } else {
-                            formatMask = ai.iformats;
-                        }
-
-                        if (((formatMask & AFMT_S16_LE) != 0 && ma_is_little_endian()) || ((formatMask & AFMT_S16_BE) != 0 && ma_is_big_endian())) {
-                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_s16, &deviceInfo);
-                        }
-                        #if defined(AFMT_S32_LE) && defined(AFMT_S32_BE)
-                        if (((formatMask & AFMT_S32_LE) != 0 && ma_is_little_endian()) || ((formatMask & AFMT_S32_LE) != 0 && ma_is_big_endian())) {
-                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_s32, &deviceInfo);
-                        }
-                        #endif
-                        if ((formatMask & AFMT_U8) != 0) {
-                            ma_context_add_native_data_format__oss(pContext, &ai, ma_format_u8, &deviceInfo);
-                        }
-
-
                         /* The device can be both playback and capture. */
                         if (!isTerminating && (ai.caps & PCM_CAP_OUTPUT) != 0) {
+                            ma_context_get_native_data_formats__oss(pContext, &ai, ai.oformats, &deviceInfo);
                             isTerminating = (callback(ma_device_type_playback, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                         }
                         if (!isTerminating && (ai.caps & PCM_CAP_INPUT) != 0) {
+                            ma_context_get_native_data_formats__oss(pContext, &ai, ai.iformats, &deviceInfo);
                             isTerminating = (callback(ma_device_type_capture, &deviceInfo, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                         }
 
