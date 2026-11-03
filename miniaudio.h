@@ -44675,7 +44675,7 @@ static ma_format ma_format_from_swpar__audio4(struct audio_swpar* par)
         return ma_format_s24;
     }
     if (par->bits == 32 && par->bps == 4 && par->sig == 1 && par->le == ma_is_little_endian()) {
-        return ma_format_f32;
+        return ma_format_s32;
     }
 
     /* Format not supported. */
