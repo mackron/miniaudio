@@ -45823,8 +45823,11 @@ static ma_result ma_context_init__oss(ma_context* pContext, const void* pContext
     /* Try opening a temporary device first so we can get version information. This is closed at the end. */
     fd = ma_open_temp_device__oss();
     if (fd == -1) {
+        int errorCode;
+
+        errorCode = errno;
         ma_free(pContextStateOSS, ma_context_get_allocation_callbacks(pContext));
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties. errno = %s", strerror(errno));   /* Looks liks OSS isn't installed, or there are no available devices. */
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties. errno = %s", strerror(errorCode));   /* Looks liks OSS isn't installed, or there are no available devices. */
         return MA_NO_BACKEND;
     }
 
