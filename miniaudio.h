@@ -45590,9 +45590,7 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
         #else
         {
             if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_START, 0) < 0) {
-                int errorCode;
-
-                errorCode = errno;
+                int errorCode = errno;
 
                 /* Restore the pause state even when AUDIO_START fails. */
                 if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_STOP, 0) < 0) {
