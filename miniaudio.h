@@ -45029,6 +45029,11 @@ static ma_result ma_device_configure__audio4(ma_device* pDevice, int fd, const c
         pDescriptor = pDescriptorPlayback;
     }
 
+    if (fd >= FD_SETSIZE) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Device file descriptor exceeds FD_SETSIZE.");
+        return MA_OUT_OF_RANGE;
+    }
+
     #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
     {
         const char* pDeviceCtlName = NULL;
