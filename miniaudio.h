@@ -43203,6 +43203,21 @@ demand for it or if I can get it tested and debugged more thoroughly.
 #endif
 #endif
 
+#ifdef MA_NO_RUNTIME_LINKING
+#include <sndio.h>
+
+#define MA_SIO_DEVANY   SIO_DEVANY
+#define MA_SIO_PLAY     SIO_PLAY
+#define MA_SIO_REC      SIO_REC
+#define MA_SIO_NENC     SIO_NENC
+#define MA_SIO_NCHAN    SIO_NCHAN
+#define MA_SIO_NRATE    SIO_NRATE
+#define MA_SIO_NCONF    SIO_NCONF
+
+#define ma_sio_hdl sio_hdl
+#define ma_sio_par sio_par
+#define ma_sio_cap sio_cap
+#else
 #define MA_SIO_DEVANY   "default"
 #define MA_SIO_PLAY     1
 #define MA_SIO_REC      2
@@ -43258,6 +43273,7 @@ struct ma_sio_cap
     unsigned int nconf;
     struct ma_sio_conf confs[MA_SIO_NCONF];
 };
+#endif
 
 typedef struct ma_sio_hdl* (* ma_sio_open_proc   )(const char*, unsigned int, int);
 typedef void               (* ma_sio_close_proc  )(struct ma_sio_hdl*);
@@ -43271,7 +43287,7 @@ typedef size_t             (* ma_sio_write_proc  )(struct ma_sio_hdl*, const voi
 typedef int                (* ma_sio_nfds_proc   )(struct ma_sio_hdl*);
 typedef int                (* ma_sio_pollfd_proc )(struct ma_sio_hdl*, struct pollfd*, int);
 typedef int                (* ma_sio_revents_proc)(struct ma_sio_hdl*, struct pollfd*);
-typedef int                (* ma_sio_initpar_proc)(struct ma_sio_par*);
+typedef void               (* ma_sio_initpar_proc)(struct ma_sio_par*);
 
 typedef struct ma_context_state_sndio
 {
