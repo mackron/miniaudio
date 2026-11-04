@@ -45200,6 +45200,12 @@ static ma_result ma_device_configure__audio4(ma_device* pDevice, int fd, const c
                 return result;
             }
 
+            if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
+                result = ma_result_from_errno(errno);
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve actual buffer size. AUDIO_GETINFO failed.");
+                return result;
+            }
+
             internalPeriods            = fdInfo.hiwat;
             internalPeriodSizeInFrames = fdInfo.blocksize / ma_get_bytes_per_frame(internalFormat, internalChannels);
         }
