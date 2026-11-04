@@ -45670,20 +45670,42 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
 static ma_result ma_device_write__audio4(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
-    int result;
+    ma_result result;
+    ssize_t resultAudio4;
+    ma_uint32 bytesPerFrame;
+    size_t bytesToWrite;
+    size_t totalBytesWritten = 0;
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
     }
 
-    result = write(pDeviceStateAudio4->fdPlayback, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
-    if (result < 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to write data to the device.");
-        return ma_result_from_errno(errno);
-    }
+    bytesPerFrame = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    bytesToWrite  = (size_t)frameCount * bytesPerFrame;
 
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = (ma_uint32)result / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    /* A short write must not discard the rest of the client's data. */
+    while (totalBytesWritten < bytesToWrite) {
+        resultAudio4 = write(pDeviceStateAudio4->fdPlayback, ma_offset_ptr(pPCMFrames, totalBytesWritten), bytesToWrite - totalBytesWritten);
+        if (resultAudio4 < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+
+            result = ma_result_from_errno(errno);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to write data to the device.");
+            return result;
+        }
+
+        if (resultAudio4 == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to make progress writing to the device.");
+            return MA_IO_ERROR;
+        }
+
+        totalBytesWritten += (size_t)resultAudio4;
+
+        if (pFramesWritten != NULL) {
+            *pFramesWritten = (ma_uint32)(totalBytesWritten / bytesPerFrame);
+        }
     }
 
     return MA_SUCCESS;
@@ -45692,20 +45714,26 @@ static ma_result ma_device_write__audio4(ma_device* pDevice, const void* pPCMFra
 static ma_result ma_device_read__audio4(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
-    int result;
+    ma_result result;
+    ssize_t resultAudio4;
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
     }
 
-    result = read(pDeviceStateAudio4->fdCapture, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
-    if (result < 0) {
+    do
+    {
+        resultAudio4 = read(pDeviceStateAudio4->fdCapture, pPCMFrames, (size_t)frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+    } while (resultAudio4 < 0 && errno == EINTR);
+
+    if (resultAudio4 < 0) {
+        result = ma_result_from_errno(errno);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to read data from the device.");
-        return ma_result_from_errno(errno);
+        return result;
     }
 
     if (pFramesRead != NULL) {
-        *pFramesRead = (ma_uint32)result / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+        *pFramesRead = (ma_uint32)resultAudio4 / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     }
 
     return MA_SUCCESS;
