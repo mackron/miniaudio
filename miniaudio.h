@@ -43851,6 +43851,14 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
     }
 
     /*
+    sndio does not support floating point sample formats. Fall back to s16 now or else
+    ma_find_best_sample_rate_from_sio_cap__sndio() will not work correctly.
+    */
+    if (format == ma_format_f32) {
+        format = ma_format_s16;
+    }
+
+    /*
     Note: sndio reports a huge range of available channels. This is inconvenient for us because there's no real
     way, as far as I can tell, to get the _actual_ channel count of the device. I'm therefore restricting this
     to the requested channels, regardless of whether or not the default channel count is requested.
