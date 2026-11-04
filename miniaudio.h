@@ -45447,44 +45447,13 @@ static void ma_device_uninit__audio4(ma_device* pDevice)
     ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
 }
 
-static void ma_device_prime_playback_buffer__audio4(ma_device* pDevice)
-{
-    ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_uint8 buffer[4096];
-    ma_uint32 bpf;
-    ma_uint32 framesToWrite;
-    ma_uint32 framesWritten;
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-        framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
-        framesWritten = 0;
-    
-        MA_ZERO_MEMORY(buffer, sizeof(buffer));
-    
-        while (framesWritten < framesToWrite) {
-            ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
-            ma_uint32 framesRemaining = framesToWrite - framesWritten;
-            if (framesToWriteThisIteration > framesRemaining) {
-                framesToWriteThisIteration = framesRemaining;
-            }
-    
-            /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
-            if (framesToWriteThisIteration == 0) {
-                break;
-            }
-    
-            write(pDeviceStateAudio4->fdPlayback, buffer, framesToWriteThisIteration * bpf);
-            framesWritten += framesToWriteThisIteration;
-        }
-    }
-}
+static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd);
 
 static ma_result ma_device_start__audio4(ma_device* pDevice)
 {
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
 
     if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
         if (pDeviceStateAudio4->fdCapture == -1) {
@@ -45506,11 +45475,49 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_uint32 bpf;
+        ma_uint32 iPeriod;
+
         if (pDeviceStateAudio4->fdPlayback == -1) {
             return MA_INVALID_ARGS;
         }
 
-        ma_device_prime_playback_buffer__audio4(pDevice);
+        bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+        /* OpenBSD requires a full playback buffer before AUDIO_START. */
+        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
+            size_t bytesToWrite;
+            size_t bytesWritten = 0;
+
+            if (deviceType == ma_device_type_playback) {
+                ma_device_handle_backend_data_callback(pDevice, pDeviceStateAudio4->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+            } else {
+                ma_silence_pcm_frames(pDeviceStateAudio4->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            }
+
+            bytesToWrite = pDevice->playback.internalPeriodSizeInFrames * bpf;
+            while (bytesWritten < bytesToWrite) {
+                ssize_t resultWrite;
+
+                resultWrite = write(pDeviceStateAudio4->fdPlayback, ma_offset_ptr(pDeviceStateAudio4->pIntermediaryBuffer, bytesWritten), bytesToWrite - bytesWritten);
+                if (resultWrite < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+
+                    result = ma_result_from_errno(errno);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to prime playback buffer.");
+                    goto on_error;
+                }
+
+                if (resultWrite == 0) {
+                    result = MA_IO_ERROR;
+                    goto on_error;
+                }
+
+                bytesWritten += (size_t)resultWrite;
+            }
+        }
 
         #if !defined(MA_AUDIO4_USE_NEW_API)
         {
@@ -45534,6 +45541,24 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
     }
 
     return MA_SUCCESS;
+
+on_error:
+    if (deviceType == ma_device_type_duplex && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
+        ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdCapture);
+    }
+
+    ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdPlayback);
+
+    /*
+    I can't think of a good way to recover the device when starting fails. The issue is the new API
+    used by OpenBSD. Starting requires the buffer to be entirely filled with write(). We would need
+    a way to drain that buffer in order to recover, because if we don't, a future start() will
+    result in write() blocking forever. The problem is the device needs to be started in order to
+    drain it. I think a start failure should be rare enough that this should not be a big deal in
+    practice, so for now I'm just putting the device into an errored state.
+    */
+    ma_device_set_errored(pDevice);
+    return result;
 }
 
 static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
