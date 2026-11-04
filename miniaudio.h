@@ -44146,6 +44146,7 @@ static ma_result ma_device_stop__sndio(ma_device* pDevice)
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result = MA_SUCCESS;
 
     /*
     From the documentation:
@@ -44158,14 +44159,24 @@ static ma_result ma_device_stop__sndio(ma_device* pDevice)
     */
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        pContextStateSndio->sio_stop(pDeviceStateSndio->capture.handle);
+        if (pContextStateSndio->sio_stop(pDeviceStateSndio->capture.handle) == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to stop capture device.");
+            result = MA_FAILED_TO_STOP_BACKEND_DEVICE;
+        }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        pContextStateSndio->sio_stop(pDeviceStateSndio->playback.handle);
+        if (pContextStateSndio->sio_stop(pDeviceStateSndio->playback.handle) == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to stop playback device.");
+            result = MA_FAILED_TO_STOP_BACKEND_DEVICE;
+        }
     }
 
-    return MA_SUCCESS;
+    if (result != MA_SUCCESS) {
+        ma_device_set_errored(pDevice);
+    }
+
+    return result;
 }
 
 
@@ -44256,8 +44267,9 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     } while (resultPoll < 0 && errno == EINTR);
 
     if (resultPoll < 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] poll() failed.");
-        return MA_ERROR;
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] poll() failed.");
+        result = MA_ERROR;
+        goto on_error;
     }
 
     /*
@@ -44269,7 +44281,8 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
             return MA_SUCCESS;
         } else {
-            return MA_ERROR;
+            result = MA_ERROR;
+            goto on_error;
         }
     }
 
@@ -44281,11 +44294,14 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         revents = pContextStateSndio->sio_revents(pDeviceStateSndio->capture.handle, pDeviceStateSndio->pPollFDs);
         if ((revents & POLLHUP) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLHUP detected.");
-            return MA_DEVICE_NOT_STARTED;
+            result = MA_IO_ERROR;
+            goto on_error;
         }
 
         if ((revents & POLLERR) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLERR detected.");
+            result = MA_IO_ERROR;
+            goto on_error;
         }
 
         if ((revents & POLLIN) != 0) {
@@ -44293,7 +44309,7 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
 
             result = ma_device_read__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
             if (result != MA_SUCCESS) {
-                return result;
+                goto on_error;
             }
     
             ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateSndio->pIntermediaryBuffer, framesRead);
@@ -44304,11 +44320,14 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCountCapture);
         if ((revents & POLLHUP) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLHUP detected.");
-            return MA_DEVICE_NOT_STARTED;
+            result = MA_IO_ERROR;
+            goto on_error;
         }
 
         if ((revents & POLLERR) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLERR detected.");
+            result = MA_IO_ERROR;
+            goto on_error;
         }
 
         if ((revents & POLLOUT) != 0) {
@@ -44316,12 +44335,16 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
 
             result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
-                return result;
+                goto on_error;
             }
         }
     }
 
     return MA_SUCCESS;
+
+on_error:
+    ma_device_set_errored(pDevice);
+    return result;
 }
 
 static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
