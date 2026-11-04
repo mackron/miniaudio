@@ -44674,7 +44674,9 @@ static ma_format ma_format_from_swpar__audio4(struct audio_swpar* par)
     if (par->bits == 24 && par->bps == 3 && par->sig == 1 && par->le == ma_is_little_endian()) {
         return ma_format_s24;
     }
-    if (par->bits == 32 && par->bps == 4 && par->sig == 1 && par->le == ma_is_little_endian()) {
+
+    /* MSB-aligned 24-bit samples in a 32-bit container have the same scale as s32. */
+    if ((par->bits == 32 || (par->bits == 24 && par->msb != 0)) && par->bps == 4 && par->sig == 1 && par->le == ma_is_little_endian()) {
         return ma_format_s32;
     }
 
@@ -45241,6 +45243,11 @@ static ma_result ma_device_configure__audio4(ma_device* pDevice, int fd, const c
             result = ma_result_from_errno(errno);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve initial device parameters.");
             return result;
+        }
+
+        /* Use the full 32-bit scale when the device stores 24-bit samples in four bytes. */
+        if (fdPar.bits == 24 && fdPar.bps == 4) {
+            fdPar.msb = 1;
         }
 
         internalFormat     = ma_format_from_swpar__audio4(&fdPar);
