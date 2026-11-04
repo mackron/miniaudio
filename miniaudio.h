@@ -43977,13 +43977,12 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
 static void ma_device_uninit_internal__sndio(ma_device* pDevice, ma_device_state_sndio* pDeviceStateSndio)
 {
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (pDeviceStateSndio->capture.handle != NULL) {
         pContextStateSndio->sio_close(pDeviceStateSndio->capture.handle);
     }
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+    if (pDeviceStateSndio->playback.handle != NULL) {
         pContextStateSndio->sio_close(pDeviceStateSndio->playback.handle);
     }
 
