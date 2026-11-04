@@ -44014,7 +44014,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     }
 
     pDeviceStateSndio = (ma_device_state_sndio*)ma_calloc(sizeof(*pDeviceStateSndio), ma_device_get_allocation_callbacks(pDevice));
-    if (pDevice == NULL) {
+    if (pDeviceStateSndio == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
