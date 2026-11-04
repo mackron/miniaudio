@@ -43435,14 +43435,15 @@ static ma_uint32 ma_get_standard_sample_rate_priority_index__sndio(ma_uint32 sam
 
 static ma_format ma_format_from_sio_enc__sndio(unsigned int bits, unsigned int bps, unsigned int sig, unsigned int le, unsigned int msb)
 {
-    /* We only support native-endian right now. */
+    if (bits == 8 && bps == 1 && sig == 0) {
+        return ma_format_u8;
+    }
+
+    /* We only support native-endian multi-byte samples right now. */
     if ((ma_is_little_endian() && le == 0) || (ma_is_big_endian() && le == 1)) {
         return ma_format_unknown;
     }
 
-    if (bits ==  8 && bps == 1 && sig == 0) {
-        return ma_format_u8;
-    }
     if (bits == 16 && bps == 2 && sig == 1) {
         return ma_format_s16;
     }
