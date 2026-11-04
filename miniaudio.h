@@ -44944,6 +44944,8 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
                         /* AUDIO_GETDEV failed for audioctlN. */
                         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[audio4] AUDIO_GETDEV failed for %s.", devnodectl);
                     }
+
+                    close(audioctlFD);
                 } else {
                     /* Failed to open audioctlN. */
                     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[audio4] Failed to open %s.", devnodectl);
