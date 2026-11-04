@@ -45132,6 +45132,9 @@ static ma_result ma_device_configure__audio4(ma_device* pDevice, int fd, const c
             if (pDescriptor->sampleRate != 0) {
                 fdInfo.record.sample_rate = ma_clamp(pDescriptor->sampleRate, 1000, 192000);    /* From the documentation for NetBSD: `frequency` ranges from 1000Hz to 192000Hz. (They mean `sample_rate` instead of `frequency`.) */
             }
+
+            /* Keep capture paused until the device is started. */
+            fdInfo.record.pause = 1;
         } else {
             #if defined(MA_SUN)
             ma_encoding_from_format__audio4(ma_format_s16, &fdInfo.play.encoding, &fdInfo.play.precision);
@@ -45479,6 +45482,26 @@ static void ma_device_uninit__audio4(ma_device* pDevice)
     ma_device_uninit_internal__audio4(pDevice, pDeviceStateAudio4);
 }
 
+#if !defined(MA_AUDIO4_USE_NEW_API)
+static ma_result ma_device_set_capture_paused__audio4(ma_device* pDevice, ma_bool32 isPaused)
+{
+    ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
+    ma_result result;
+    audio_info_t info;
+
+    AUDIO_INITINFO(&info);
+    info.record.pause = isPaused;
+
+    if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_SETINFO, &info) < 0) {
+        result = ma_result_from_errno(errno);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to set capture pause state. AUDIO_SETINFO failed.");
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+#endif
+
 static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd);
 
 static ma_result ma_device_start__audio4(ma_device* pDevice)
@@ -45498,13 +45521,14 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
 
         #if !defined(MA_AUDIO4_USE_NEW_API)
         {
-            /* Old API. Do nothing here (will be started automatically). */
+            result = ma_device_set_capture_paused__audio4(pDevice, MA_FALSE);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
         }
         #else
         {
             if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_START, 0) < 0) {
-                ma_result result;
-
                 result = ma_result_from_errno(errno);
 
                 /* AUDIO_START can change the pause state before it fails. */
@@ -45618,6 +45642,17 @@ static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
 
     #if !defined(MA_AUDIO4_USE_NEW_API)
     {
+        ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
+        ma_result result;
+
+        /* AUDIO_FLUSH can restart capture unless it is paused first. */
+        if (fd == pDeviceStateAudio4->fdCapture) {
+            result = ma_device_set_capture_paused__audio4(pDevice, MA_TRUE);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+
         #if defined(MA_SUN)
         {
             /* There is no flush here for Solaris, but we could use the I_FLUSH stream ioctl with FLUSHR for capture?I have no way to test - leaving that to the community. */
@@ -45626,8 +45661,6 @@ static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
         #else
         {
             if (ioctl(fd, AUDIO_FLUSH, 0) < 0) {
-                ma_result result;
-
                 result = ma_result_from_errno(errno);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.");
                 return result;
