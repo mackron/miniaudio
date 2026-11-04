@@ -44864,9 +44864,16 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
     }
     #else
     {
-        DIR *d = opendir("/dev");
+        DIR *d;
         struct dirent *e;
         ma_bool32 isTerminating = MA_FALSE;
+
+        d = opendir("/dev");
+        if (d == NULL) {
+            int err = errno;
+            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open /dev for device enumeration.");
+            return ma_result_from_errno(err);
+        }
 
         while ((e = readdir(d)) != NULL) {
             size_t audioctlLen = strlen("audioctl");
