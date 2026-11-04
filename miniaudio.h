@@ -45333,14 +45333,6 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
         pDeviceConfigAudio4 = &defaultConfigAudio4;
     }
 
-    pDeviceStateAudio4 = (ma_device_state_audio4*)ma_calloc(sizeof(*pDeviceStateAudio4), ma_device_get_allocation_callbacks(pDevice));
-    if (pDeviceStateAudio4 == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    pDeviceStateAudio4->fdCapture  = -1;
-    pDeviceStateAudio4->fdPlayback = -1;
-
     /*
     The version of the operating system dictates whether or not the device is exclusive or shared. NetBSD 8
     introduced in-kernel mixing which means it's shared. All other BSD flavours are exclusive as far as
@@ -45359,6 +45351,14 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
         /* All other flavors. */
     }
     #endif
+
+    pDeviceStateAudio4 = (ma_device_state_audio4*)ma_calloc(sizeof(*pDeviceStateAudio4), ma_device_get_allocation_callbacks(pDevice));
+    if (pDeviceStateAudio4 == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pDeviceStateAudio4->fdCapture  = -1;
+    pDeviceStateAudio4->fdPlayback = -1;
 
     /* Open both directions before configuring them. OpenBSD can require one shared descriptor. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
