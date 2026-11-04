@@ -44698,7 +44698,7 @@ static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIn
     MA_ZERO_OBJECT(pDeviceInfo);
 
     /* Default. */
-    if ((stDefault->st_dev == stDevice->st_dev) && (stDefault->st_ino == stDevice->st_ino)) {
+    if (stDefault != NULL && (stDefault->st_dev == stDevice->st_dev) && (stDefault->st_ino == stDevice->st_ino)) {
         pDeviceInfo->isDefault = MA_TRUE;
     }
 
@@ -44820,6 +44820,11 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
         char devpath[256];
         int iDevice;
         struct stat stDefault;
+        struct stat* pDefault = NULL;
+
+        if (stat("/dev/audioctl", &stDefault) == 0) {
+            pDefault = &stDefault;
+        }
 
         /*
         Every device will be named "/dev/audioN", with a "/dev/audioctlN" equivalent. We use the "/dev/audioctlN"
@@ -44843,7 +44848,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
             if (!isTerminating) {
                 fd = open(devpath, O_RDONLY, 0);
                 if (fd >= 0) {
-                    isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                    isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, pDefault, ma_device_type_playback, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                     close(fd);
                 }
             }
@@ -44852,7 +44857,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
             if (!isTerminating) {
                 fd = open(devpath, O_WRONLY, 0);
                 if (fd >= 0) {
-                    isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
+                    isTerminating = (ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, pDefault, ma_device_type_capture, callback, pUserData) == MA_DEVICE_ENUMERATION_ABORT);
                     close(fd);
                 }
             }
