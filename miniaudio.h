@@ -43821,15 +43821,13 @@ static ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_en
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_state_sndio* pDeviceStateSndio, const ma_device_config_sndio* pDeviceConfigSndio, ma_device_descriptor* pDescriptor, ma_device_type deviceType)
+static ma_result ma_device_configure__sndio(ma_device* pDevice, struct ma_sio_hdl* handle, const char* pDeviceName, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    const char* pDeviceName;
-    struct ma_sio_hdl* handle;
-    int openFlags = 0;
+    ma_device_descriptor* pDescriptor;
+    ma_device_type configDeviceType;
     struct ma_sio_cap caps;
     struct ma_sio_par par;
-    const ma_device_id* pDeviceID;
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
@@ -43839,36 +43837,24 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
 
-    MA_ASSERT(deviceType != ma_device_type_duplex);
-    MA_ASSERT(pDevice    != NULL);
-
-    (void)pDeviceConfigSndio;
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(handle  != NULL);
 
     if (deviceType == ma_device_type_capture) {
-        openFlags = MA_SIO_REC;
+        pDescriptor = pDescriptorCapture;
+        configDeviceType = ma_device_type_capture;
     } else {
-        openFlags = MA_SIO_PLAY;
+        /* A shared duplex handle uses the playback format, rate and buffer size. */
+        pDescriptor = pDescriptorPlayback;
+        configDeviceType = ma_device_type_playback;
     }
 
-    pDeviceID  = pDescriptor->pDeviceID;
     format     = pDescriptor->format;
     channels   = pDescriptor->channels;
     sampleRate = pDescriptor->sampleRate;
 
-    pDeviceName = MA_SIO_DEVANY;
-    if (pDeviceID != NULL) {
-        pDeviceName = pDeviceID->sndio;
-    }
-
-    handle = pContextStateSndio->sio_open(pDeviceName, openFlags, 0);
-    if (handle == NULL) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to open device.");
-        return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-    }
-
     /* We need to retrieve the device caps to determine the most appropriate format to use. */
     if (pContextStateSndio->sio_getcap(handle, &caps) == 0) {
-        pContextStateSndio->sio_close(handle);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve device caps.");
         return MA_ERROR;
     }
@@ -43889,34 +43875,20 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
     For hardware devices, I'm suspecting only a single channel count will be reported and we can safely use the
     value returned by ma_find_best_channels_from_sio_cap__sndio().
     */
-    if (deviceType == ma_device_type_capture) {
-        if (format == ma_format_unknown) {
-            format = ma_find_best_format_from_sio_cap__sndio(&caps);
-        }
+    if (format == ma_format_unknown) {
+        format = ma_find_best_format_from_sio_cap__sndio(&caps);
+    }
 
-        if (channels == 0) {
-            if (strlen(pDeviceName) > strlen("rsnd/") && strncmp(pDeviceName, "rsnd/", strlen("rsnd/")) == 0) {
-                channels = ma_find_best_channels_from_sio_cap__sndio(&caps, deviceType, format);
-            } else {
-                channels = MA_DEFAULT_CHANNELS;
-            }
-        }
-    } else {
-        if (format == ma_format_unknown) {
-            format = ma_find_best_format_from_sio_cap__sndio(&caps);
-        }
-
-        if (channels == 0) {
-            if (strlen(pDeviceName) > strlen("rsnd/") && strncmp(pDeviceName, "rsnd/", strlen("rsnd/")) == 0) {
-                channels = ma_find_best_channels_from_sio_cap__sndio(&caps, deviceType, format);
-            } else {
-                channels = MA_DEFAULT_CHANNELS;
-            }
+    if (channels == 0) {
+        if (strlen(pDeviceName) > strlen("rsnd/") && strncmp(pDeviceName, "rsnd/", strlen("rsnd/")) == 0) {
+            channels = ma_find_best_channels_from_sio_cap__sndio(&caps, configDeviceType, format);
+        } else {
+            channels = MA_DEFAULT_CHANNELS;
         }
     }
 
     if (sampleRate == 0) {
-        sampleRate = ma_find_best_sample_rate_from_sio_cap__sndio(&caps, deviceType, format, channels);
+        sampleRate = ma_find_best_sample_rate_from_sio_cap__sndio(&caps, configDeviceType, format, channels);
     }
 
 
@@ -43963,6 +43935,17 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
         par.pchan = channels;
     }
 
+    if (deviceType == ma_device_type_duplex) {
+        par.rchan = pDescriptorCapture->channels;
+        if (par.rchan == 0) {
+            if (strlen(pDeviceName) > strlen("rsnd/") && strncmp(pDeviceName, "rsnd/", strlen("rsnd/")) == 0) {
+                par.rchan = ma_find_best_channels_from_sio_cap__sndio(&caps, ma_device_type_capture, format);
+            } else {
+                par.rchan = MA_DEFAULT_CHANNELS;
+            }
+        }
+    }
+
     par.rate = sampleRate;
 
     internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, par.rate);
@@ -43971,13 +43954,11 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
     par.appbufsz = par.round * pDescriptor->periodCount;
 
     if (pContextStateSndio->sio_setpar(handle, &par) == 0) {
-        pContextStateSndio->sio_close(handle);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to set buffer size.");
         return MA_ERROR;
     }
 
     if (pContextStateSndio->sio_getpar(handle, &par) == 0) {
-        pContextStateSndio->sio_close(handle);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to retrieve buffer size.");
         return MA_ERROR;
     }
@@ -43988,10 +43969,14 @@ static ma_result ma_device_init_by_type__sndio(ma_device* pDevice, ma_device_sta
     internalPeriods            = par.appbufsz / par.round;
     internalPeriodSizeInFrames = par.round;
 
-    if (deviceType == ma_device_type_capture) {
-        pDeviceStateSndio->capture.handle  = handle;
-    } else {
-        pDeviceStateSndio->playback.handle = handle;
+    if (deviceType == ma_device_type_duplex) {
+        /* Both directions share the format, rate and buffer size, but can have different channel counts. */
+        pDescriptorCapture->format             = internalFormat;
+        pDescriptorCapture->channels           = par.rchan;
+        pDescriptorCapture->sampleRate         = internalSampleRate;
+        pDescriptorCapture->periodSizeInFrames = internalPeriodSizeInFrames;
+        pDescriptorCapture->periodCount        = internalPeriods;
+        ma_channel_map_init_standard(ma_standard_channel_map_sndio, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
     }
 
     pDescriptor->format             = internalFormat;
@@ -44013,7 +43998,7 @@ static void ma_device_uninit_internal__sndio(ma_device* pDevice, ma_device_state
         pContextStateSndio->sio_close(pDeviceStateSndio->capture.handle);
     }
 
-    if (pDeviceStateSndio->playback.handle != NULL) {
+    if (pDeviceStateSndio->playback.handle != NULL && pDeviceStateSndio->playback.handle != pDeviceStateSndio->capture.handle) {
         pContextStateSndio->sio_close(pDeviceStateSndio->playback.handle);
     }
 
@@ -44023,6 +44008,9 @@ static void ma_device_uninit_internal__sndio(ma_device* pDevice, ma_device_state
 static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_sndio* pDeviceStateSndio;
+    ma_result result;
+    const char* pDeviceNameCapture;
+    const char* pDeviceNamePlayback;
     const ma_device_config_sndio* pDeviceConfigSndio = (ma_device_config_sndio*)pDeviceBackendConfig;
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
     ma_device_config_sndio defaultConfigSndio;
@@ -44039,6 +44027,8 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
         pDeviceConfigSndio = &defaultConfigSndio;
     }
 
+    (void)pDeviceConfigSndio;
+
     if (deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
@@ -44048,25 +44038,77 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
         return MA_OUT_OF_MEMORY;
     }
 
+    pDeviceNameCapture  = MA_SIO_DEVANY;
+    pDeviceNamePlayback = MA_SIO_DEVANY;
+    if (pDescriptorCapture->pDeviceID != NULL) {
+        pDeviceNameCapture = pDescriptorCapture->pDeviceID->sndio;
+    }
+
+    if (pDescriptorPlayback->pDeviceID != NULL) {
+        pDeviceNamePlayback = pDescriptorPlayback->pDeviceID->sndio;
+    }
+
+    /* Open both directions before configuring them. Use one handle when both names match. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_by_type__sndio(pDevice, pDeviceStateSndio, pDeviceConfigSndio, pDescriptorCapture, ma_device_type_capture);
-        if (result != MA_SUCCESS) {
-            ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
-            return result;
+        unsigned int mode;
+
+        mode = MA_SIO_REC;
+        if (deviceType == ma_device_type_duplex && ma_strcmp(pDeviceNameCapture, pDeviceNamePlayback) == 0) {
+            mode |= MA_SIO_PLAY;
         }
 
+        pDeviceStateSndio->capture.handle = pContextStateSndio->sio_open(pDeviceNameCapture, mode, 0);
+        if (pDeviceStateSndio->capture.handle == NULL) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to open capture device.");
+            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
+        }
+
+        if (mode == (MA_SIO_PLAY | MA_SIO_REC)) {
+            pDeviceStateSndio->playback.handle = pDeviceStateSndio->capture.handle;
+        }
+    }
+
+    if ((deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) && pDeviceStateSndio->playback.handle == NULL) {
+        pDeviceStateSndio->playback.handle = pContextStateSndio->sio_open(pDeviceNamePlayback, MA_SIO_PLAY, 0);
+        if (pDeviceStateSndio->playback.handle == NULL) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to open playback device.");
+            result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+            goto on_error;
+        }
+    }
+
+    if (pDeviceStateSndio->capture.handle != NULL && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
+        result = ma_device_configure__sndio(pDevice, pDeviceStateSndio->capture.handle, pDeviceNameCapture, ma_device_type_capture, NULL, pDescriptorCapture);
+        if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+    }
+
+    if (pDeviceStateSndio->playback.handle != NULL) {
+        ma_device_type playbackDeviceType;
+
+        playbackDeviceType = ma_device_type_playback;
+        if (pDeviceStateSndio->playback.handle == pDeviceStateSndio->capture.handle) {
+            playbackDeviceType = ma_device_type_duplex;
+        }
+
+        result = ma_device_configure__sndio(pDevice, pDeviceStateSndio->playback.handle, pDeviceNamePlayback, playbackDeviceType, pDescriptorPlayback, pDescriptorCapture);
+        if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+    }
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         nfdsCapture = pContextStateSndio->sio_nfds(pDeviceStateSndio->capture.handle);
         intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_by_type__sndio(pDevice, pDeviceStateSndio, pDeviceConfigSndio, pDescriptorPlayback, ma_device_type_playback);
-        if (result != MA_SUCCESS) {
-            ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
-            return result;
+        if (pDeviceStateSndio->playback.handle != pDeviceStateSndio->capture.handle) {
+            nfdsPlayback = pContextStateSndio->sio_nfds(pDeviceStateSndio->playback.handle);
         }
 
-        nfdsPlayback = pContextStateSndio->sio_nfds(pDeviceStateSndio->playback.handle);
         intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
     }
 
@@ -44087,8 +44129,8 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
 
         pDeviceStateSndioNew = (ma_device_state_sndio*)ma_realloc(pDeviceStateSndio, deviceStateAllocSizeNew, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateSndioNew == NULL) {
-            ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
-            return MA_OUT_OF_MEMORY;
+            result = MA_OUT_OF_MEMORY;
+            goto on_error;
         }
 
         pDeviceStateSndio = pDeviceStateSndioNew;
@@ -44100,6 +44142,10 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     *ppDeviceState = pDeviceStateSndio;
 
     return MA_SUCCESS;
+
+on_error:
+    ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
+    return result;
 }
 
 static void ma_device_uninit__sndio(ma_device* pDevice)
@@ -44117,7 +44163,7 @@ static ma_result ma_device_start__sndio(ma_device* pDevice)
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_result result;
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
         if (pContextStateSndio->sio_start(pDeviceStateSndio->capture.handle) == 0) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to start capture device.");
             result = MA_FAILED_TO_START_BACKEND_DEVICE;
@@ -44163,7 +44209,7 @@ on_error_2:
     pContextStateSndio->sio_stop(pDeviceStateSndio->playback.handle);
 
 on_error_1:
-    if (deviceType == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_duplex && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
         pContextStateSndio->sio_stop(pDeviceStateSndio->capture.handle);
     }
 
@@ -44189,7 +44235,7 @@ static ma_result ma_device_stop__sndio(ma_device* pDevice)
     Therefore, sio_stop() performs all of the necessary draining for us.
     */
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
         if (pContextStateSndio->sio_stop(pDeviceStateSndio->capture.handle) == 0) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to stop capture device.");
             result = MA_FAILED_TO_STOP_BACKEND_DEVICE;
@@ -44279,18 +44325,25 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     int resultPoll;
     int pollFDCountCapture  = 0;
     int pollFDCountPlayback = 0;
-    unsigned short revents;
+    unsigned short revents = 0;
 
     do {
         int pollFDCount = 0;
 
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
             pollFDCountCapture = pContextStateSndio->sio_pollfd(pDeviceStateSndio->capture.handle, pDeviceStateSndio->pPollFDs + pollFDCount, POLLIN);
             pollFDCount += pollFDCountCapture;
         }
 
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            pollFDCountPlayback = pContextStateSndio->sio_pollfd(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCount, POLLOUT);
+            int events;
+
+            events = POLLOUT;
+            if (pDeviceStateSndio->playback.handle == pDeviceStateSndio->capture.handle) {
+                events |= POLLIN;
+            }
+
+            pollFDCountPlayback = pContextStateSndio->sio_pollfd(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCount, events);
             pollFDCount += pollFDCountPlayback;
         }
 
@@ -44348,7 +44401,11 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCountCapture);
+        /* A shared handle's events were already retrieved by the capture side. */
+        if (pDeviceStateSndio->playback.handle != pDeviceStateSndio->capture.handle) {
+            revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCountCapture);
+        }
+
         if ((revents & POLLHUP) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLHUP detected.");
             result = MA_IO_ERROR;
