@@ -45660,7 +45660,7 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
                     }
 
                     /* I'm paranoid about getting stuck in a loop here so I'm going to explicitly check that we're making forward progress and if not bomb out. */
-                    if (memcmp(&lastForwardProgressPos, &drainBegPos, sizeof(struct audio_pos)) == 0) {
+                    if (pos.play_pos == lastForwardProgressPos.play_pos) {
                         timeSinceForwardProgressInMS += sleepTimeInMS;
                         if (timeSinceForwardProgressInMS > 100) {
                             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "audio(4): Abandoning drain because too much time has been spent without making forward progress.");
