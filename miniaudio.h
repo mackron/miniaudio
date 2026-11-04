@@ -44559,8 +44559,8 @@ static void ma_encoding_from_format__audio4(ma_format format, unsigned int* pEnc
                 *pEncoding = 0; /* Don't know how to set the encoding... */
                 #endif
             } else {
-                #if defined(AUDIO_ENCODING_SLINEAR_LE)
-                *pEncoding = AUDIO_ENCODING_SLINEAR_LE;
+                #if defined(AUDIO_ENCODING_SLINEAR_BE)
+                *pEncoding = AUDIO_ENCODING_SLINEAR_BE;
                 #else
                 MA_ASSERT(!"audio(4): Don't know how to set the encoding. This platform cannot use the audio(4) backend. Please submit a bug report.");
                 *pEncoding = 0; /* Don't know how to set the encoding... */
