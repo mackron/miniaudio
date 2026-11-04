@@ -43623,8 +43623,14 @@ static ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap*
 
                 /* Getting here means we have found a compatible encoding/channel pair. */
                 for (iRate = 0; iRate < MA_SIO_NRATE; iRate += 1) {
-                    ma_uint32 rate = (ma_uint32)caps->rate[iRate];
+                    ma_uint32 rate;
                     ma_uint32 ratePriority;
+
+                    if ((caps->confs[iConfig].rate & (1UL << iRate)) == 0) {
+                        continue;
+                    }
+
+                    rate = (ma_uint32)caps->rate[iRate];
 
                     if (firstSampleRate == 0) {
                         firstSampleRate = rate;
