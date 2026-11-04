@@ -44284,7 +44284,7 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs);
+        revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCountCapture);
         if ((revents & POLLHUP) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLHUP detected.");
             return MA_DEVICE_NOT_STARTED;
