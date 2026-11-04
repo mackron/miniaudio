@@ -44077,40 +44077,7 @@ static void ma_device_uninit__sndio(ma_device* pDevice)
     ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
 }
 
-static void ma_device_prime_playback_buffer__sndio(ma_device* pDevice)
-{
-    ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
-    ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_uint8 buffer[4096];
-    ma_uint32 bpf;
-    ma_uint32 framesToWrite;
-    ma_uint32 framesWritten;
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-        framesToWrite = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods;
-        framesWritten = 0;
-    
-        MA_ZERO_MEMORY(buffer, sizeof(buffer));
-    
-        while (framesWritten < framesToWrite) {
-            ma_uint32 framesToWriteThisIteration = sizeof(buffer) / bpf;
-            ma_uint32 framesRemaining = framesToWrite - framesWritten;
-            if (framesToWriteThisIteration > framesRemaining) {
-                framesToWriteThisIteration = framesRemaining;
-            }
-    
-            /* Just a guard to ensure we don't get stuck in a loop. Should never happen in practice (would require a massive channel count). */
-            if (framesToWriteThisIteration == 0) {
-                break;
-            }
-    
-            pContextStateSndio->sio_write(pDeviceStateSndio->playback.handle, buffer, framesToWriteThisIteration * bpf);
-            framesWritten += framesToWriteThisIteration;
-        }
-    }
-}
+static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
 
 static ma_result ma_device_start__sndio(ma_device* pDevice)
 {
@@ -44123,13 +44090,27 @@ static ma_result ma_device_start__sndio(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_uint32 iPeriod;
+        ma_result result;
+
         pContextStateSndio->sio_start(pDeviceStateSndio->playback.handle);   /* <-- Doesn't actually start until data is written. */
 
         /*
-        Prime the playback buffer with silence. This mainly for duplex mode which needs
-        a buffer of silence to give the capture side time to produce audio.
+        Prime playback with data from the client. In duplex mode, use silence to give the
+        capture side time to produce audio.
         */
-        ma_device_prime_playback_buffer__sndio(pDevice);
+        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
+            if (deviceType == ma_device_type_playback) {
+                ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+            } else {
+                ma_silence_pcm_frames(pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            }
+
+            result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
+            if (result != MA_SUCCESS) {
+                break;
+            }
+        }
     }
 
     return MA_SUCCESS;
@@ -44167,20 +44148,24 @@ static ma_result ma_device_read__sndio(ma_device* pDevice, void* pPCMFrames, ma_
 {
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    int resultSndio;
+    size_t bytesRead;
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
     }
 
-    resultSndio = pContextStateSndio->sio_read(pDeviceStateSndio->capture.handle, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
-    if (resultSndio == 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device to be sent to the device.");
+    if (frameCount == 0) {
+        return MA_SUCCESS;
+    }
+
+    bytesRead = pContextStateSndio->sio_read(pDeviceStateSndio->capture.handle, pPCMFrames, (size_t)frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+    if (bytesRead == 0) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device.");
         return MA_IO_ERROR;
     }
 
     if (pFramesRead != NULL) {
-        *pFramesRead = frameCount;
+        *pFramesRead = (ma_uint32)(bytesRead / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
     }
 
     return MA_SUCCESS;
@@ -44190,23 +44175,30 @@ static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pPCMFram
 {
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    int resultSndio;
+    ma_result result = MA_SUCCESS;
+    ma_uint32 bytesPerFrame;
+    size_t bytesToWrite;
+    size_t totalBytesWritten = 0;
+
+    bytesPerFrame = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    bytesToWrite  = (size_t)frameCount * bytesPerFrame;
+
+    while (totalBytesWritten < bytesToWrite) {
+        size_t bytesWrittenThisIteration = pContextStateSndio->sio_write(pDeviceStateSndio->playback.handle, ma_offset_ptr(pPCMFrames, totalBytesWritten), bytesToWrite - totalBytesWritten);
+        if (bytesWrittenThisIteration == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.");
+            result = MA_IO_ERROR;
+            break;
+        }
+
+        totalBytesWritten += bytesWrittenThisIteration;
+    }
 
     if (pFramesWritten != NULL) {
-        *pFramesWritten = 0;
+        *pFramesWritten = (ma_uint32)(totalBytesWritten / bytesPerFrame);
     }
 
-    resultSndio = pContextStateSndio->sio_write(pDeviceStateSndio->playback.handle, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
-    if (resultSndio == 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.");
-        return MA_IO_ERROR;
-    }
-
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = frameCount;
-    }
-
-    return MA_SUCCESS;
+    return result;
 }
 
 
