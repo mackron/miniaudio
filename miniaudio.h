@@ -45486,6 +45486,10 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
+    if ((deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) && pDeviceStateAudio4->fdPlayback == -1) {
+        return MA_INVALID_ARGS;
+    }
+
     if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
         if (pDeviceStateAudio4->fdCapture == -1) {
             return MA_INVALID_ARGS;
@@ -45498,18 +45502,23 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
         #else
         {
             if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_START, 0) < 0) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. %s.", ma_result_description(ma_result_from_errno(errno)));
-                return ma_result_from_errno(errno);
+                ma_result result;
+
+                result = ma_result_from_errno(errno);
+
+                /* AUDIO_START can change the pause state before it fails. */
+                if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_STOP, 0) < 0) {
+                    ma_device_set_errored(pDevice);
+                }
+
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. %s.", ma_result_description(result));
+                return result;
             }
         }
         #endif
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        if (pDeviceStateAudio4->fdPlayback == -1) {
-            return MA_INVALID_ARGS;
-        }
-
         ma_device_prime_playback_buffer__audio4(pDevice);
 
         #if !defined(MA_AUDIO4_USE_NEW_API)
@@ -45522,8 +45531,16 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
                 int errorCode;
 
                 errorCode = errno;
-                if (pDeviceStateAudio4->fdCapture == pDeviceStateAudio4->fdPlayback) {
-                    ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_STOP, 0);
+
+                /* Restore the pause state even when AUDIO_START fails. */
+                if (ioctl(pDeviceStateAudio4->fdPlayback, AUDIO_STOP, 0) < 0) {
+                    ma_device_set_errored(pDevice);
+                }
+
+                if (deviceType == ma_device_type_duplex && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
+                    if (ioctl(pDeviceStateAudio4->fdCapture, AUDIO_STOP, 0) < 0) {
+                        ma_device_set_errored(pDevice);
+                    }
                 }
 
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to start device. AUDIO_START failed. errno=%d, %s.", errorCode, ma_result_description(ma_result_from_errno(errorCode)));
@@ -45552,8 +45569,11 @@ static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
         #else
         {
             if (ioctl(fd, AUDIO_FLUSH, 0) < 0) {
+                ma_result result;
+
+                result = ma_result_from_errno(errno);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_FLUSH failed.");
-                return ma_result_from_errno(errno);
+                return result;
             }
         }
         #endif
@@ -45561,8 +45581,11 @@ static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
     #else
     {
         if (ioctl(fd, AUDIO_STOP, 0) < 0) {
+            ma_result result;
+
+            result = ma_result_from_errno(errno);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] Failed to stop device. AUDIO_STOP failed.");
-            return ma_result_from_errno(errno);
+            return result;
         }
     }
     #endif
@@ -45574,19 +45597,14 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
 {
     ma_device_state_audio4* pDeviceStateAudio4 = ma_device_get_backend_state__audio4(pDevice);
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result resultCapture = MA_SUCCESS;
+    ma_result resultPlayback = MA_SUCCESS;
 
     if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateAudio4->fdCapture != pDeviceStateAudio4->fdPlayback) {
-        ma_result result;
-
-        result = ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdCapture);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        resultCapture = ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdCapture);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result;
-
         /* Drain the device first. If this fails we'll just need to flush without draining. Unfortunately draining isn't available on newer version of OpenBSD. */
         #if !defined(MA_AUDIO4_USE_NEW_API)
         {
@@ -45645,13 +45663,14 @@ static ma_result ma_device_stop__audio4(ma_device* pDevice)
         #endif
 
         /* Here is where the device is stopped immediately. */
-        result = ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdPlayback);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        resultPlayback = ma_device_stop_fd__audio4(pDevice, pDeviceStateAudio4->fdPlayback);
     }
 
-    return MA_SUCCESS;
+    if (resultCapture != MA_SUCCESS) {
+        return resultCapture;
+    }
+
+    return resultPlayback;
 }
 
 static ma_result ma_device_write__audio4(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
