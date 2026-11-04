@@ -44084,36 +44084,61 @@ static ma_result ma_device_start__sndio(ma_device* pDevice)
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_result result;
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        pContextStateSndio->sio_start(pDeviceStateSndio->capture.handle);
+        if (pContextStateSndio->sio_start(pDeviceStateSndio->capture.handle) == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to start capture device.");
+            result = MA_FAILED_TO_START_BACKEND_DEVICE;
+            goto on_error_0;
+        }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint32 iPeriod;
-        ma_result result;
 
-        pContextStateSndio->sio_start(pDeviceStateSndio->playback.handle);   /* <-- Doesn't actually start until data is written. */
+        /* Doesn't actually start until data is written. */
+        if (pContextStateSndio->sio_start(pDeviceStateSndio->playback.handle) == 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to start playback device.");
+            result = MA_FAILED_TO_START_BACKEND_DEVICE;
+            goto on_error_1;
+        }
 
         /*
-        Prime playback with data from the client. In duplex mode, use silence to give the
-        capture side time to produce audio.
+        Prime playback with data from the client. In duplex mode, use silence to give the capture
+        side time to produce audio. We need to do this in order for the device to actually start.
         */
         for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
             if (deviceType == ma_device_type_playback) {
-                ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+                result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+                if (result != MA_SUCCESS) {
+                    goto on_error_2;
+                }
             } else {
                 ma_silence_pcm_frames(pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             }
 
             result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
             if (result != MA_SUCCESS) {
-                break;
+                goto on_error_2;
             }
         }
     }
 
     return MA_SUCCESS;
+
+
+on_error_2:
+    pContextStateSndio->sio_stop(pDeviceStateSndio->playback.handle);
+
+on_error_1:
+    if (deviceType == ma_device_type_duplex) {
+        pContextStateSndio->sio_stop(pDeviceStateSndio->capture.handle);
+    }
+
+on_error_0:
+    ma_device_set_errored(pDevice); /* sndio considers all errors fatal: https://man.openbsd.org/sio_open.3#Error_handling */
+    return result;
 }
 
 static ma_result ma_device_stop__sndio(ma_device* pDevice)
