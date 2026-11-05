@@ -43312,10 +43312,12 @@ typedef struct ma_context_state_sndio
 typedef struct ma_device_state_sndio
 {
     struct pollfd* pPollFDs;
-    void* pIntermediaryBuffer;
     struct
     {
         struct ma_sio_hdl* handle;
+        void* pIntermediaryBuffer;
+        size_t intermediaryBufferLen;       /* Bytes remaining in the buffer. */
+        size_t intermediaryBufferOffset;    /* Playback byte offset after a partial write. */
     } playback, capture;
 } ma_device_state_sndio;
 
@@ -44024,7 +44026,6 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     size_t intermediaryBufferSizeCapture  = 0;
     size_t intermediaryBufferSizePlayback = 0;
     size_t pollFDsSize = 0;
-    size_t intermediaryBufferSize = 0;
 
     if (pDeviceConfigSndio == NULL) {
         defaultConfigSndio = ma_device_config_sndio_init();
@@ -44061,7 +44062,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
             mode |= MA_SIO_PLAY;
         }
 
-        pDeviceStateSndio->capture.handle = pContextStateSndio->sio_open(pDeviceNameCapture, mode, 0);
+        pDeviceStateSndio->capture.handle = pContextStateSndio->sio_open(pDeviceNameCapture, mode, 1);
         if (pDeviceStateSndio->capture.handle == NULL) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to open capture device.");
             result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
@@ -44074,7 +44075,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     }
 
     if ((deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) && pDeviceStateSndio->playback.handle == NULL) {
-        pDeviceStateSndio->playback.handle = pContextStateSndio->sio_open(pDeviceNamePlayback, MA_SIO_PLAY, 0);
+        pDeviceStateSndio->playback.handle = pContextStateSndio->sio_open(pDeviceNamePlayback, MA_SIO_PLAY, 1);
         if (pDeviceStateSndio->playback.handle == NULL) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to open playback device.");
             result = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
@@ -44105,7 +44106,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         nfdsCapture = pContextStateSndio->sio_nfds(pDeviceStateSndio->capture.handle);
-        intermediaryBufferSizeCapture = ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames;
+        intermediaryBufferSizeCapture = ma_align_64((size_t)ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodSizeInFrames);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -44113,15 +44114,14 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
             nfdsPlayback = pContextStateSndio->sio_nfds(pDeviceStateSndio->playback.handle);
         }
 
-        intermediaryBufferSizePlayback = ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames;
+        intermediaryBufferSizePlayback = ma_align_64((size_t)ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodSizeInFrames);
     }
 
     /*
-    We need memory for our poll fds and intermediary buffer. This can be done as a single allocation, and we can put it at
-    the end of our device state allocation.
+    We need memory for our poll fds and intermediary buffers. This can be done as a single allocation, and we can put it at
+    the end of our device state allocation. Separate buffers preserve pending playback data while capture is being processed.
     */
-    pollFDsSize            = ma_align_64(sizeof(struct pollfd) * (nfdsCapture + nfdsPlayback));
-    intermediaryBufferSize = ma_align_64(ma_max(intermediaryBufferSizeCapture, intermediaryBufferSizePlayback));
+    pollFDsSize = ma_align_64(sizeof(struct pollfd) * (nfdsCapture + nfdsPlayback));
 
     {
         size_t deviceStateAllocSizeNew;
@@ -44129,7 +44129,8 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
 
         deviceStateAllocSizeNew  = ma_align_64(sizeof(*pDeviceStateSndio));
         deviceStateAllocSizeNew += pollFDsSize;
-        deviceStateAllocSizeNew += intermediaryBufferSize;
+        deviceStateAllocSizeNew += intermediaryBufferSizeCapture;
+        deviceStateAllocSizeNew += intermediaryBufferSizePlayback;
 
         pDeviceStateSndioNew = (ma_device_state_sndio*)ma_realloc(pDeviceStateSndio, deviceStateAllocSizeNew, ma_device_get_allocation_callbacks(pDevice));
         if (pDeviceStateSndioNew == NULL) {
@@ -44140,8 +44141,9 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
         pDeviceStateSndio = pDeviceStateSndioNew;
     }
 
-    pDeviceStateSndio->pPollFDs            = (struct pollfd*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)));
-    pDeviceStateSndio->pIntermediaryBuffer =          (void*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)) + pollFDsSize);
+    pDeviceStateSndio->pPollFDs                     = (struct pollfd*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)));
+    pDeviceStateSndio->capture.pIntermediaryBuffer  =          (void*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)) + pollFDsSize);
+    pDeviceStateSndio->playback.pIntermediaryBuffer =          (void*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)) + pollFDsSize + intermediaryBufferSizeCapture);
 
     *ppDeviceState = pDeviceStateSndio;
 
@@ -44158,7 +44160,7 @@ static void ma_device_uninit__sndio(ma_device* pDevice)
     ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
 }
 
-static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
+static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pData, size_t sizeInBytes, size_t* pBytesWritten, ma_blocking_mode blockingMode);
 
 static ma_result ma_device_start__sndio(ma_device* pDevice)
 {
@@ -44166,6 +44168,10 @@ static ma_result ma_device_start__sndio(ma_device* pDevice)
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
     ma_result result;
+
+    pDeviceStateSndio->capture.intermediaryBufferLen     = 0;
+    pDeviceStateSndio->playback.intermediaryBufferLen    = 0;
+    pDeviceStateSndio->playback.intermediaryBufferOffset = 0;
 
     if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
         if (pContextStateSndio->sio_start(pDeviceStateSndio->capture.handle) == 0) {
@@ -44191,15 +44197,15 @@ static ma_result ma_device_start__sndio(ma_device* pDevice)
         */
         for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
             if (deviceType == ma_device_type_playback) {
-                result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+                result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->playback.pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
                 if (result != MA_SUCCESS) {
                     goto on_error_2;
                 }
             } else {
-                ma_silence_pcm_frames(pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                ma_silence_pcm_frames(pDeviceStateSndio->playback.pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             }
 
-            result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
+            result = ma_device_write__sndio(pDevice, pDeviceStateSndio->playback.pIntermediaryBuffer, (size_t)pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels), NULL, MA_BLOCKING_MODE_BLOCKING);
             if (result != MA_SUCCESS) {
                 goto on_error_2;
             }
@@ -44253,6 +44259,10 @@ static ma_result ma_device_stop__sndio(ma_device* pDevice)
         }
     }
 
+    pDeviceStateSndio->capture.intermediaryBufferLen     = 0;
+    pDeviceStateSndio->playback.intermediaryBufferLen    = 0;
+    pDeviceStateSndio->playback.intermediaryBufferOffset = 0;
+
     if (result != MA_SUCCESS) {
         ma_device_set_errored(pDevice);
     }
@@ -44261,58 +44271,90 @@ static ma_result ma_device_stop__sndio(ma_device* pDevice)
 }
 
 
-static ma_result ma_device_read__sndio(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
+static ma_result ma_device_read__sndio(ma_device* pDevice, void* pData, size_t sizeInBytes, size_t* pBytesRead)
 {
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
-    size_t bytesRead;
+    size_t bytesRead = 0;
 
-    if (pFramesRead != NULL) {
-        *pFramesRead = 0;
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
     }
 
-    if (frameCount == 0) {
+    if (sizeInBytes == 0) {
         return MA_SUCCESS;
     }
 
-    bytesRead = pContextStateSndio->sio_read(pDeviceStateSndio->capture.handle, pPCMFrames, (size_t)frameCount * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
-    if (bytesRead == 0) {
+    bytesRead = pContextStateSndio->sio_read(pDeviceStateSndio->capture.handle, pData, sizeInBytes);
+
+    if (pContextStateSndio->sio_eof(pDeviceStateSndio->capture.handle)) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to read data from the device.");
         return MA_IO_ERROR;
     }
 
-    if (pFramesRead != NULL) {
-        *pFramesRead = (ma_uint32)(bytesRead / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
+    if (pBytesRead != NULL) {
+        *pBytesRead = bytesRead;
     }
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pData, size_t sizeInBytes, size_t* pBytesWritten, ma_blocking_mode blockingMode)
 {
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(ma_device_get_context(pDevice));
     ma_result result = MA_SUCCESS;
-    ma_uint32 bytesPerFrame;
-    size_t bytesToWrite;
     size_t totalBytesWritten = 0;
 
-    bytesPerFrame = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    bytesToWrite  = (size_t)frameCount * bytesPerFrame;
+    while (totalBytesWritten < sizeInBytes) {
+        size_t bytesWrittenThisIteration = pContextStateSndio->sio_write(pDeviceStateSndio->playback.handle, ma_offset_ptr(pData, totalBytesWritten), sizeInBytes - totalBytesWritten);
+        totalBytesWritten += bytesWrittenThisIteration;
 
-    while (totalBytesWritten < bytesToWrite) {
-        size_t bytesWrittenThisIteration = pContextStateSndio->sio_write(pDeviceStateSndio->playback.handle, ma_offset_ptr(pPCMFrames, totalBytesWritten), bytesToWrite - totalBytesWritten);
-        if (bytesWrittenThisIteration == 0) {
+        if (pContextStateSndio->sio_eof(pDeviceStateSndio->playback.handle)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.");
             result = MA_IO_ERROR;
             break;
         }
 
-        totalBytesWritten += bytesWrittenThisIteration;
+        if (blockingMode == MA_BLOCKING_MODE_NON_BLOCKING) {
+            break;
+        }
+
+        if (bytesWrittenThisIteration == 0) {
+            int pollFDCount;
+            int resultPoll;
+            int revents;
+
+            do {
+                pollFDCount = pContextStateSndio->sio_pollfd(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs, POLLOUT);
+                if (pollFDCount <= 0) {
+                    result = MA_IO_ERROR;
+                    break;
+                }
+
+                resultPoll = poll(pDeviceStateSndio->pPollFDs, pollFDCount, -1);
+            } while (resultPoll < 0 && errno == EINTR);
+
+            if (result != MA_SUCCESS) {
+                break;
+            }
+
+            if (resultPoll < 0) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] poll() failed while priming playback.");
+                result = MA_ERROR;
+                break;
+            }
+
+            revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs);
+            if ((revents & (POLLHUP | POLLERR)) != 0) {
+                result = MA_IO_ERROR;
+                break;
+            }
+        }
     }
 
-    if (pFramesWritten != NULL) {
-        *pFramesWritten = (ma_uint32)(totalBytesWritten / bytesPerFrame);
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = totalBytesWritten;
     }
 
     return result;
@@ -44393,14 +44435,34 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         }
 
         if ((revents & POLLIN) != 0) {
+            ma_uint32 bytesPerFrame;
             ma_uint32 framesRead;
+            size_t bufferSizeInBytes;
+            size_t bytesRead;
+            size_t bytesProcessed;
 
-            result = ma_device_read__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->capture.internalPeriodSizeInFrames, &framesRead);
+            bytesPerFrame = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+            bufferSizeInBytes = (size_t)pDevice->capture.internalPeriodSizeInFrames * bytesPerFrame;
+
+            result = ma_device_read__sndio(pDevice, ma_offset_ptr(pDeviceStateSndio->capture.pIntermediaryBuffer, pDeviceStateSndio->capture.intermediaryBufferLen), bufferSizeInBytes - pDeviceStateSndio->capture.intermediaryBufferLen, &bytesRead);
             if (result != MA_SUCCESS) {
                 goto on_error;
             }
-    
-            ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateSndio->pIntermediaryBuffer, framesRead);
+
+            pDeviceStateSndio->capture.intermediaryBufferLen += bytesRead;
+
+            framesRead = (ma_uint32)(pDeviceStateSndio->capture.intermediaryBufferLen / bytesPerFrame);
+            if (framesRead > 0) {
+                result = ma_device_handle_backend_data_callback(pDevice, NULL, pDeviceStateSndio->capture.pIntermediaryBuffer, framesRead);
+                if (result != MA_SUCCESS) {
+                    goto on_error;
+                }
+
+                bytesProcessed = (size_t)framesRead * bytesPerFrame;
+
+                pDeviceStateSndio->capture.intermediaryBufferLen -= bytesProcessed;
+                MA_MOVE_MEMORY(pDeviceStateSndio->capture.pIntermediaryBuffer, ma_offset_ptr(pDeviceStateSndio->capture.pIntermediaryBuffer, bytesProcessed), pDeviceStateSndio->capture.intermediaryBufferLen);
+            }
         }
     }
 
@@ -44423,12 +44485,25 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         }
 
         if ((revents & POLLOUT) != 0) {
-            ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+            size_t bytesWritten;
 
-            result = ma_device_write__sndio(pDevice, pDeviceStateSndio->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames, NULL);
+            if (pDeviceStateSndio->playback.intermediaryBufferLen == 0) {
+                result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSndio->playback.pIntermediaryBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
+                if (result != MA_SUCCESS) {
+                    goto on_error;
+                }
+
+                pDeviceStateSndio->playback.intermediaryBufferLen    = (size_t)pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+                pDeviceStateSndio->playback.intermediaryBufferOffset = 0;
+            }
+
+            result = ma_device_write__sndio(pDevice, ma_offset_ptr(pDeviceStateSndio->playback.pIntermediaryBuffer, pDeviceStateSndio->playback.intermediaryBufferOffset), pDeviceStateSndio->playback.intermediaryBufferLen, &bytesWritten, MA_BLOCKING_MODE_NON_BLOCKING);
             if (result != MA_SUCCESS) {
                 goto on_error;
             }
+
+            pDeviceStateSndio->playback.intermediaryBufferOffset += bytesWritten;
+            pDeviceStateSndio->playback.intermediaryBufferLen    -= bytesWritten;
         }
     }
 
