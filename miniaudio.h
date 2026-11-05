@@ -43287,6 +43287,7 @@ typedef size_t             (* ma_sio_write_proc  )(struct ma_sio_hdl*, const voi
 typedef int                (* ma_sio_nfds_proc   )(struct ma_sio_hdl*);
 typedef int                (* ma_sio_pollfd_proc )(struct ma_sio_hdl*, struct pollfd*, int);
 typedef int                (* ma_sio_revents_proc)(struct ma_sio_hdl*, struct pollfd*);
+typedef int                (* ma_sio_eof_proc    )(struct ma_sio_hdl*);
 typedef void               (* ma_sio_initpar_proc)(struct ma_sio_par*);
 
 typedef struct ma_context_state_sndio
@@ -43304,6 +43305,7 @@ typedef struct ma_context_state_sndio
     ma_sio_nfds_proc    sio_nfds;
     ma_sio_pollfd_proc  sio_pollfd;
     ma_sio_revents_proc sio_revents;
+    ma_sio_eof_proc     sio_eof;
     ma_sio_initpar_proc sio_initpar;
 } ma_context_state_sndio;
 
@@ -43382,6 +43384,7 @@ static ma_result ma_context_init__sndio(ma_context* pContext, const void* pConte
         pContextStateSndio->sio_nfds    = (ma_sio_nfds_proc   )ma_dlsym(ma_context_get_log(pContext), pContextStateSndio->sndioSO, "sio_nfds");
         pContextStateSndio->sio_pollfd  = (ma_sio_pollfd_proc )ma_dlsym(ma_context_get_log(pContext), pContextStateSndio->sndioSO, "sio_pollfd");
         pContextStateSndio->sio_revents = (ma_sio_revents_proc)ma_dlsym(ma_context_get_log(pContext), pContextStateSndio->sndioSO, "sio_revents");
+        pContextStateSndio->sio_eof     = (ma_sio_eof_proc    )ma_dlsym(ma_context_get_log(pContext), pContextStateSndio->sndioSO, "sio_eof");
         pContextStateSndio->sio_initpar = (ma_sio_initpar_proc)ma_dlsym(ma_context_get_log(pContext), pContextStateSndio->sndioSO, "sio_initpar");
     }
     #else
@@ -43398,6 +43401,7 @@ static ma_result ma_context_init__sndio(ma_context* pContext, const void* pConte
         pContextStateSndio->sio_nfds    = sio_nfds;
         pContextStateSndio->sio_pollfd  = sio_pollfd;
         pContextStateSndio->sio_revents = sio_revents;
+        pContextStateSndio->sio_eof     = sio_eof;
         pContextStateSndio->sio_initpar = sio_initpar;
     }
     #endif
