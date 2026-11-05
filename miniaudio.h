@@ -43187,6 +43187,8 @@ sndio Backend
 #ifdef MA_HAS_SNDIO
 #include <fcntl.h>
 #include <poll.h>
+#include <unistd.h>
+#include <errno.h>
 
 /*
 Only supporting OpenBSD. This did not work very well at all on FreeBSD when I tried it. Not sure if this is due
@@ -43312,6 +43314,7 @@ typedef struct ma_context_state_sndio
 typedef struct ma_device_state_sndio
 {
     struct pollfd* pPollFDs;
+    int wakeupPipe[2];
     struct
     {
         struct ma_sio_hdl* handle;
@@ -44008,6 +44011,14 @@ static void ma_device_uninit_internal__sndio(ma_device* pDevice, ma_device_state
         pContextStateSndio->sio_close(pDeviceStateSndio->playback.handle);
     }
 
+    if (pDeviceStateSndio->wakeupPipe[0] != -1) {
+        close(pDeviceStateSndio->wakeupPipe[0]);
+    }
+
+    if (pDeviceStateSndio->wakeupPipe[1] != -1) {
+        close(pDeviceStateSndio->wakeupPipe[1]);
+    }
+
     ma_free(pDeviceStateSndio, ma_device_get_allocation_callbacks(pDevice));
 }
 
@@ -44041,6 +44052,28 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     pDeviceStateSndio = (ma_device_state_sndio*)ma_calloc(sizeof(*pDeviceStateSndio), ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateSndio == NULL) {
         return MA_OUT_OF_MEMORY;
+    }
+
+    pDeviceStateSndio->wakeupPipe[0] = -1;
+    pDeviceStateSndio->wakeupPipe[1] = -1;
+
+    if (pipe(pDeviceStateSndio->wakeupPipe) != 0) {
+        result = ma_result_from_errno(errno);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to create wakeup pipe.");
+        goto on_error;
+    }
+
+    /* Neither end may block, and child programs must not retain the pipe after exec(). */
+    if (fcntl(pDeviceStateSndio->wakeupPipe[0], F_SETFL, O_NONBLOCK) == -1 || fcntl(pDeviceStateSndio->wakeupPipe[1], F_SETFL, O_NONBLOCK) == -1) {
+        result = ma_result_from_errno(errno);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to configure wakeup pipe.");
+        goto on_error;
+    }
+
+    if (fcntl(pDeviceStateSndio->wakeupPipe[0], F_SETFD, FD_CLOEXEC) == -1 || fcntl(pDeviceStateSndio->wakeupPipe[1], F_SETFD, FD_CLOEXEC) == -1) {
+        result = ma_result_from_errno(errno);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to configure wakeup pipe.");
+        goto on_error;
     }
 
     pDeviceNameCapture  = MA_SIO_DEVANY;
@@ -44121,7 +44154,7 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     We need memory for our poll fds and intermediary buffers. This can be done as a single allocation, and we can put it at
     the end of our device state allocation. Separate buffers preserve pending playback data while capture is being processed.
     */
-    pollFDsSize = ma_align_64(sizeof(struct pollfd) * (nfdsCapture + nfdsPlayback));
+    pollFDsSize = ma_align_64(sizeof(struct pollfd) * (1 + nfdsCapture + nfdsPlayback));
 
     {
         size_t deviceStateAllocSizeNew;
@@ -44145,6 +44178,11 @@ static ma_result ma_device_init__sndio(ma_device* pDevice, const void* pDeviceBa
     pDeviceStateSndio->capture.pIntermediaryBuffer  =          (void*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)) + pollFDsSize);
     pDeviceStateSndio->playback.pIntermediaryBuffer =          (void*)ma_offset_ptr(pDeviceStateSndio, ma_align_64(sizeof(*pDeviceStateSndio)) + pollFDsSize + intermediaryBufferSizeCapture);
 
+    /* Reserve the first poll descriptor for the wakeup pipe. */
+    pDeviceStateSndio->pPollFDs[0].fd      = pDeviceStateSndio->wakeupPipe[0];
+    pDeviceStateSndio->pPollFDs[0].events  = POLLIN;
+    pDeviceStateSndio->pPollFDs[0].revents = 0;
+
     *ppDeviceState = pDeviceStateSndio;
 
     return MA_SUCCESS;
@@ -44158,6 +44196,24 @@ static void ma_device_uninit__sndio(ma_device* pDevice)
 {
     ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
     ma_device_uninit_internal__sndio(pDevice, pDeviceStateSndio);
+}
+
+static ma_result ma_device_clear_wakeup__sndio(ma_device* pDevice)
+{
+    ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
+    char buffer[64];
+    ssize_t bytesRead;
+
+    do {
+        bytesRead = read(pDeviceStateSndio->wakeupPipe[0], buffer, sizeof(buffer));
+    } while (bytesRead > 0 || (bytesRead < 0 && errno == EINTR));
+
+    if (bytesRead < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return MA_SUCCESS;
+    }
+
+    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to read wakeup pipe.");
+    return MA_IO_ERROR;
 }
 
 static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pData, size_t sizeInBytes, size_t* pBytesWritten, ma_blocking_mode blockingMode);
@@ -44326,13 +44382,13 @@ static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pData, s
             int revents;
 
             do {
-                pollFDCount = pContextStateSndio->sio_pollfd(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs, POLLOUT);
+                pollFDCount = pContextStateSndio->sio_pollfd(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + 1, POLLOUT);
                 if (pollFDCount <= 0) {
                     result = MA_IO_ERROR;
                     break;
                 }
 
-                resultPoll = poll(pDeviceStateSndio->pPollFDs, pollFDCount, -1);
+                resultPoll = poll(pDeviceStateSndio->pPollFDs + 1, pollFDCount, -1);
             } while (resultPoll < 0 && errno == EINTR);
 
             if (result != MA_SUCCESS) {
@@ -44345,7 +44401,7 @@ static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pData, s
                 break;
             }
 
-            revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs);
+            revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + 1);
             if ((revents & (POLLHUP | POLLERR)) != 0) {
                 result = MA_IO_ERROR;
                 break;
@@ -44373,11 +44429,21 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     int pollFDCountPlayback = 0;
     unsigned short revents = 0;
 
+    if (!ma_device_is_started(pDevice)) {
+        return MA_DEVICE_NOT_STARTED;
+    }
+
     do {
-        int pollFDCount = 0;
+        int pollFDCount = 1; /* Slot zero is the wakeup pipe. */
 
         if ((deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) && pDeviceStateSndio->capture.handle != pDeviceStateSndio->playback.handle) {
             pollFDCountCapture = pContextStateSndio->sio_pollfd(pDeviceStateSndio->capture.handle, pDeviceStateSndio->pPollFDs + pollFDCount, POLLIN);
+            if (pollFDCountCapture <= 0) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] No capture poll descriptors.");
+                result = MA_IO_ERROR;
+                goto on_error;
+            }
+
             pollFDCount += pollFDCountCapture;
         }
 
@@ -44390,6 +44456,12 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
             }
 
             pollFDCountPlayback = pContextStateSndio->sio_pollfd(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCount, events);
+            if (pollFDCountPlayback <= 0) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] No playback poll descriptors.");
+                result = MA_IO_ERROR;
+                goto on_error;
+            }
+
             pollFDCount += pollFDCountPlayback;
         }
 
@@ -44416,12 +44488,27 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
         }
     }
 
+    /* Check if we've been woken up first before doing any audio processing. */
+    if ((pDeviceStateSndio->pPollFDs[0].revents & POLLIN) != 0) {
+        result = ma_device_clear_wakeup__sndio(pDevice);
+        if (result != MA_SUCCESS) {
+            goto on_error;
+        }
+
+        return MA_SUCCESS;
+    }
+
+    if ((pDeviceStateSndio->pPollFDs[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        result = MA_IO_ERROR;
+        goto on_error;
+    }
+
     if (!ma_device_is_started(pDevice)) {
         return MA_DEVICE_NOT_STARTED;
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        revents = pContextStateSndio->sio_revents(pDeviceStateSndio->capture.handle, pDeviceStateSndio->pPollFDs);
+        revents = pContextStateSndio->sio_revents(pDeviceStateSndio->capture.handle, pDeviceStateSndio->pPollFDs + 1);
         if ((revents & POLLHUP) != 0) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[sndio] POLLHUP detected.");
             result = MA_IO_ERROR;
@@ -44469,7 +44556,7 @@ static ma_result ma_device_step__sndio(ma_device* pDevice, ma_blocking_mode bloc
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         /* A shared handle's events were already retrieved by the capture side. */
         if (pDeviceStateSndio->playback.handle != pDeviceStateSndio->capture.handle) {
-            revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + pollFDCountCapture);
+            revents = pContextStateSndio->sio_revents(pDeviceStateSndio->playback.handle, pDeviceStateSndio->pPollFDs + 1 + pollFDCountCapture);
         }
 
         if ((revents & POLLHUP) != 0) {
@@ -44514,6 +44601,21 @@ on_error:
     return result;
 }
 
+static void ma_device_wakeup__sndio(ma_device* pDevice)
+{
+    ma_device_state_sndio* pDeviceStateSndio = ma_device_get_backend_state__sndio(pDevice);
+    char value = 0;
+    ssize_t bytesWritten;
+
+    do {
+        bytesWritten = write(pDeviceStateSndio->wakeupPipe[1], &value, sizeof(value));
+    } while (bytesWritten < 0 && errno == EINTR);
+
+    if (bytesWritten < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to write wakeup pipe.");
+    }
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
 {
     ma_backend_info__sndio,
@@ -44525,7 +44627,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
     ma_device_start__sndio,
     ma_device_stop__sndio,
     ma_device_step__sndio,
-    NULL    /* onDeviceWakeup */
+    ma_device_wakeup__sndio
 };
 
 ma_device_backend_vtable* ma_device_backend_sndio = &ma_gDeviceBackendVTable_sndio;
