@@ -27655,6 +27655,8 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
             void* pMappedDeviceBufferPlayback;
             DWORD playbackBufferStatus = 0;
             ma_uint32 bpfDevicePlayback = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+            DWORD bufferSizeInBytesPlayback = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * bpfDevicePlayback;
+            ma_bool32 isPlaybackBufferUnderrun = MA_FALSE;
 
             hr = ma_IDirectSoundBuffer_GetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
             if (FAILED(hr)) {
@@ -27683,12 +27685,13 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                 if (pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback == pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback) {
                     /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
                     if (physicalPlayCursorInBytes <= pDeviceStateDSound->virtualWriteCursorInBytesPlayback) {
-                        availableBytesPlayback  = (pDevice->playback.internalPeriodSizeInFrames*pDevice->playback.internalPeriods*bpfDevicePlayback) - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
+                        availableBytesPlayback  = bufferSizeInBytesPlayback - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
                         availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
                     } else {
                         /* This is an error. */
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] (Playback): Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.", physicalPlayCursorInBytes, pDeviceStateDSound->virtualWriteCursorInBytesPlayback);
                         availableBytesPlayback = 0;
+                        isPlaybackBufferUnderrun = MA_TRUE;
                     }
                 } else {
                     /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
@@ -27698,20 +27701,53 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
                         /* This is an error. */
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] (Playback): Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.", physicalPlayCursorInBytes, pDeviceStateDSound->virtualWriteCursorInBytesPlayback);
                         availableBytesPlayback = 0;
+                        isPlaybackBufferUnderrun = MA_TRUE;
                     }
                 }
+
+                /* Once playing, the region from the play cursor to the hardware write cursor is already committed. */
+                if (pDeviceStateDSound->isPlaybackDeviceStarted) {
+                    DWORD safeWriteSizeInBytes;
+
+                    if (physicalWriteCursorInBytes >= physicalPlayCursorInBytes) {
+                        safeWriteSizeInBytes = bufferSizeInBytesPlayback - physicalWriteCursorInBytes + physicalPlayCursorInBytes;
+                    } else {
+                        safeWriteSizeInBytes = physicalPlayCursorInBytes - physicalWriteCursorInBytes;
+                    }
+
+                    if (isPlaybackBufferUnderrun || availableBytesPlayback > safeWriteSizeInBytes) {
+                        DWORD alignmentPaddingInBytes = (bpfDevicePlayback - physicalWriteCursorInBytes % bpfDevicePlayback) % bpfDevicePlayback;
+
+                        /* Resume at the first complete frame after the hardware write cursor, keeping the loop flags in sync. */
+                        pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = physicalWriteCursorInBytes + alignmentPaddingInBytes;
+                        pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback;
+                        
+                        if (physicalWriteCursorInBytes < physicalPlayCursorInBytes) {
+                            pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
+                        }
+                        
+                        if (pDeviceStateDSound->virtualWriteCursorInBytesPlayback == bufferSizeInBytesPlayback) {
+                            pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = 0;
+                            pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
+                        }
+
+                        if (safeWriteSizeInBytes > alignmentPaddingInBytes) {
+                            availableBytesPlayback = safeWriteSizeInBytes - alignmentPaddingInBytes;
+                        } else {
+                            availableBytesPlayback = 0;
+                        }
+
+                    }
+                }
+
+                /* Only process complete frames, even if a cursor is reported between frame boundaries. */
+                availableBytesPlayback -= availableBytesPlayback % bpfDevicePlayback;
 
                 /* If there's no room available for writing we need to wait for more. */
                 if (availableBytesPlayback > 0) {
                     /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
                     lockOffsetInBytesPlayback = pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
-                    if (pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback == pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback) {
-                        /* Same loop iteration. Go up to the end of the buffer. */
-                        lockSizeInBytesPlayback = (pDevice->playback.internalPeriodSizeInFrames*pDevice->playback.internalPeriods*bpfDevicePlayback) - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
-                    } else {
-                        /* Different loop iterations. Go up to the physical play cursor. */
-                        lockSizeInBytesPlayback = physicalPlayCursorInBytes - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
-                    }
+                    lockSizeInBytesPlayback = ma_min(availableBytesPlayback, bufferSizeInBytesPlayback - lockOffsetInBytesPlayback);
 
                     hr = ma_IDirectSoundBuffer_Lock(pDeviceStateDSound->pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedDeviceBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
                     if (FAILED(hr)) {
