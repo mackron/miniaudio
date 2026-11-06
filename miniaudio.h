@@ -27451,6 +27451,16 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         /* The playback device should be drained before stopping. All we do is wait until the available bytes is equal to the size of the buffer. */
         if (pDeviceStateDSound->isPlaybackDeviceStarted) {
+            ma_timer timer;
+            double drainTimeoutInSeconds = 1;
+
+            /* Allow a full buffer duration plus some slack for delayed cursor updates. */
+            if (pDevice->playback.internalSampleRate > 0) {
+                drainTimeoutInSeconds += ((double)pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods) / pDevice->playback.internalSampleRate;
+            }
+
+            ma_timer_init(&timer);
+
             /*
             TODO: I've noticed a crackle when stopping the device, which I suspect might be due to the draining logic here. I'm thinking
             that maybe we should write out a total of `pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods`
@@ -27458,9 +27468,20 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
             */
             for (;;) {
                 DWORD availableBytesPlayback = 0;
+                DWORD playbackBufferStatus;
                 DWORD physicalPlayCursorInBytes;
                 DWORD physicalWriteCursorInBytes;
                 ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+                hr = ma_IDirectSoundBuffer_GetStatus(pDeviceStateDSound->pPlaybackBuffer, &playbackBufferStatus);
+                if (FAILED(hr)) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] Failed to retrieve the buffer status while draining. Skipping drain.");
+                    break;
+                }
+
+                if ((playbackBufferStatus & MA_DSBSTATUS_PLAYING) == 0 || (playbackBufferStatus & MA_DSBSTATUS_BUFFERLOST) != 0) {
+                    break;
+                }
 
                 hr = ma_IDirectSoundBuffer_GetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
                 if (FAILED(hr)) {
@@ -27490,6 +27511,11 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
                 }
 
                 if (availableBytesPlayback >= (pDevice->playback.internalPeriodSizeInFrames*pDevice->playback.internalPeriods*bpf)) {
+                    break;
+                }
+
+                if (ma_timer_get_time_in_seconds(&timer) >= drainTimeoutInSeconds) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] Timed out waiting for the playback buffer to drain. Skipping drain.");
                     break;
                 }
 
