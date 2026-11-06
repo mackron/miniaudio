@@ -27028,7 +27028,7 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
     }
 
     MA_ZERO_OBJECT(pWF);
-    pWF->cbSize                      = sizeof(*pWF);
+    pWF->cbSize                      = 22;   /* Extension size, excluding the 18-byte WAVEFORMATEX header. */
     pWF->wFormatTag                  = WAVE_FORMAT_EXTENSIBLE;
     pWF->nChannels                   = (WORD)channels;
     pWF->nSamplesPerSec              = (DWORD)sampleRate;
@@ -27287,7 +27287,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
             sample rate of 48000 did not work correctly. Not sure if it was a driver issue or not, but will
             use 44100 for the sample rate.
             */
-            wf.cbSize          = 18;    /* NOTE: Don't use sizeof(MA_WAVEFORMATEX) here because it's got an extra 2 bytes due to padding. */
+            wf.cbSize          = 0;     /* WAVE_FORMAT_PCM has no extra format data. */
             wf.wFormatTag      = WAVE_FORMAT_PCM;
             wf.wBitsPerSample  = 16;
             wf.nChannels       = nativeChannelCount;
