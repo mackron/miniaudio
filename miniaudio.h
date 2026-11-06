@@ -27115,6 +27115,10 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
             return result;
         }
 
+        /* The native channel count may differ from the requested count, so rebuild its channel map and mask. */
+        ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), wf.nChannels);
+        wf.dwChannelMask = ma_channel_map_to_channel_mask__win32(pDescriptorCapture->channelMap, wf.nChannels);
+
         wf.nBlockAlign                 = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
         wf.nAvgBytesPerSec             = wf.nBlockAlign * wf.nSamplesPerSec;
         wf.Samples.wValidBitsPerSample = wf.wBitsPerSample;
