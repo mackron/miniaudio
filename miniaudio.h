@@ -27059,7 +27059,7 @@ static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__dsound(cons
     return periodSizeInFrames;
 }
 
-static void ma_device_uninit__dsound(ma_device* pDevice);
+static void ma_device_uninit_internal__dsound(ma_device* pDevice, ma_device_state_dsound* pDeviceStateDSound);
 
 static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
@@ -27099,19 +27099,19 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
 
         result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorCapture->format, pDescriptorCapture->channels, pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, &wf);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             return result;
         }
 
         result = ma_context_create_IDirectSoundCapture__dsound(ma_device_get_context(pDevice), pDescriptorCapture->shareMode, pDescriptorCapture->pDeviceID, &pDeviceStateDSound->pCapture);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             return result;
         }
 
         result = ma_context_get_format_info_for_IDirectSoundCapture__dsound(ma_device_get_context(pDevice), pDeviceStateDSound->pCapture, &wf.nChannels, &wf.wBitsPerSample, &wf.nSamplesPerSec);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             return result;
         }
 
@@ -27131,7 +27131,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         descDS.lpwfxFormat   = (MA_WAVEFORMATEX*)&wf;
         hr = ma_IDirectSoundCapture_CreateCaptureBuffer(pDeviceStateDSound->pCapture, &descDS, &pDeviceStateDSound->pCaptureBuffer, NULL);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.");
             return ma_result_from_HRESULT(hr);
         }
@@ -27140,7 +27140,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         pActualFormat = (MA_WAVEFORMATEXTENSIBLE*)rawdata;
         hr = ma_IDirectSoundCaptureBuffer_GetFormat(pDeviceStateDSound->pCaptureBuffer, (MA_WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.");
             return ma_result_from_HRESULT(hr);
         }
@@ -27164,10 +27164,11 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         if (periodSizeInFrames != (descDS.dwBufferBytes / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / periodCount)) {
             descDS.dwBufferBytes = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * periodCount;
             ma_IDirectSoundCaptureBuffer_Release(pDeviceStateDSound->pCaptureBuffer);
+            pDeviceStateDSound->pCaptureBuffer = NULL;
 
             hr = ma_IDirectSoundCapture_CreateCaptureBuffer(pDeviceStateDSound->pCapture, &descDS, &pDeviceStateDSound->pCaptureBuffer, NULL);
             if (FAILED(hr)) {
-                ma_device_uninit__dsound(pDevice);
+                ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Second attempt at IDirectSoundCapture_CreateCaptureBuffer() failed for capture device.");
                 return ma_result_from_HRESULT(hr);
             }
@@ -27182,7 +27183,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
 
             hr = ma_IDirectSoundCaptureBuffer_GetCaps(pDeviceStateDSound->pCaptureBuffer, &bufferCaps);
             if (FAILED(hr)) {
-                ma_device_uninit__dsound(pDevice);
+                ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
                 return ma_result_from_HRESULT(hr);
             }
 
@@ -27207,12 +27208,13 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
 
         result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorPlayback->format, pDescriptorPlayback->channels, pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, &wf);
         if (result != MA_SUCCESS) {
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             return result;
         }
 
         result = ma_context_create_IDirectSound__dsound(pDevice->pContext, pDescriptorPlayback->shareMode, pDescriptorPlayback->pDeviceID, &pDeviceStateDSound->pPlayback);
         if (result != MA_SUCCESS) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             return result;
         }
 
@@ -27221,7 +27223,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         descDSPrimary.dwFlags = MA_DSBCAPS_PRIMARYBUFFER | MA_DSBCAPS_CTRLVOLUME;
         hr = ma_IDirectSound_CreateSoundBuffer(pDeviceStateDSound->pPlayback, &descDSPrimary, &pDeviceStateDSound->pPlaybackPrimaryBuffer, NULL);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's primary buffer.");
             return ma_result_from_HRESULT(hr);
         }
@@ -27232,7 +27234,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         caps.dwSize = sizeof(caps);
         hr = ma_IDirectSound_GetCaps(pDeviceStateDSound->pPlayback, &caps);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.");
             return ma_result_from_HRESULT(hr);
         }
@@ -27295,7 +27297,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
 
             hr = ma_IDirectSoundBuffer_SetFormat(pDeviceStateDSound->pPlaybackPrimaryBuffer, (MA_WAVEFORMATEX*)&wf);
             if (FAILED(hr)) {
-                ma_device_uninit__dsound(pDevice);
+                ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to set format of playback device's primary buffer.");
                 return ma_result_from_HRESULT(hr);
             }
@@ -27305,7 +27307,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         pActualFormat = (MA_WAVEFORMATEXTENSIBLE*)rawdata;
         hr = ma_IDirectSoundBuffer_GetFormat(pDeviceStateDSound->pPlaybackPrimaryBuffer, (MA_WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.");
             return ma_result_from_HRESULT(hr);
         }
@@ -27348,7 +27350,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
         descDS.lpwfxFormat = (MA_WAVEFORMATEX*)pActualFormat;
         hr = ma_IDirectSound_CreateSoundBuffer(pDeviceStateDSound->pPlayback, &descDS, &pDeviceStateDSound->pPlaybackBuffer, NULL);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
+            ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_CreateSoundBuffer() failed for playback device's secondary buffer.");
             return ma_result_from_HRESULT(hr);
         }
@@ -27362,7 +27364,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
 
             hr = ma_IDirectSoundBuffer_GetCaps(pDeviceStateDSound->pPlaybackBuffer, &bufferCaps);
             if (FAILED(hr)) {
-                ma_device_uninit__dsound(pDevice);
+                ma_device_uninit_internal__dsound(pDevice, pDeviceStateDSound);
                 return ma_result_from_HRESULT(hr);
             }
 
@@ -27378,10 +27380,8 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
     return MA_SUCCESS;
 }
 
-static void ma_device_uninit__dsound(ma_device* pDevice)
+static void ma_device_uninit_internal__dsound(ma_device* pDevice, ma_device_state_dsound* pDeviceStateDSound)
 {
-    ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
-
     if (pDeviceStateDSound->pCaptureBuffer != NULL) {
         ma_IDirectSoundCaptureBuffer_Release(pDeviceStateDSound->pCaptureBuffer);
     }
@@ -27400,6 +27400,11 @@ static void ma_device_uninit__dsound(ma_device* pDevice)
     }
 
     ma_free(pDeviceStateDSound, ma_device_get_allocation_callbacks(pDevice));
+}
+
+static void ma_device_uninit__dsound(ma_device* pDevice)
+{
+    ma_device_uninit_internal__dsound(pDevice, ma_device_get_backend_state__dsound(pDevice));
 }
 
 
