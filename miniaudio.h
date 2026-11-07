@@ -52778,6 +52778,7 @@ typedef struct ma_device_state_vita
     ma_uint32 subBufferIndex;
     ma_uint32 validSubBufferCount;
     void* pSubBuffers;
+    ma_uint32 subBufferSizeInBytes;
 } ma_device_state_vita;
 
 
@@ -52846,22 +52847,20 @@ static ma_result ma_context_enumerate_devices__vita(ma_context* pContext, ma_enu
     return MA_SUCCESS;
 }
 
-static void* ma_device_get_sub_buffer__vita(ma_device* pDevice, ma_uint32 subBufferIndex)
+static void* ma_device_get_sub_buffer__vita(ma_device_state_vita* pDeviceStateVita, ma_uint32 subBufferIndex)
 {
-    ma_device_state_vita* pDeviceStateVita = ma_device_get_backend_state__vita(pDevice);
-    return ma_offset_ptr(pDeviceStateVita->pSubBuffers, pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels) * subBufferIndex);
+    return ma_offset_ptr(pDeviceStateVita->pSubBuffers, pDeviceStateVita->subBufferSizeInBytes * subBufferIndex);
 }
 
 static ma_thread_result MA_THREADCALL ma_device_audio_thread__vita(void* pUserData)
 {
-    ma_device* pDevice = (ma_device*)pUserData;
-    ma_device_state_vita* pDeviceStateVita = ma_device_get_backend_state__vita(pDevice);
+    ma_device_state_vita* pDeviceStateVita = (ma_device_state_vita*)pUserData;
 
     while (ma_atomic_load_explicit_32(&pDeviceStateVita->isRunning, ma_atomic_memory_order_relaxed)) {
         if (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) > 0) {
             ma_uint32 subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndex, ma_atomic_memory_order_relaxed);
 
-            sceAudioOutOutput(pDeviceStateVita->port, ma_device_get_sub_buffer__vita(pDevice, subBufferIndex));
+            sceAudioOutOutput(pDeviceStateVita->port, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex));
 
             ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndex, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
             ma_atomic_fetch_sub_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
@@ -52948,7 +52947,8 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, sampleRate);
     periodSizeInFrames = ma_clamp((periodSizeInFrames + 63) & ~63, SCE_AUDIO_MIN_LEN, SCE_AUDIO_MAX_LEN);
 
-    pDeviceStateVita->pSubBuffers = ma_malloc(periodSizeInFrames * ma_get_bytes_per_frame(format, channels) * 2, ma_device_get_allocation_callbacks(pDevice));
+    pDeviceStateVita->subBufferSizeInBytes = periodSizeInFrames * ma_get_bytes_per_frame(format, channels);
+    pDeviceStateVita->pSubBuffers = ma_malloc(pDeviceStateVita->subBufferSizeInBytes * 2, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateVita->pSubBuffers == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -52965,9 +52965,10 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
 
     /*
     Because sceAudioOutOutput() is always blocking, in order to do non-blocking processing, we'll need to call
-    it on a separate thread. Make sure the thread is created last.
+    it on a separate thread. Make sure the thread is created last. Pass the initialized backend state directly
+    because the device does not publish its backend state until this function returns.
     */
-    result = ma_thread_create(&pDeviceStateVita->thread, ma_thread_priority_default, 0, ma_device_audio_thread__vita, pDevice, ma_device_get_allocation_callbacks(pDevice));
+    result = ma_thread_create(&pDeviceStateVita->thread, ma_thread_priority_default, 0, ma_device_audio_thread__vita, pDeviceStateVita, ma_device_get_allocation_callbacks(pDevice));
     if (result != MA_SUCCESS) {
         sceAudioOutReleasePort(pDeviceStateVita->port);
         ma_free(pDeviceStateVita->pSubBuffers, ma_device_get_allocation_callbacks(pDevice));
@@ -53035,7 +53036,7 @@ static ma_result ma_device_step__vita(ma_device* pDevice, ma_blocking_mode block
 
         if (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) < 2) {
             ma_uint32 subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndex, ma_atomic_memory_order_relaxed);
-            ma_device_handle_backend_data_callback(pDevice, ma_device_get_sub_buffer__vita(pDevice, subBufferIndex), NULL, pDevice->playback.internalPeriodSizeInFrames);
+            ma_device_handle_backend_data_callback(pDevice, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex), NULL, pDevice->playback.internalPeriodSizeInFrames);
             ma_atomic_fetch_add_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
 
             return MA_SUCCESS;
