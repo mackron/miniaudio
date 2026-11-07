@@ -28600,14 +28600,12 @@ static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__winmm(const
 {
     /* WinMM has a minimum period size of 40ms. */
     ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(40, nativeSampleRate);
+    ma_uint32 maxPeriodSizeInFrames = 0xFFFFFF / ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels);
     ma_uint32 periodSizeInFrames;
 
     periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate);
-    if (periodSizeInFrames < minPeriodSizeInFrames) {
-        periodSizeInFrames = minPeriodSizeInFrames;
-    }
 
-    return periodSizeInFrames;
+    return ma_clamp(periodSizeInFrames, minPeriodSizeInFrames, maxPeriodSizeInFrames);
 }
 
 static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
@@ -28620,7 +28618,9 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
     const char* errorMsg = "";
     ma_result errorCode = MA_ERROR;
     ma_result result = MA_SUCCESS;
-    ma_uint32 heapSize;
+    size_t heapSize;
+    ma_uint32 periodSizeInBytesCapture = 0;
+    ma_uint32 periodSizeInBytesPlayback = 0;
     UINT winMMDeviceIDPlayback = 0;
     UINT winMMDeviceIDCapture  = 0;
 
@@ -28686,7 +28686,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
         pDescriptorCapture->channels           = wf.nChannels;
         pDescriptorCapture->sampleRate         = wf.nSamplesPerSec;
         ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
-        pDescriptorCapture->periodCount        = pDescriptorCapture->periodCount;
+        pDescriptorCapture->periodCount        = ma_min(pDescriptorCapture->periodCount, 3);
         pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__winmm(pDescriptorCapture, pDescriptorCapture->sampleRate);
     }
 
@@ -28724,7 +28724,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
         pDescriptorPlayback->channels           = wf.nChannels;
         pDescriptorPlayback->sampleRate         = wf.nSamplesPerSec;
         ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
-        pDescriptorPlayback->periodCount        = pDescriptorPlayback->periodCount;
+        pDescriptorPlayback->periodCount        = ma_min(pDescriptorPlayback->periodCount, 3);
         pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__winmm(pDescriptorPlayback, pDescriptorPlayback->sampleRate);
     }
 
@@ -28733,14 +28733,19 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
 
     [Capture WAVEHDRs][Playback WAVEHDRs][Capture Intermediary Buffer][Playback Intermediary Buffer]
 
-    We attach this to the end of the device state struct.
+    We attach this to the end of the device state struct. Each direction has at most three periods
+    of at most 0xFFFFFF bytes, so the complete allocation fits in 32 bits.
     */
     heapSize = 0;
+
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        heapSize += sizeof(MA_WAVEHDR)*pDescriptorCapture->periodCount + (pDescriptorCapture->periodSizeInFrames * pDescriptorCapture->periodCount * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
+        periodSizeInBytesCapture = ma_get_period_size_in_bytes(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->format, pDescriptorCapture->channels);
+        heapSize += (periodSizeInBytesCapture + sizeof(MA_WAVEHDR)) * pDescriptorCapture->periodCount;
     }
+
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        heapSize += sizeof(MA_WAVEHDR)*pDescriptorPlayback->periodCount + (pDescriptorPlayback->periodSizeInFrames * pDescriptorPlayback->periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels));
+        periodSizeInBytesPlayback = ma_get_period_size_in_bytes(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->format, pDescriptorPlayback->channels);
+        heapSize += (periodSizeInBytesPlayback + sizeof(MA_WAVEHDR)) * pDescriptorPlayback->periodCount;
     }
 
     {
@@ -28753,6 +28758,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
 
         pNewDeviceStateWinMM = (ma_device_state_winmm*)ma_realloc(pDeviceStateWinMM, newDeviceStateAllocSize, ma_device_get_allocation_callbacks(pDevice));
         if (pNewDeviceStateWinMM == NULL) {
+            errorCode = MA_OUT_OF_MEMORY;
             goto on_error;
         }
 
@@ -28775,10 +28781,8 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
 
         /* Prepare headers. */
         for (iPeriod = 0; iPeriod < pDescriptorCapture->periodCount; ++iPeriod) {
-            ma_uint32 periodSizeInBytes = ma_get_period_size_in_bytes(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->format, pDescriptorCapture->channels);
-
-            pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].lpData         = (char*)(pDeviceStateWinMM->pIntermediaryBufferCapture + (periodSizeInBytes*iPeriod));
-            pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwBufferLength = periodSizeInBytes;
+            pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].lpData         = (char*)(pDeviceStateWinMM->pIntermediaryBufferCapture + (periodSizeInBytesCapture*iPeriod));
+            pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwBufferLength = periodSizeInBytesCapture;
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwFlags        = 0L;
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwLoops        = 0L;
             pContextStateWinMM->waveInPrepareHeader(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[iPeriod], sizeof(MA_WAVEHDR));
@@ -28793,15 +28797,13 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
             pDeviceStateWinMM->pIntermediaryBufferPlayback = pDeviceStateWinMM->_pHeapData + (sizeof(MA_WAVEHDR)*pDescriptorPlayback->periodCount);
         } else {
             pDeviceStateWinMM->pWAVEHDRPlayback            = (MA_WAVEHDR*)pDeviceStateWinMM->_pHeapData + pDescriptorCapture->periodCount;
-            pDeviceStateWinMM->pIntermediaryBufferPlayback = pDeviceStateWinMM->_pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount)) + (pDescriptorCapture->periodSizeInFrames*pDescriptorCapture->periodCount*ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
+            pDeviceStateWinMM->pIntermediaryBufferPlayback = pDeviceStateWinMM->_pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount)) + (periodSizeInBytesCapture*pDescriptorCapture->periodCount);
         }
 
         /* Prepare headers. */
         for (iPeriod = 0; iPeriod < pDescriptorPlayback->periodCount; ++iPeriod) {
-            ma_uint32 periodSizeInBytes = ma_get_period_size_in_bytes(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->format, pDescriptorPlayback->channels);
-
-            pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].lpData         = (char*)(pDeviceStateWinMM->pIntermediaryBufferPlayback + (periodSizeInBytes*iPeriod));
-            pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwBufferLength = periodSizeInBytes;
+            pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].lpData         = (char*)(pDeviceStateWinMM->pIntermediaryBufferPlayback + (periodSizeInBytesPlayback*iPeriod));
+            pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwBufferLength = periodSizeInBytesPlayback;
             pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwFlags        = 0L;
             pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwLoops        = 0L;
             pContextStateWinMM->waveOutPrepareHeader(pDeviceStateWinMM->hDevicePlayback, &pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod], sizeof(MA_WAVEHDR));
@@ -28828,6 +28830,9 @@ on_error:
         }
 
         pContextStateWinMM->waveInClose(pDeviceStateWinMM->hDeviceCapture);
+        if (pDeviceStateWinMM->hEventCapture != NULL) {
+            CloseHandle(pDeviceStateWinMM->hEventCapture);
+        }
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -28839,6 +28844,9 @@ on_error:
         }
 
         pContextStateWinMM->waveOutClose(pDeviceStateWinMM->hDevicePlayback);
+        if (pDeviceStateWinMM->hEventPlayback != NULL) {
+            CloseHandle(pDeviceStateWinMM->hEventPlayback);
+        }
     }
 
     ma_free(pDeviceStateWinMM, ma_device_get_allocation_callbacks(pDevice));
