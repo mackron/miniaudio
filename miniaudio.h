@@ -27991,6 +27991,9 @@ is defined. We need to define the types and functions we need manually.
 
 #define MA_CALLBACK_EVENT       0x00050000
 #define MA_WAVE_ALLOWSYNC       0x0002
+#define MA_WAVE_MAPPER          ((UINT)-1)
+
+#define MA_DRVM_MAPPER_PREFERRED_GET 0x2015
 
 #define MA_WHDR_DONE            0x00000001
 #define MA_WHDR_PREPARED        0x00000002
@@ -28077,6 +28080,7 @@ typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutPrepareHeader  )(MA_HWAVEOUT hwo, MA
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutUnprepareHeader)(MA_HWAVEOUT hwo, MA_WAVEHDR* pwh, UINT cbwh);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutWrite          )(MA_HWAVEOUT hwo, MA_WAVEHDR* pwh, UINT cbwh);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutReset          )(MA_HWAVEOUT hwo);
+typedef DWORD       (WINAPI * MA_PFN_waveOutMessage        )(MA_HWAVEOUT hwo, UINT uMsg, DWORD_PTR dwParam1, DWORD_PTR dwParam2);
 typedef UINT        (WINAPI * MA_PFN_waveInGetNumDevs      )(void);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInGetDevCapsA     )(ma_uintptr uDeviceID, MA_WAVEINCAPSA* pwic, UINT cbwic);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInOpen            )(MA_HWAVEIN* phwi, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
@@ -28086,6 +28090,7 @@ typedef MA_MMRESULT (WINAPI * MA_PFN_waveInUnprepareHeader )(MA_HWAVEIN hwi, MA_
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInAddBuffer       )(MA_HWAVEIN hwi, MA_WAVEHDR* pwh, UINT cbwh);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInStart           )(MA_HWAVEIN hwi);
 typedef MA_MMRESULT (WINAPI * MA_PFN_waveInReset           )(MA_HWAVEIN hwi);
+typedef DWORD       (WINAPI * MA_PFN_waveInMessage         )(MA_HWAVEIN hwi, UINT uMsg, DWORD_PTR dwParam1, DWORD_PTR dwParam2);
 
 #if defined(MA_WIN32_DESKTOP)
 /* Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG. */
@@ -28106,6 +28111,7 @@ typedef struct ma_context_state_winmm
     MA_PFN_waveOutUnprepareHeader waveOutUnprepareHeader;
     MA_PFN_waveOutWrite           waveOutWrite;
     MA_PFN_waveOutReset           waveOutReset;
+    MA_PFN_waveOutMessage         waveOutMessage;
     MA_PFN_waveInGetNumDevs       waveInGetNumDevs;
     MA_PFN_waveInGetDevCapsA      waveInGetDevCapsA;
     MA_PFN_waveInOpen             waveInOpen;
@@ -28115,6 +28121,7 @@ typedef struct ma_context_state_winmm
     MA_PFN_waveInAddBuffer        waveInAddBuffer;
     MA_PFN_waveInStart            waveInStart;
     MA_PFN_waveInReset            waveInReset;
+    MA_PFN_waveInMessage          waveInMessage;
 
     ma_handle hAdvapi32;
     MA_PFN_RegOpenKeyExA          RegOpenKeyExA;
@@ -28190,6 +28197,7 @@ static ma_result ma_context_init__winmm(ma_context* pContext, const void* pConte
     pContextStateWinMM->waveOutUnprepareHeader = (MA_PFN_waveOutUnprepareHeader)ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveOutUnprepareHeader");
     pContextStateWinMM->waveOutWrite           = (MA_PFN_waveOutWrite          )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveOutWrite");
     pContextStateWinMM->waveOutReset           = (MA_PFN_waveOutReset          )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveOutReset");
+    pContextStateWinMM->waveOutMessage         = (MA_PFN_waveOutMessage        )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveOutMessage");
     pContextStateWinMM->waveInGetNumDevs       = (MA_PFN_waveInGetNumDevs      )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInGetNumDevs");
     pContextStateWinMM->waveInGetDevCapsA      = (MA_PFN_waveInGetDevCapsA     )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInGetDevCapsA");
     pContextStateWinMM->waveInOpen             = (MA_PFN_waveInOpen            )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInOpen");
@@ -28199,6 +28207,7 @@ static ma_result ma_context_init__winmm(ma_context* pContext, const void* pConte
     pContextStateWinMM->waveInAddBuffer        = (MA_PFN_waveInAddBuffer       )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInAddBuffer");
     pContextStateWinMM->waveInStart            = (MA_PFN_waveInStart           )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInStart");
     pContextStateWinMM->waveInReset            = (MA_PFN_waveInReset           )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInReset");
+    pContextStateWinMM->waveInMessage          = (MA_PFN_waveInMessage         )ma_dlsym(ma_context_get_log(pContext), pContextStateWinMM->hWinMM, "waveInMessage");
 
 
     /* Advapi32.dll */
@@ -28527,11 +28536,17 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
     UINT captureDeviceCount;
     UINT iPlaybackDevice;
     UINT iCaptureDevice;
+    DWORD defaultDeviceID;
+    DWORD mapperFlags;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
 
     /* Playback. */
+    if (pContextStateWinMM->waveOutMessage((MA_HWAVEOUT)(ma_uintptr)MA_WAVE_MAPPER, MA_DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)&defaultDeviceID, (DWORD_PTR)&mapperFlags) != MA_MMSYSERR_NOERROR) {
+        defaultDeviceID = MA_WAVE_MAPPER;
+    }
+
     playbackDeviceCount = pContextStateWinMM->waveOutGetNumDevs();
     for (iPlaybackDevice = 0; iPlaybackDevice < playbackDeviceCount; ++iPlaybackDevice) {
         MA_MMRESULT result;
@@ -28546,8 +28561,7 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
             MA_ZERO_OBJECT(&deviceInfo);
 
             /* Default. */
-            /* The first enumerated device is the default device. */
-            if (iPlaybackDevice == 0) {
+            if (iPlaybackDevice == defaultDeviceID) {
                 deviceInfo.isDefault = MA_TRUE;
             }
 
@@ -28565,6 +28579,10 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
     }
 
     /* Capture. */
+    if (pContextStateWinMM->waveInMessage((MA_HWAVEIN)(ma_uintptr)MA_WAVE_MAPPER, MA_DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)&defaultDeviceID, (DWORD_PTR)&mapperFlags) != MA_MMSYSERR_NOERROR) {
+        defaultDeviceID = MA_WAVE_MAPPER;
+    }
+
     captureDeviceCount = pContextStateWinMM->waveInGetNumDevs();
     for (iCaptureDevice = 0; iCaptureDevice < captureDeviceCount; ++iCaptureDevice) {
         MA_MMRESULT result;
@@ -28578,9 +28596,8 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
             MA_ZERO_OBJECT(&deviceInfo);
 
-            /* Defualt. */
-            /* The first enumerated device is the default device. */
-            if (iCaptureDevice == 0) {
+            /* Default. */
+            if (iCaptureDevice == defaultDeviceID) {
                 deviceInfo.isDefault = MA_TRUE;
             }
 
@@ -28626,8 +28643,8 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
     size_t heapSize;
     ma_uint32 periodSizeInBytesCapture = 0;
     ma_uint32 periodSizeInBytesPlayback = 0;
-    UINT winMMDeviceIDPlayback = 0;
-    UINT winMMDeviceIDCapture  = 0;
+    UINT winMMDeviceIDPlayback = MA_WAVE_MAPPER;
+    UINT winMMDeviceIDCapture  = MA_WAVE_MAPPER;
 
     if (pDeviceConfigWinMM == NULL) {
         defaultConfigWinMM = ma_device_config_winmm_init();
