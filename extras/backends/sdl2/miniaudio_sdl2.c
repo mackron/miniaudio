@@ -647,8 +647,17 @@ static ma_result ma_device_start__sdl2(ma_device* pDevice)
     ma_context_state_sdl2* pContextStateSDL = ma_context_get_backend_state__sdl2(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
-    /* Step the device once to ensure buffers are pre-filled before starting. */
-    ma_device_step__sdl2(pDevice, MA_BLOCKING_MODE_NON_BLOCKING);
+    /* Fill playback from the client before SDL can request data. Duplex must wait for capture to start. */
+    if (deviceType == ma_device_type_playback) {
+        ma_result result;
+
+        result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSDL->async.playback.pBuffer, NULL, pDeviceStateSDL->async.playback.frameCap);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pDeviceStateSDL->async.playback.frameCount = pDeviceStateSDL->async.playback.frameCap;
+    }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         pContextStateSDL->SDL_PauseAudioDevice(pDeviceStateSDL->capture.deviceID, 0);
