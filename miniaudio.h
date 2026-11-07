@@ -52000,9 +52000,8 @@ static ma_result ma_device_init__dreamcast(ma_device* pDevice, const void* pDevi
         return MA_OUT_OF_MEMORY;
     }
 
-    pDeviceStateDreamcast->subBufferIndex = 1;  /* Should start at one. */
-
-    pDeviceStateDreamcast->voiceChannel = (ma_uint8)pDeviceConfigDreamcast->voiceChannel;
+    pDeviceStateDreamcast->subBufferIndex = 0;
+    pDeviceStateDreamcast->voiceChannel   = (ma_uint8)pDeviceConfigDreamcast->voiceChannel;
     
     /* The sample rate is always 44100, 22050 or 11025. */
     if (pDescriptorPlayback->sampleRate != 44100 && pDescriptorPlayback->sampleRate != 22050 && pDescriptorPlayback->sampleRate != 11025) {
@@ -52165,13 +52164,14 @@ static ma_result ma_device_start__dreamcast(ma_device* pDevice)
     AICA_CMDSTR_CHANNEL(tmp, cmd, chan);
 
     /* Make sure our sub-buffer index is reset or else we'll get a glitch when starting. */
-    pDeviceStateDreamcast->subBufferIndex = 1;
+    pDeviceStateDreamcast->subBufferIndex = 0;
 
     /*
     We'll want to fire the data callback and fill our buffer with an initial chunk of data. If we don't do this we'll end
     up with one period of silence before hearing any audio.
     */
     ma_device_fill_sub_buffer__dreamcast(pDevice, 0);
+    ma_device_fill_sub_buffer__dreamcast(pDevice, 1);
     
     /* With the buffer pre-filled we can now start the voices. */
     memset(tmp, 0, sizeof(tmp));
