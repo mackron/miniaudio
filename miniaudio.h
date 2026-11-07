@@ -3229,6 +3229,7 @@ Predefined channel maps can be retrieved with `ma_channel_map_init_standard()`. 
     | ma_standard_channel_map_vorbis    | Vorbis channel map.                                       |
     | ma_standard_channel_map_sound4    | FreeBSD's sound(4).                                       |
     | ma_standard_channel_map_sndio     | sndio channel map. http://www.sndio.org/tips.html.        |
+    | ma_standard_channel_map_sdl       | SDL2 and SDL3.                                            |
     | ma_standard_channel_map_webaudio  | https://webaudio.github.io/web-audio-api/#ChannelOrdering |
     +-----------------------------------+-----------------------------------------------------------+
 
@@ -5104,6 +5105,7 @@ typedef enum
     ma_standard_channel_map_vorbis,
     ma_standard_channel_map_sound4,    /* FreeBSD's sound(4). */
     ma_standard_channel_map_sndio,     /* www.sndio.org/tips.html */
+    ma_standard_channel_map_sdl,       /* SDL2 and SDL3. */
     ma_standard_channel_map_webaudio = ma_standard_channel_map_flac, /* https://webaudio.github.io/web-audio-api/#ChannelOrdering. Only 1, 2, 4 and 6 channels are defined, but can fill in the gaps with logical assumptions. */
     ma_standard_channel_map_default = ma_standard_channel_map_microsoft
 } ma_standard_channel_map;
@@ -71809,6 +71811,113 @@ static ma_channel ma_channel_map_init_standard_channel_sndio(ma_uint32 channelCo
 }
 
 
+static ma_channel ma_channel_map_init_standard_channel_sdl(ma_uint32 channelCount, ma_uint32 channelIndex)
+{
+    if (channelCount == 0 || channelIndex >= channelCount) {
+        return MA_CHANNEL_NONE;
+    }
+
+    /* SDL2 and SDL3 use this ordering: https://wiki.libsdl.org/SDL2/SDL_AudioSpec */
+    switch (channelCount)
+    {
+        case 0: return MA_CHANNEL_NONE;
+
+        case 1:
+        {
+            return MA_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+            }
+        } break;
+
+        case 3:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_LFE;
+            }
+        } break;
+
+        case 4:
+        {
+            switch (channelIndex) {
+                /* Quad. */
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_BACK_LEFT;
+                case 3: return MA_CHANNEL_BACK_RIGHT;
+            }
+        } break;
+
+        case 5:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_LFE;
+                case 3: return MA_CHANNEL_BACK_LEFT;
+                case 4: return MA_CHANNEL_BACK_RIGHT;
+            }
+        } break;
+
+        case 6:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_LFE;
+                case 4: return MA_CHANNEL_SIDE_LEFT;
+                case 5: return MA_CHANNEL_SIDE_RIGHT;
+            }
+        } break;
+
+        case 7:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_LFE;
+                case 4: return MA_CHANNEL_BACK_CENTER;
+                case 5: return MA_CHANNEL_SIDE_LEFT;
+                case 6: return MA_CHANNEL_SIDE_RIGHT;
+            }
+        } break;
+
+        case 8:
+        default:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_LFE;
+                case 4: return MA_CHANNEL_BACK_LEFT;
+                case 5: return MA_CHANNEL_BACK_RIGHT;
+                case 6: return MA_CHANNEL_SIDE_LEFT;
+                case 7: return MA_CHANNEL_SIDE_RIGHT;
+            }
+        } break;
+    }
+
+    if (channelCount > 8) {
+        if (channelIndex < 32) {    /* We have 32 AUX channels. */
+            return (ma_channel)(MA_CHANNEL_AUX_0 + (channelIndex - 8));
+        }
+    }
+
+    /* Getting here means we don't know how to map the channel position so just return MA_CHANNEL_NONE. */
+    return MA_CHANNEL_NONE;
+}
+
+
 static ma_channel ma_channel_map_init_standard_channel(ma_standard_channel_map standardChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     if (channelCount == 0 || channelIndex >= channelCount) {
@@ -71845,6 +71954,11 @@ static ma_channel ma_channel_map_init_standard_channel(ma_standard_channel_map s
         case ma_standard_channel_map_sndio:
         {
             return ma_channel_map_init_standard_channel_sndio(channelCount, channelIndex);
+        } break;
+
+        case ma_standard_channel_map_sdl:
+        {
+            return ma_channel_map_init_standard_channel_sdl(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_microsoft: /* Also default. */
