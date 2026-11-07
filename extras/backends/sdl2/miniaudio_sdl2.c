@@ -53,9 +53,12 @@ MA_ENABLE_ONLY_SPECIFIC_BACKENDS) and it's supported at compile time (MA_SUPPORT
 #if defined(MA_HAS_SDL2)
 #define MA_SDL_INIT_AUDIO                       0x00000010
 #define MA_AUDIO_U8                             0x0008
-#define MA_AUDIO_S16                            0x8010
-#define MA_AUDIO_S32                            0x8020
-#define MA_AUDIO_F32                            0x8120
+#define MA_AUDIO_S16LSB                         0x8010
+#define MA_AUDIO_S16MSB                         0x9010
+#define MA_AUDIO_S32LSB                         0x8020
+#define MA_AUDIO_S32MSB                         0x9020
+#define MA_AUDIO_F32LSB                         0x8120
+#define MA_AUDIO_F32MSB                         0x9120
 #define MA_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE     0x00000001
 #define MA_SDL_AUDIO_ALLOW_FORMAT_CHANGE        0x00000002
 #define MA_SDL_AUDIO_ALLOW_CHANNELS_CHANGE      0x00000004
@@ -135,27 +138,53 @@ typedef struct
 
 MA_SDL_AudioFormat ma_format_to_sdl2(ma_format format)
 {
-    switch (format)
-    {
-        case ma_format_unknown: return 0;
-        case ma_format_u8:      return MA_AUDIO_U8;
-        case ma_format_s16:     return MA_AUDIO_S16;
-        case ma_format_s24:     return MA_AUDIO_S32;  /* Closest match. */
-        case ma_format_s32:     return MA_AUDIO_S32;
-        case ma_format_f32:     return MA_AUDIO_F32;
-        default:                return 0;
+    if (ma_is_little_endian()) {
+        switch (format) {
+            case ma_format_s16: return MA_AUDIO_S16LSB;
+            case ma_format_s24: return MA_AUDIO_S32LSB;  /* Closest match. */
+            case ma_format_s32: return MA_AUDIO_S32LSB;
+            case ma_format_f32: return MA_AUDIO_F32LSB;
+            default: break;
+        }
+    } else {
+        switch (format) {
+            case ma_format_s16: return MA_AUDIO_S16MSB;
+            case ma_format_s24: return MA_AUDIO_S32MSB;  /* Closest match. */
+            case ma_format_s32: return MA_AUDIO_S32MSB;
+            case ma_format_f32: return MA_AUDIO_F32MSB;
+            default: break;
+        }
+    }
+
+    /* Endian agnostic. */
+    switch (format) {
+        case ma_format_u8: return MA_AUDIO_U8;
+        default: return ma_format_unknown;
     }
 }
 
 ma_format ma_format_from_sdl2(MA_SDL_AudioFormat format)
 {
-    switch (format)
-    {
-        case MA_AUDIO_U8:  return ma_format_u8;
-        case MA_AUDIO_S16: return ma_format_s16;
-        case MA_AUDIO_S32: return ma_format_s32;
-        case MA_AUDIO_F32: return ma_format_f32;
-        default:           return ma_format_unknown;
+    if (ma_is_little_endian()) {
+        switch (format) {
+            case MA_AUDIO_S16LSB: return ma_format_s16;
+            case MA_AUDIO_S32LSB: return ma_format_s32;
+            case MA_AUDIO_F32LSB: return ma_format_f32;
+            default: break;
+        }
+    } else {
+        switch (format) {
+            case MA_AUDIO_S16MSB: return ma_format_s16;
+            case MA_AUDIO_S32MSB: return ma_format_s32;
+            case MA_AUDIO_F32MSB: return ma_format_f32;
+            default: break;
+        }
+    }
+
+    /* Endian agnostic. */
+    switch (format) {
+        case MA_AUDIO_U8: return ma_format_u8;
+        default: return ma_format_unknown;
     }
 }
 
@@ -560,8 +589,8 @@ static ma_result ma_device_init_internal__sdl2(ma_device* pDevice, ma_context_st
     desiredSpec.userdata = pDevice;
 
     /* We'll fall back to f32 if we don't have an appropriate mapping between SDL and miniaudio. */
-    if (desiredSpec.format == 0) {
-        desiredSpec.format = MA_AUDIO_F32;
+    if (desiredSpec.format == ma_format_unknown) {
+        desiredSpec.format = ma_format_to_sdl2(ma_format_f32);
     }
 
     /* SDL expects NULL for the default device. Explicit IDs contain the device name. */
