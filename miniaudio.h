@@ -28902,7 +28902,7 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        /* Don't need to do anything for playback. It'll be started automatically in ma_device_start__winmm(). */
+        SetEvent(pDeviceStateWinMM->hEventPlayback);
     }
 
     return MA_SUCCESS;
@@ -28928,14 +28928,35 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint32 iPeriod;
+        ma_timer timer;
+        double drainTimeoutInSeconds = 1;
 
         if (pDeviceStateWinMM->hDevicePlayback == NULL) {
             return MA_INVALID_ARGS;
         }
 
-        /* We need to drain the device. To do this we just loop over each header and if it's locked just wait for the event. */
-        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
-            if (WaitForSingleObject(pDeviceStateWinMM->hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
+        /* Allow a full buffer duration plus some slack for delayed notifications. */
+        if (pDevice->playback.internalSampleRate > 0) {
+            drainTimeoutInSeconds += ((double)pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods) / pDevice->playback.internalSampleRate;
+        }
+
+        ma_timer_init(&timer);
+
+        /* Drain queued headers. A wakeup event does not mean the driver has returned a buffer. */
+        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; ) {
+            ResetEvent(pDeviceStateWinMM->hEventPlayback);
+
+            if ((pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwFlags & MA_WHDR_INQUEUE) == 0) {
+                iPeriod += 1;
+                continue;
+            }
+
+            if (ma_timer_get_time_in_seconds(&timer) >= drainTimeoutInSeconds) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WinMM] Timed out waiting for the playback buffers to drain. Skipping drain.");
+                break;
+            }
+
+            if (WaitForSingleObject(pDeviceStateWinMM->hEventPlayback, 10) == WAIT_FAILED) {
                 break;  /* An error occurred so just abandon ship and stop the device without draining. */
             }
         }
@@ -28981,6 +29002,7 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
         /* Something is available for processing. */
         HANDLE handle = handles[waitResult - WAIT_OBJECT_0];
         ma_uint32 frameCount;
+        ma_uint32 iPeriod;
 
         /* Reset before checking headers so completions during processing remain signaled. */
         ResetEvent(handle);
@@ -28989,8 +29011,8 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
         if (handle == pDeviceStateWinMM->hEventCapture && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex)) {
             MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRCapture;
 
-            /* Consume any completed header. */
-            while ((pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags & MA_WHDR_DONE) != 0) {
+            /* Limit processing to one pass, even if requeued buffers complete again. */
+            for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods && (pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags & MA_WHDR_DONE) != 0; iPeriod += 1) {
                 pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags &= ~MA_WHDR_DONE;
 
                 frameCount = pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwBufferLength / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
@@ -29012,8 +29034,8 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
         if (handle == pDeviceStateWinMM->hEventPlayback && (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex)) {
             MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRPlayback;
 
-            /* Fill out any completed header with fresh data. */
-            while ((pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags & MA_WHDR_DONE) != 0) {
+            /* Limit processing to one pass, even if requeued buffers complete again. */
+            for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods && (pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags & MA_WHDR_DONE) != 0; iPeriod += 1) {
                 pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags &= ~MA_WHDR_DONE;
 
                 frameCount = pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwBufferLength / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
@@ -29037,6 +29059,20 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
     return MA_SUCCESS;
 }
 
+static void ma_device_wakeup__winmm(ma_device* pDevice)
+{
+    ma_device_state_winmm* pDeviceStateWinMM = ma_device_get_backend_state__winmm(pDevice);
+    ma_device_type deviceType = ma_device_get_type(pDevice);
+
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        SetEvent(pDeviceStateWinMM->hEventCapture);
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        SetEvent(pDeviceStateWinMM->hEventPlayback);
+    }
+}
+
 static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
 {
     ma_backend_info__winmm,
@@ -29048,7 +29084,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_WinMM =
     ma_device_start__winmm,
     ma_device_stop__winmm,
     ma_device_step__winmm,
-    NULL    /* onDeviceWakeup */
+    ma_device_wakeup__winmm
 };
 
 ma_device_backend_vtable* ma_device_backend_winmm = &ma_gDeviceBackendVTable_WinMM;
