@@ -26676,6 +26676,7 @@ static ma_result ma_context_create_IDirectSound__dsound(ma_context* pContext, ma
 
     hr = ma_IDirectSound_SetCooperativeLevel(pDirectSound, hWnd, (shareMode == ma_share_mode_exclusive) ? MA_DSSCL_EXCLUSIVE : MA_DSSCL_PRIORITY);
     if (FAILED(hr)) {
+        ma_IDirectSound_Release(pDirectSound);
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_SetCooperateiveLevel() failed for playback device.");
         return ma_result_from_HRESULT(hr);
     }
@@ -26864,6 +26865,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid,
         caps.dwSize = sizeof(caps);
         hr = ma_IDirectSound_GetCaps(pDirectSound, &caps);
         if (FAILED(hr)) {
+            ma_IDirectSound_Release(pDirectSound);
             ma_log_postf(ma_context_get_log(pData->pContext), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.");
             return MA_TRUE;
         }
