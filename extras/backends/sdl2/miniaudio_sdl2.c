@@ -102,6 +102,7 @@ typedef const char*          (* MA_PFN_SDL_GetAudioDeviceName )(int index, int i
 typedef void                 (* MA_PFN_SDL_CloseAudioDevice   )(MA_SDL_AudioDeviceID dev);
 typedef MA_SDL_AudioDeviceID (* MA_PFN_SDL_OpenAudioDevice    )(const char* device, int iscapture, const MA_SDL_AudioSpec* desired, MA_SDL_AudioSpec* obtained, int allowed_changes);
 typedef void                 (* MA_PFN_SDL_PauseAudioDevice   )(MA_SDL_AudioDeviceID dev, int pause_on);
+typedef void                 (* MA_PFN_SDL_free               )(void* mem);
 
 typedef struct
 {
@@ -115,6 +116,7 @@ typedef struct
     MA_PFN_SDL_CloseAudioDevice    SDL_CloseAudioDevice;
     MA_PFN_SDL_OpenAudioDevice     SDL_OpenAudioDevice;
     MA_PFN_SDL_PauseAudioDevice    SDL_PauseAudioDevice;
+    MA_PFN_SDL_free                SDL_free;
 } ma_context_state_sdl2;
 
 typedef struct
@@ -232,6 +234,7 @@ static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContex
         pContextStateSDL->SDL_CloseAudioDevice    = (MA_PFN_SDL_CloseAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_CloseAudioDevice");
         pContextStateSDL->SDL_OpenAudioDevice     = (MA_PFN_SDL_OpenAudioDevice    )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_OpenAudioDevice");
         pContextStateSDL->SDL_PauseAudioDevice    = (MA_PFN_SDL_PauseAudioDevice   )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_PauseAudioDevice");
+        pContextStateSDL->SDL_free                = (MA_PFN_SDL_free               )ma_dlsym(pLog, pContextStateSDL->hSDL, "SDL_free");
     }
     #else
     {
@@ -249,6 +252,7 @@ static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContex
         pContextStateSDL->SDL_CloseAudioDevice    = SDL_CloseAudioDevice;
         pContextStateSDL->SDL_OpenAudioDevice     = SDL_OpenAudioDevice;
         pContextStateSDL->SDL_PauseAudioDevice    = SDL_PauseAudioDevice;
+        pContextStateSDL->SDL_free                = SDL_free;
     }
     #endif  /* MA_NO_RUNTIME_LINKING */
 
@@ -372,6 +376,8 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
 
             cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
         }
+
+        pContextStateSDL->SDL_free(pDefaultPlaybackDeviceName);
     }
 
     /* Capture */
@@ -447,6 +453,8 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
             cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
             (void)cbResult; /* Silence a static analysis warning. Want to keep this assignment in case we extend this logic later. */
         }
+
+        pContextStateSDL->SDL_free(pDefaultCaptureDeviceName);
     }
 
     return MA_SUCCESS;
