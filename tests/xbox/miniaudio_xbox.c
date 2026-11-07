@@ -40,13 +40,21 @@ int main()
     /* Initialize the waveform before starting the device. */
     {
         ma_waveform_config waveformConfig = ma_waveform_config_init(device.playback.format, device.playback.channels, device.sampleRate, ma_waveform_type_sine, 0.1f, 400);
-        ma_waveform_init(&waveformConfig, &waveform);
+        result = ma_waveform_init(&waveformConfig, &waveform);
+        if (result != MA_SUCCESS) {
+            debugPrint("Failed to initialize waveform.");
+            return 1;
+        }
     }
 
     /* Decoder. */
     {
         ma_decoder_config decoderConfig = ma_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
-        ma_decoder_init_file("D:\\test.mp3", &decoderConfig, &decoder);
+        result = ma_decoder_init_file("D:\\test.mp3", &decoderConfig, &decoder);
+        if (result != MA_SUCCESS) {
+            debugPrint("Failed to initialize decoder.");
+            return 1;
+        }
     }
 
     result = ma_device_start(&device);
