@@ -28857,6 +28857,7 @@ static void ma_device_uninit__winmm(ma_device* pDevice)
     ma_device_type deviceType = ma_device_get_type(pDevice);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        pContextStateWinMM->waveInReset(pDeviceStateWinMM->hDeviceCapture);
         pContextStateWinMM->waveInClose(pDeviceStateWinMM->hDeviceCapture);
         CloseHandle(pDeviceStateWinMM->hEventCapture);
     }
