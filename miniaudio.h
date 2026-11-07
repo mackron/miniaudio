@@ -28434,19 +28434,24 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
             ma_strcat_s(keyStr, sizeof(keyStr), guidStr);
 
             if (((MA_PFN_RegOpenKeyExA)pContextStateWinmm->RegOpenKeyExA)(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-                BYTE nameFromReg[512];
-                DWORD nameFromRegSize = sizeof(nameFromReg);
-                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContextStateWinmm->RegQueryValueExA)(hKey, "Name", 0, NULL, (BYTE*)nameFromReg, (DWORD*)&nameFromRegSize);
+                BYTE nameFromReg[512 + 1];
+                DWORD nameFromRegSize = sizeof(nameFromReg) - 1;
+                DWORD nameFromRegType;
+                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContextStateWinmm->RegQueryValueExA)(hKey, "Name", 0, &nameFromRegType, (BYTE*)nameFromReg, (DWORD*)&nameFromRegSize);
                 ((MA_PFN_RegCloseKey)pContextStateWinmm->RegCloseKey)(hKey);
 
-                if (resultWin32 == ERROR_SUCCESS) {
+                if (resultWin32 == ERROR_SUCCESS && nameFromRegType == REG_SZ) {
                     /* We have the value from the registry, so now we need to construct the name string. */
                     char name[1024];
+
+                    /* Registry strings are not guaranteed to include a null terminator. */
+                    nameFromReg[nameFromRegSize] = '\0';
+
                     if (ma_strcpy_s(name, sizeof(name), pDeviceInfo->name) == 0) {
                         char* nameBeg = ma_find_last_character(name, '(');
                         if (nameBeg != NULL) {
                             size_t leadingLen = (nameBeg - name);
-                            ma_strncpy_s(nameBeg + 1, sizeof(name) - leadingLen, (const char*)nameFromReg, (size_t)-1);
+                            ma_strncpy_s(nameBeg + 1, sizeof(name) - leadingLen - 1, (const char*)nameFromReg, (size_t)-1);
 
                             /* The closing ")", if it can fit. */
                             if (leadingLen + nameFromRegSize < sizeof(name)-1) {
