@@ -52043,7 +52043,7 @@ static ma_result ma_device_init__dreamcast(ma_device* pDevice, const void* pDevi
     /* Now we can allocate our memory for the buffer on the SPU side. */
     pDeviceStateDreamcast->buffer = snd_mem_malloc(bufferSizeInBytes);
     if (pDeviceStateDreamcast->buffer == 0) {
-        ma_free(pDeviceStateDreamcast->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
+        ma_aligned_free(pDeviceStateDreamcast->pIntermediaryBuffer, ma_device_get_allocation_callbacks(pDevice));
         ma_free(pDeviceStateDreamcast, ma_device_get_allocation_callbacks(pDevice));
         return MA_OUT_OF_MEMORY;
     }
