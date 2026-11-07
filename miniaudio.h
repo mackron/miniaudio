@@ -52252,7 +52252,7 @@ static ma_result ma_device_step__dreamcast(ma_device* pDevice, ma_blocking_mode 
 
     /* Keep looping until we have processed some data, or we're in non-blocking mode. */
     for (;;) {
-        int pos;
+        ma_uint32 pos;
         ma_int8 currentSubBufferIndex;
         ma_bool32 wasDataProcessed = MA_FALSE;
         
@@ -52261,7 +52261,7 @@ static ma_result ma_device_step__dreamcast(ma_device* pDevice, ma_blocking_mode 
         }
 
         /* We're currently using a poll/sleep pattern. Should try figuring out a better way to do this later. */
-        pos = (int)snd_get_pos(pDeviceStateDreamcast->voiceChannel);
+        pos = snd_get_pos(pDeviceStateDreamcast->voiceChannel);
         if (pos < pDevice->playback.internalPeriodSizeInFrames) {
             currentSubBufferIndex = 0;
         } else {
