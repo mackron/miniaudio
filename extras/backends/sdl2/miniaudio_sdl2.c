@@ -65,7 +65,7 @@ MA_ENABLE_ONLY_SPECIFIC_BACKENDS) and it's supported at compile time (MA_SUPPORT
 #define MA_SDL_AUDIO_ALLOW_ANY_CHANGE           (MA_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | MA_SDL_AUDIO_ALLOW_FORMAT_CHANGE | MA_SDL_AUDIO_ALLOW_CHANNELS_CHANGE)
 
 /* If we are linking at compile time we'll just #include SDL.h. Otherwise we can just redeclare some stuff to avoid the need for development packages to be installed. */
-#ifdef MA_NO_RUNTIME_LINKING
+#if defined(MA_NO_RUNTIME_LINKING) || defined(MA_EMSCRIPTEN)
     #define SDL_MAIN_HANDLED
     #ifdef MA_EMSCRIPTEN
         #include <SDL/SDL.h>
@@ -207,6 +207,11 @@ static void ma_backend_info__sdl2(ma_device_backend_info* pBackendInfo)
 {
     MA_SDL2_ASSERT(pBackendInfo != NULL);
     pBackendInfo->pName = "SDL2";
+    
+    #if defined(MA_EMSCRIPTEN)
+    pBackendInfo->noAudioThread = MA_TRUE;
+    pBackendInfo->isMultiThreadedModeAllowedWhenThreadingDisabled = MA_TRUE;
+    #endif
 }
 
 static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
@@ -226,7 +231,7 @@ static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContex
         return MA_OUT_OF_MEMORY;
     }
     
-    #ifndef MA_NO_RUNTIME_LINKING
+    #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_EMSCRIPTEN)
     {
         /* We'll use a list of possible shared object names for easier extensibility. */
         size_t iName;
@@ -290,7 +295,7 @@ static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContex
         pContextStateSDL->SDL_PauseAudioDevice    = SDL_PauseAudioDevice;
         pContextStateSDL->SDL_free                = SDL_free;
     }
-    #endif  /* MA_NO_RUNTIME_LINKING */
+    #endif  /* !MA_NO_RUNTIME_LINKING && !MA_EMSCRIPTEN */
 
     resultSDL = pContextStateSDL->SDL_InitSubSystem(MA_SDL_INIT_AUDIO);
     if (resultSDL != 0) {
@@ -521,14 +526,36 @@ void ma_audio_callback_capture__sdl2(void* pUserData, ma_uint8* pBuffer, int buf
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
-    ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, NULL, pBuffer, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.capture.format, pDeviceStateSDL->async.capture.channels));
+    ma_uint32 frameCount;
+
+    frameCount = (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.capture.format, pDeviceStateSDL->async.capture.channels);
+
+    #if defined(MA_EMSCRIPTEN)
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
+        ma_device_handle_backend_data_callback(pDevice, NULL, pBuffer, frameCount);
+        return;
+    }
+    #endif
+
+    ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, NULL, pBuffer, frameCount);
 }
 
 void ma_audio_callback_playback__sdl2(void* pUserData, ma_uint8* pBuffer, int bufferSizeInBytes)
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
-    ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.playback.format, pDeviceStateSDL->async.playback.channels));
+    ma_uint32 frameCount;
+
+    frameCount = (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.playback.format, pDeviceStateSDL->async.playback.channels);
+
+    #if defined(MA_EMSCRIPTEN)
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
+        ma_device_handle_backend_data_callback(pDevice, pBuffer, NULL, frameCount);
+        return;
+    }
+    #endif
+
+    ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, pBuffer, NULL, frameCount);
 }
 
 static ma_result ma_device_init_internal__sdl2(ma_device* pDevice, ma_context_state_sdl2* pContextStateSDL, ma_device_state_sdl2* pDeviceStateSDL, const ma_device_config_sdl2* pDeviceConfigSDL, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
@@ -714,9 +741,17 @@ static ma_result ma_device_start__sdl2(ma_device* pDevice)
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
     ma_context_state_sdl2* pContextStateSDL = ma_context_get_backend_state__sdl2(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_bool32 prefillPlayback;
+
+    prefillPlayback = (deviceType == ma_device_type_playback);
+    #if defined(MA_EMSCRIPTEN)
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
+        prefillPlayback = MA_FALSE;
+    }
+    #endif
 
     /* Fill playback from the client before SDL can request data. Duplex must wait for capture to start. */
-    if (deviceType == ma_device_type_playback) {
+    if (prefillPlayback) {
         ma_result result;
 
         result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSDL->async.playback.pBuffer, NULL, pDeviceStateSDL->async.playback.frameCap);
@@ -760,6 +795,17 @@ static ma_result ma_device_stop__sdl2(ma_device* pDevice)
 static ma_result ma_device_step__sdl2(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
+
+    #if defined(MA_EMSCRIPTEN)
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
+        MA_SDL2_ASSERT(!"[SDL2] Incorrectly calling step() in multi-threaded mode.");
+        return MA_ERROR;
+    }
+
+    /* We should not be blocking on the web build. Force non-blocking mode here. */
+    blockingMode = MA_BLOCKING_MODE_NON_BLOCKING;
+    #endif
+
     return ma_device_state_async_step(&pDeviceStateSDL->async, pDevice, blockingMode, NULL);
 }
 
