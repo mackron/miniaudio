@@ -4232,7 +4232,8 @@ When running in single threaded mode you need to manually step the device period
 
 15.7. XAudio (Original Xbox)
 ----------------------------
-The XAudio backend is used for the original Xbox and uses NXDK.
+The XAudio backend is used for the original Xbox and uses NXDK. This is not to be confused with
+XAudio2.
 
 You should only initialize a single `ma_device` object. Do not create more than one device thinking
 that mixing will be done in hardware. Do your mixing in software.
