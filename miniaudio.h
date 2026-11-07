@@ -52578,6 +52578,7 @@ static ma_result ma_device_init__xaudio(ma_device* pDevice, const void* pDeviceB
     pDescriptorPlayback->sampleRate         = sampleRate;
     pDescriptorPlayback->periodSizeInFrames = bufferSizeInFrames;
     pDescriptorPlayback->periodCount        = pDeviceStateXAudio->subBufferCount;
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
 
     *ppDeviceState = pDeviceStateXAudio;
 
