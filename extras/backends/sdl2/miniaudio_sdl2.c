@@ -234,7 +234,11 @@ static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContex
         #if defined(_WIN32)
             "SDL2.dll"
         #elif defined(__APPLE__)
-            "SDL2.framework/SDL2"
+            "SDL2.framework/SDL2",
+            "libSDL2-2.0.0.dylib",
+            "libSDL2.dylib"
+        #elif defined(__OpenBSD__)
+            "libSDL2.so.0"
         #else
             "libSDL2-2.0.so.0"
         #endif
