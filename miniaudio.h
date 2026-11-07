@@ -53252,8 +53252,8 @@ MA_API ma_result ma_device_update_descriptor(ma_device* pDevice, ma_device_type 
         converterConfig.channelsOut                     = internalDescriptor.channels;
         converterConfig.sampleRateOut                   = internalDescriptor.sampleRate;
         converterConfig.pChannelMapOut                  = internalDescriptor.channelMap;
-        converterConfig.channelMixMode                  = pDevice->capture.channelMixMode;
-        converterConfig.calculateLFEFromSpatialChannels = pDevice->capture.calculateLFEFromSpatialChannels;
+        converterConfig.channelMixMode                  = pDevice->playback.channelMixMode;
+        converterConfig.calculateLFEFromSpatialChannels = pDevice->playback.calculateLFEFromSpatialChannels;
 
         /* Make sure the old converter is uninitialized first. */
         if (ma_device_get_status(pDevice) != ma_device_status_uninitialized) {
