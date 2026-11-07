@@ -675,6 +675,8 @@ static ma_result ma_device_stop__sdl2(ma_device* pDevice)
         pContextStateSDL->SDL_PauseAudioDevice(pDeviceStateSDL->playback.deviceID, 1);
     }
 
+    ma_device_state_async_flush(&pDeviceStateSDL->async);
+
     return MA_SUCCESS;
 }
 
