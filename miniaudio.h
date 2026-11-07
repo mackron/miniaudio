@@ -4240,7 +4240,7 @@ that mixing will be done in hardware. Do your mixing in software.
 
 The following device configuration is optimal:
 
-    Format:               ma_foramt_s16
+    Format:               ma_format_s16
     Channels:             2
     Sample Rate:          48000
     Period Size:          1024 to 16383
@@ -52386,7 +52386,7 @@ static void ma_backend_info__xaudio(ma_device_backend_info* pBackendInfo)
 
 static ma_result ma_context_init__xaudio(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
 {
-    ma_context_state_xaudio* pContextStateXAudio;
+    ma_context_state_xaudio* pContextStateXAudio = NULL;
     const ma_context_config_xaudio* pContextConfigXAudio = (ma_context_config_xaudio*)pContextBackendConfig;
 
     /* The context config is not currently being used for this backend. */
@@ -52401,9 +52401,11 @@ static ma_result ma_context_init__xaudio(ma_context* pContext, const void* pCont
     }
     #else
     {
-        (void)pContextStateXAudio;
+        (void)pContext;
     }
     #endif
+
+    *ppContextState = pContextStateXAudio;
 
     return MA_SUCCESS;
 }
@@ -52496,11 +52498,7 @@ static void ma_device_callback__xaudio(void* pUnused, void* pUserData)
 static ma_result ma_device_init__xaudio(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_xaudio* pDeviceStateXAudio;
-    ma_device_config_xaudio* pDeviceConfigXAudio = (ma_device_config_xaudio*)pDeviceBackendConfig;
-    ma_context_state_xaudio* pContextStateXAudio = ma_context_get_backend_state__xaudio(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_result result;
-    int sampleSizeInBits;
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
@@ -52511,6 +52509,7 @@ static ma_result ma_device_init__xaudio(ma_device* pDevice, const void* pDeviceB
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
+    (void)pDeviceBackendConfig;
     (void)pDescriptorCapture;
 
 
@@ -52548,10 +52547,11 @@ static ma_result ma_device_init__xaudio(ma_device* pDevice, const void* pDeviceB
     pDeviceStateXAudio->subBufferCount = 3;
 
     /*
-    Allocate two buffers for double buffering. The nxdk "xaudio" example uses MmAllocateContiguousMemoryEx(), but
-    I'm not sure if that's strictly required. It'd be nice if instead we could use miniaudio's allocation callbacks
-    and just allocate this buffer in the same allocation as the state struct, but the example explicitly using
-    MmAllocateContiguousMemoryEx() makes me feel a bit uneasy about that. Advice welcome.
+    Allocate buffers. The nxdk "xaudio" example uses MmAllocateContiguousMemoryEx(), but I'm not
+    sure if that's strictly required. It'd be nice if instead we could use miniaudio's allocation
+    callbacks and just allocate this buffer in the same allocation as the state struct, but the
+    example explicitly using MmAllocateContiguousMemoryEx() makes me feel a bit uneasy about that.
+    Advice welcome.
     */
     pDeviceStateXAudio->pBuffer = MmAllocateContiguousMemoryEx(bufferSizeInFrames * ma_get_bytes_per_frame(format, channels) * pDeviceStateXAudio->subBufferCount, 0, 0x03FFAFFF, 0, (PAGE_READWRITE | PAGE_WRITECOMBINE));
     if (pDeviceStateXAudio->pBuffer == NULL) {
