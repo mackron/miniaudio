@@ -29012,17 +29012,16 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
     }
 
     if (waitResult <= WAIT_OBJECT_0 + handleCount-1) {
-        /* Something is available for processing. */
-        HANDLE handle = handles[waitResult - WAIT_OBJECT_0];
+        /* Process both directions so neither can starve the other. */
         ma_uint32 frameCount;
         ma_uint32 iPeriod;
 
-        /* Reset before checking headers so completions during processing remain signaled. */
-        ResetEvent(handle);
-
         /* Capture. */
-        if (handle == pDeviceStateWinMM->hEventCapture && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex)) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
             MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRCapture;
+
+            /* Reset before checking headers so completions during processing remain signaled. */
+            ResetEvent(pDeviceStateWinMM->hEventCapture);
 
             /* Limit processing to one pass, even if requeued buffers complete again. */
             for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods && (pWAVEHDR[pDeviceStateWinMM->iNextHeaderCapture].dwFlags & MA_WHDR_DONE) != 0; iPeriod += 1) {
@@ -29044,8 +29043,11 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
         }
 
         /* Playback. */
-        if (handle == pDeviceStateWinMM->hEventPlayback && (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex)) {
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
             MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRPlayback;
+
+            /* Reset before checking headers so completions during processing remain signaled. */
+            ResetEvent(pDeviceStateWinMM->hEventPlayback);
 
             /* Limit processing to one pass, even if requeued buffers complete again. */
             for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods && (pWAVEHDR[pDeviceStateWinMM->iNextHeaderPlayback].dwFlags & MA_WHDR_DONE) != 0; iPeriod += 1) {
