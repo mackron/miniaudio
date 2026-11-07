@@ -599,7 +599,11 @@ static ma_result ma_device_init_internal__sdl2(ma_device* pDevice, ma_context_st
         pDeviceName = pDescriptor->pDeviceID->custom.s;
     }
 
-    deviceID = pContextStateSDL->SDL_OpenAudioDevice(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &desiredSpec, &obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
+    /*
+    SDL can support sample formats that miniaudio does not support. Make sure we always use the
+    requested sample format, but allow changing of the channels and sample rate.
+    */
+    deviceID = pContextStateSDL->SDL_OpenAudioDevice(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &desiredSpec, &obtainedSpec, MA_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | MA_SDL_AUDIO_ALLOW_CHANNELS_CHANGE);
     if (deviceID == 0) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "Failed to open SDL2 device.");
         return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
