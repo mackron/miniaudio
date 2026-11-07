@@ -52096,7 +52096,7 @@ static void ma_device_fill_sub_buffer__dreamcast(ma_device* pDevice, int subBuff
         } else {
             /* There is no snd_pcm8_split_sq() from what I can tell. Might need to figure that out for myself. */
             ma_uint32 l = pDeviceStateDreamcast->buffer + offsetInSamples;
-            ma_uint32 r = pDeviceStateDreamcast->buffer + (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * bpf) + offsetInSamples;
+            ma_uint32 r = pDeviceStateDreamcast->buffer + (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_sample(pDevice->playback.internalFormat)) + offsetInSamples;
             ma_uint32 framesWritten = 0;
             while (framesWritten < pDevice->playback.internalPeriodSizeInFrames) {
                 ma_uint32 framesToWrite;
@@ -52123,7 +52123,7 @@ static void ma_device_fill_sub_buffer__dreamcast(ma_device* pDevice, int subBuff
             spu_memload_sq(pDeviceStateDreamcast->buffer + offsetInSamples, pDeviceStateDreamcast->pIntermediaryBuffer, pDevice->playback.internalPeriodSizeInFrames * bpf);
         } else {
             ma_uint32 l = pDeviceStateDreamcast->buffer + offsetInSamples;
-            ma_uint32 r = pDeviceStateDreamcast->buffer + (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * bpf) + offsetInSamples;
+            ma_uint32 r = pDeviceStateDreamcast->buffer + (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_sample(pDevice->playback.internalFormat)) + offsetInSamples;
 
             /*
             There is an endian bug in snd_pcm16_split_sq(). It merges two signed 16-bit samples into a single 32-bit variable in preparation
@@ -52204,7 +52204,7 @@ static ma_result ma_device_start__dreamcast(ma_device* pDevice)
 
             /* Right. Hard pan to the right. */
             cmd->cmd_id = (uint32_t)pDeviceStateDreamcast->voiceChannel + 1;
-            chan->base  = pDeviceStateDreamcast->buffer + (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+            chan->base  = pDeviceStateDreamcast->buffer + (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
             chan->pan   = 255;
             snd_sh4_to_aica(tmp, cmd->size);
         }
