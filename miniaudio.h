@@ -52682,7 +52682,7 @@ static ma_result ma_device_step__xaudio(ma_device* pDevice, ma_blocking_mode blo
 
             if (pDeviceStateXAudio->queuedAudioTime - currentTimeInSeconds < marginTimeInSeconds) {
                 ma_device_fill_sub_buffer__xaudio(pDevice, pDeviceStateXAudio->subBufferIndex);
-                XAudioProvideSamples(ma_device_get_sub_buffer__xaudio(pDevice, pDeviceStateXAudio->subBufferIndex), (unsigned short)(pDevice->playback.internalPeriodSizeInFrames*ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels)), 0);
+                XAudioProvideSamples((unsigned char*)ma_device_get_sub_buffer__xaudio(pDevice, pDeviceStateXAudio->subBufferIndex), (unsigned short)(pDevice->playback.internalPeriodSizeInFrames*ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels)), 0);
 
                 //debugPrint("TESTING: %d %d\n", (int)(currentTimeInSeconds * 1000), (int)(pDeviceStateXAudio->queuedAudioTime * 1000));
                 pDeviceStateXAudio->subBufferIndex += 1;
