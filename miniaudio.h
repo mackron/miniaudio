@@ -52364,6 +52364,7 @@ typedef struct ma_device_state_xaudio
     ma_spinlock lock;   /* Using a dumb lock for thread-safety for now, but this can be optimized by having subBufferIndex and emptyBufferCount encoded into a single 32-bit value and using it atomically. */
     ma_timer timer;
     double queuedAudioTime;
+    double stopTimeInSeconds;
     double periodTimeInSeconds;
 } ma_device_state_xaudio;
 
@@ -52611,8 +52612,8 @@ static ma_result ma_device_start__xaudio(ma_device* pDevice)
     ma_device_callback__xaudio(NULL, pDevice);
     #endif
 
+    pDeviceStateXAudio->queuedAudioTime += ma_timer_get_time_in_seconds(&pDeviceStateXAudio->timer) - pDeviceStateXAudio->stopTimeInSeconds;
     XAudioPlay();
-    pDeviceStateXAudio->queuedAudioTime = ma_timer_get_time_in_seconds(&pDeviceStateXAudio->timer);
 
     return MA_SUCCESS;
 }
@@ -52621,8 +52622,8 @@ static ma_result ma_device_stop__xaudio(ma_device* pDevice)
 {
     ma_device_state_xaudio* pDeviceStateXAudio = ma_device_get_backend_state__xaudio(pDevice);
 
-    (void)pDeviceStateXAudio;
     XAudioPause();
+    pDeviceStateXAudio->stopTimeInSeconds = ma_timer_get_time_in_seconds(&pDeviceStateXAudio->timer);
 
     return MA_SUCCESS;
 }
