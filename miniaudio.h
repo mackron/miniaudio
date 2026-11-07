@@ -51980,13 +51980,6 @@ static ma_result ma_device_init__dreamcast(ma_device* pDevice, const void* pDevi
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    pDeviceStateDreamcast = (ma_device_state_dreamcast*)ma_calloc(sizeof(*pDeviceStateDreamcast), ma_device_get_allocation_callbacks(pDevice));
-    if (pDeviceStateDreamcast == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    pDeviceStateDreamcast->subBufferIndex = 1;  /* Should start at one. */
-
     /* Default to s16 for the format. Can support u8 and s16. */
     if (pDescriptorPlayback->format != ma_format_u8 /*&& pDescriptorPlayback->format != ma_format_s16*/) {
         pDescriptorPlayback->format = ma_format_s16;
@@ -51998,9 +51991,16 @@ static ma_result ma_device_init__dreamcast(ma_device* pDevice, const void* pDevi
     }
 
     /* Now that we know our channel count we need to verify our voice channel index. There is a maximum of 64. Stereo uses two of them. */
-    if (pDeviceConfigDreamcast->voiceChannel + pDescriptorPlayback->channels > 64) {
+    if (pDeviceConfigDreamcast->voiceChannel < 0 || pDeviceConfigDreamcast->voiceChannel > 64 - (int)pDescriptorPlayback->channels) {
         return MA_INVALID_ARGS; /* Voice channel exceeds limit. */
     }
+
+    pDeviceStateDreamcast = (ma_device_state_dreamcast*)ma_calloc(sizeof(*pDeviceStateDreamcast), ma_device_get_allocation_callbacks(pDevice));
+    if (pDeviceStateDreamcast == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pDeviceStateDreamcast->subBufferIndex = 1;  /* Should start at one. */
 
     pDeviceStateDreamcast->voiceChannel = (ma_uint8)pDeviceConfigDreamcast->voiceChannel;
     
