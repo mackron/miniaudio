@@ -28774,6 +28774,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        MA_MMRESULT resultMM;
         ma_uint32 iPeriod;
 
         if (deviceType == ma_device_type_capture) {
@@ -28790,11 +28791,17 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwBufferLength = periodSizeInBytesCapture;
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwFlags        = 0L;
             pDeviceStateWinMM->pWAVEHDRCapture[iPeriod].dwLoops        = 0L;
-            pContextStateWinMM->waveInPrepareHeader(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[iPeriod], sizeof(MA_WAVEHDR));
+
+            resultMM = pContextStateWinMM->waveInPrepareHeader(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[iPeriod], sizeof(MA_WAVEHDR));
+            if (resultMM != MA_MMSYSERR_NOERROR) {
+                errorMsg = "[WinMM] waveInPrepareHeader() failed.", errorCode = ma_result_from_MMRESULT(resultMM);
+                goto on_error;
+            }
         }
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        MA_MMRESULT resultMM;
         ma_uint32 iPeriod;
 
         if (deviceType == ma_device_type_playback) {
@@ -28811,7 +28818,12 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const void* pDeviceBa
             pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwBufferLength = periodSizeInBytesPlayback;
             pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwFlags        = 0L;
             pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod].dwLoops        = 0L;
-            pContextStateWinMM->waveOutPrepareHeader(pDeviceStateWinMM->hDevicePlayback, &pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod], sizeof(MA_WAVEHDR));
+
+            resultMM = pContextStateWinMM->waveOutPrepareHeader(pDeviceStateWinMM->hDevicePlayback, &pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod], sizeof(MA_WAVEHDR));
+            if (resultMM != MA_MMSYSERR_NOERROR) {
+                errorMsg = "[WinMM] waveOutPrepareHeader() failed.", errorCode = ma_result_from_MMRESULT(resultMM);
+                goto on_error;
+            }
 
             /*
             We use the WHDR_DONE flag to determine whether not not a buffer is available for writing. Since in playback
@@ -28841,7 +28853,7 @@ on_error:
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        if (pDeviceStateWinMM->pWAVEHDRCapture != NULL) {
+        if (pDeviceStateWinMM->pWAVEHDRPlayback != NULL) {
             ma_uint32 iPeriod;
             for (iPeriod = 0; iPeriod < pDescriptorPlayback->periodCount; ++iPeriod) {
                 pContextStateWinMM->waveOutUnprepareHeader(pDeviceStateWinMM->hDevicePlayback, &pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod], sizeof(MA_WAVEHDR));
