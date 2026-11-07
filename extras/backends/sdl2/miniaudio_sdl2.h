@@ -2,6 +2,10 @@
 The SDL2 backend does not require any user data, nor configs. Configs are provided here in case
 they are needed in the future, however you can safely pass in NULL when setting up your context
 and device configs.
+
+Device IDs store the SDL device name in ma_device_id.custom.s. An empty name selects the default
+device. Names that do not fit in the ID are skipped during enumeration. Devices with identical
+names cannot be distinguished by SDL2.
 */
 #ifndef miniaudio_backend_sdl2_h
 #define miniaudio_backend_sdl2_h

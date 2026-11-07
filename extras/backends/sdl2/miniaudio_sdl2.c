@@ -319,13 +319,26 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
         deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(0);
         for (iDevice = 0; iDevice < deviceCount; iDevice += 1) {
             MA_SDL_AudioSpec audioSpec;
+            const char* pDeviceName;
 
             memset(&deviceInfo, 0, sizeof(deviceInfo));
 
+            pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0);
+            if (pDeviceName == NULL || pDeviceName[0] == '\0') {
+                continue;
+            }
+
+            if (strlen(pDeviceName) >= sizeof(deviceInfo.id.custom.s)) {
+                ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[SDL2] Skipping playback device because its name is too long for the device ID.");
+                continue;
+            }
+
+            /* ID. Copy the name because SDL device indexes can change after enumeration. */
+            ma_strncpy_s(deviceInfo.id.custom.s, sizeof(deviceInfo.id.custom.s), pDeviceName, (size_t)-1);
+
             /* Default. For SDL2 we'll just use the first device that matches the default device name. */
             if (!hasDefaultPlaybackDeviceBeenEnumerated && hasDefaultPlaybackDevice && pDefaultPlaybackDeviceName != NULL) {
-                const char* pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0);
-                if (pDeviceName != NULL && strcmp(pDeviceName, pDefaultPlaybackDeviceName) == 0) {
+                if (strcmp(deviceInfo.id.custom.s, pDefaultPlaybackDeviceName) == 0) {
                     deviceInfo.isDefault = MA_TRUE;
                     hasDefaultPlaybackDeviceBeenEnumerated = MA_TRUE;
                 }
@@ -333,11 +346,8 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
                 deviceInfo.isDefault = MA_FALSE;
             }
 
-            /* ID. */
-            deviceInfo.id.custom.i = iDevice;
-
             /* Name. */
-            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 0), (size_t)-1);
+            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), deviceInfo.id.custom.s, (size_t)-1);
 
             /* Data Format. */
             if (pContextStateSDL->SDL_GetAudioDeviceSpec != NULL) {
@@ -359,7 +369,7 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
         if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE && !hasDefaultPlaybackDeviceBeenEnumerated) {
             memset(&deviceInfo, 0, sizeof(deviceInfo));
             deviceInfo.isDefault = MA_TRUE;
-            deviceInfo.id.custom.i = -1;    /* Special ID for the default device. */
+            deviceInfo.id.custom.s[0] = '\0';   /* An empty name identifies the default device. */
 
             if (hasDefaultPlaybackDevice && pDefaultPlaybackDeviceName != NULL) {
                 ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pDefaultPlaybackDeviceName, (size_t)-1);
@@ -395,13 +405,26 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
         deviceCount = pContextStateSDL->SDL_GetNumAudioDevices(1);
         for (iDevice = 0; iDevice < deviceCount; iDevice += 1) {
             MA_SDL_AudioSpec audioSpec;
+            const char* pDeviceName;
 
             memset(&deviceInfo, 0, sizeof(deviceInfo));
 
+            pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1);
+            if (pDeviceName == NULL || pDeviceName[0] == '\0') {
+                continue;
+            }
+
+            if (strlen(pDeviceName) >= sizeof(deviceInfo.id.custom.s)) {
+                ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[SDL2] Skipping capture device because its name is too long for the device ID.");
+                continue;
+            }
+
+            /* ID. Copy the name because SDL device indexes can change after enumeration. */
+            ma_strncpy_s(deviceInfo.id.custom.s, sizeof(deviceInfo.id.custom.s), pDeviceName, (size_t)-1);
+
             /* Default. For SDL2 we'll just use the first device that matches the default device name. */
             if (!hasDefaultCaptureDeviceBeenEnumerated && hasDefaultCaptureDevice && pDefaultCaptureDeviceName != NULL) {
-                const char* pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1);
-                if (pDeviceName != NULL && strcmp(pDeviceName, pDefaultCaptureDeviceName) == 0) {
+                if (strcmp(deviceInfo.id.custom.s, pDefaultCaptureDeviceName) == 0) {
                     deviceInfo.isDefault = MA_TRUE;
                     hasDefaultCaptureDeviceBeenEnumerated = MA_TRUE;
                 }
@@ -409,11 +432,8 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
                 deviceInfo.isDefault = MA_FALSE;
             }
 
-            /* ID. */
-            deviceInfo.id.custom.i = iDevice;
-
             /* Name. */
-            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pContextStateSDL->SDL_GetAudioDeviceName(iDevice, 1), (size_t)-1);
+            ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), deviceInfo.id.custom.s, (size_t)-1);
 
             /* Data Format. */
             if (pContextStateSDL->SDL_GetAudioDeviceSpec != NULL) {
@@ -435,7 +455,7 @@ static ma_result ma_context_enumerate_devices__sdl2(ma_context* pContext, ma_enu
         if (cbResult == MA_DEVICE_ENUMERATION_CONTINUE && !hasDefaultCaptureDeviceBeenEnumerated) {
             memset(&deviceInfo, 0, sizeof(deviceInfo));
             deviceInfo.isDefault = MA_TRUE;
-            deviceInfo.id.custom.i = -1;    /* Special ID for the default device. */
+            deviceInfo.id.custom.s[0] = '\0';   /* An empty name identifies the default device. */
 
             if (hasDefaultCaptureDevice && pDefaultCaptureDeviceName != NULL) {
                 ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pDefaultCaptureDeviceName, (size_t)-1);
@@ -544,10 +564,10 @@ static ma_result ma_device_init_internal__sdl2(ma_device* pDevice, ma_context_st
         desiredSpec.format = MA_AUDIO_F32;
     }
 
-    /* We explicitly want the device name to be NULL for the default device. Otherwise we'll grab the name from the device index. */
+    /* SDL expects NULL for the default device. Explicit IDs contain the device name. */
     pDeviceName = NULL;
-    if (pDescriptor->pDeviceID != NULL && pDescriptor->pDeviceID->custom.i != -1) {
-        pDeviceName = pContextStateSDL->SDL_GetAudioDeviceName(pDescriptor->pDeviceID->custom.i, (deviceType == ma_device_type_playback) ? 0 : 1);
+    if (pDescriptor->pDeviceID != NULL && pDescriptor->pDeviceID->custom.s[0] != '\0') {
+        pDeviceName = pDescriptor->pDeviceID->custom.s;
     }
 
     deviceID = pContextStateSDL->SDL_OpenAudioDevice(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &desiredSpec, &obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
