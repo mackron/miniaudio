@@ -28897,6 +28897,9 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
         /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
         ResetEvent(pDeviceStateWinMM->hEventCapture);
 
+        /* Reset the cursor to match the order in which the buffers are queued. */
+        pDeviceStateWinMM->iNextHeaderCapture = 0;
+
         /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
         for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
             resultMM = pContextStateWinMM->waveInAddBuffer(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[iPeriod], sizeof(MA_WAVEHDR));
