@@ -51789,7 +51789,7 @@ static ma_result ma_device_step__webaudio(ma_device* pDevice, ma_blocking_mode b
         return MA_ERROR;
     }
 
-    /* It doesn't feel like a good idea to block on web page... I'm going to force non-blocking mode here. */
+    /* It doesn't feel like a good idea to block on the web build... I'm going to force non-blocking mode here. */
     (void)blockingMode;
     return ma_device_state_async_step(&pDeviceStateWebAudio->async, pDevice, MA_BLOCKING_MODE_NON_BLOCKING, NULL);
 }
