@@ -28982,6 +28982,9 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
         HANDLE handle = handles[waitResult - WAIT_OBJECT_0];
         ma_uint32 frameCount;
 
+        /* Reset before checking headers so completions during processing remain signaled. */
+        ResetEvent(handle);
+
         /* Capture. */
         if (handle == pDeviceStateWinMM->hEventCapture && (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex)) {
             MA_WAVEHDR* pWAVEHDR = pDeviceStateWinMM->pWAVEHDRCapture;
@@ -29003,9 +29006,6 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
                 /* Make sure we move to the next header. */
                 pDeviceStateWinMM->iNextHeaderCapture = (pDeviceStateWinMM->iNextHeaderCapture + 1) % pDevice->capture.internalPeriods;
             }
-
-            /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-            ResetEvent(pDeviceStateWinMM->hEventCapture);
         }
 
         /* Playback. */
@@ -29029,9 +29029,6 @@ static ma_result ma_device_step__winmm(ma_device* pDevice, ma_blocking_mode bloc
                 /* Make sure we move to the next header. */
                 pDeviceStateWinMM->iNextHeaderPlayback = (pDeviceStateWinMM->iNextHeaderPlayback + 1) % pDevice->playback.internalPeriods;
             }
-
-            /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
-            ResetEvent(pDeviceStateWinMM->hEventPlayback);
         }
     } else {
         /* Most likely a timeout in non-blocking mode. Nothing to do. */
