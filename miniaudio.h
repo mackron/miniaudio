@@ -28868,15 +28868,26 @@ static void ma_device_uninit__winmm(ma_device* pDevice)
     ma_device_state_winmm* pDeviceStateWinMM = ma_device_get_backend_state__winmm(pDevice);
     ma_context_state_winmm* pContextStateWinMM = ma_context_get_backend_state__winmm(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
+    ma_uint32 iPeriod;
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         pContextStateWinMM->waveInReset(pDeviceStateWinMM->hDeviceCapture);
+
+        for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; iPeriod += 1) {
+            pContextStateWinMM->waveInUnprepareHeader(pDeviceStateWinMM->hDeviceCapture, &pDeviceStateWinMM->pWAVEHDRCapture[iPeriod], sizeof(MA_WAVEHDR));
+        }
+
         pContextStateWinMM->waveInClose(pDeviceStateWinMM->hDeviceCapture);
         CloseHandle(pDeviceStateWinMM->hEventCapture);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         pContextStateWinMM->waveOutReset(pDeviceStateWinMM->hDevicePlayback);
+
+        for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
+            pContextStateWinMM->waveOutUnprepareHeader(pDeviceStateWinMM->hDevicePlayback, &pDeviceStateWinMM->pWAVEHDRPlayback[iPeriod], sizeof(MA_WAVEHDR));
+        }
+
         pContextStateWinMM->waveOutClose(pDeviceStateWinMM->hDevicePlayback);
         CloseHandle(pDeviceStateWinMM->hEventPlayback);
     }
