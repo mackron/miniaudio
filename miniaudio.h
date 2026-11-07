@@ -55163,23 +55163,9 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         return;
     }
 
-    /*
-    It's possible for the miniaudio side of the device and the backend to not be in sync due to
-    system-level situations such as the computer being put into sleep mode and the backend not
-    notifying miniaudio of the fact the device has stopped. It's possible for this to result in a
-    deadlock due to miniaudio thinking the device is in a running state, when in fact it's not
-    running at all. For this reason I am no longer explicitly stopping the device. I don't think
-    this should affect anyone in practice since uninitializing the backend will naturally stop the
-    device anyway.
-    */
-    #if 0
-    {
-        /* Make sure the device is stopped first. The backends will probably handle this naturally, but I like to do it explicitly for my own sanity. */
-        if (ma_device_is_started(pDevice)) {
-            ma_device_stop(pDevice);
-        }
+    if (ma_device_is_started(pDevice)) {
+        ma_device_stop(pDevice);
     }
-    #endif
 
     /* Keep the backend state alive until the wakeup callback has returned. */
     #ifndef MA_NO_THREADING
