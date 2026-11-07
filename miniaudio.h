@@ -75021,6 +75021,7 @@ MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo
 #endif
 
 #if defined(MA_USE_WIN32_FILEIO)
+#if !defined(MA_XBOX_NXDK)
 /*
 We need to dynamically load SetFilePointer or SetFilePointerEx because older versions of Windows do
 not have the Ex version. We therefore need to do some dynamic branching depending on what's available.
@@ -75045,6 +75046,7 @@ static void ma_win32_fileio_init(void)
         }
     }
 }
+#endif
 
 static void ma_default_vfs__get_open_settings_win32(ma_uint32 openMode, DWORD* pDesiredAccess, DWORD* pShareMode, DWORD* pCreationDisposition)
 {
@@ -75077,8 +75079,10 @@ static ma_result ma_default_vfs_open__win32(ma_vfs* pVFS, const char* pFilePath,
 
     (void)pVFS;
 
+    #if !defined(MA_XBOX_NXDK)
     /* Load some Win32 symbols dynamically so we can dynamically check for the existence of SetFilePointerEx. */
     ma_win32_fileio_init();
+    #endif
 
     ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
 
@@ -75237,6 +75241,9 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         dwMoveMethod = FILE_BEGIN;
     }
 
+    #if defined(MA_XBOX_NXDK)
+    result = SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
+    #else
     if (ma_SetFilePointerEx != NULL) {
         result = ma_SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
     } else if (ma_SetFilePointer != NULL) {
@@ -75249,6 +75256,7 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     } else {
         return MA_NOT_IMPLEMENTED;
     }
+    #endif
 
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
@@ -75267,6 +75275,9 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
 
     liZero.QuadPart = 0;
 
+    #if defined(MA_XBOX_NXDK)
+    result = SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
+    #else
     if (ma_SetFilePointerEx != NULL) {
         result = ma_SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
     } else if (ma_SetFilePointer != NULL) {
@@ -75277,6 +75288,7 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     } else {
         return MA_NOT_IMPLEMENTED;
     }
+    #endif
 
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
