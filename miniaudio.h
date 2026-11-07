@@ -52088,7 +52088,7 @@ static void ma_device_fill_sub_buffer__dreamcast(ma_device* pDevice, int subBuff
         ma_uint32 iSample;
 
         for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            ((ma_int8*)pDeviceStateDreamcast->pIntermediaryBuffer)[iSample] = (ma_int8)128 - ((ma_uint8*)pDeviceStateDreamcast->pIntermediaryBuffer)[iSample];
+            ((ma_int8*)pDeviceStateDreamcast->pIntermediaryBuffer)[iSample] = (ma_int8)(((ma_uint8*)pDeviceStateDreamcast->pIntermediaryBuffer)[iSample] - 128);
         }
 
         if (pDevice->playback.internalChannels == 1) {
