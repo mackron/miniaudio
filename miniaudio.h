@@ -26475,6 +26475,7 @@ typedef struct ma_device_state_dsound
     ma_IDirectSoundCapture* pCapture;
     ma_IDirectSoundCaptureBuffer* pCaptureBuffer;
     ma_bool32 isPlaybackDeviceStarted;
+    ma_bool32 isPlaybackBufferLost;
     DWORD prevReadCursorInBytesCapture;
     DWORD prevPlayCursorInBytesPlayback;
     ma_bool32 physicalPlayCursorLoopFlagPlayback;
@@ -27454,7 +27455,7 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         /* The playback device should be drained before stopping. All we do is wait until the available bytes is equal to the size of the buffer. */
-        if (pDeviceStateDSound->isPlaybackDeviceStarted) {
+        if (pDeviceStateDSound->isPlaybackDeviceStarted && !pDeviceStateDSound->isPlaybackBufferLost) {
             ma_timer timer;
             double drainTimeoutInSeconds = 1;
 
@@ -27550,6 +27551,296 @@ static ma_result ma_device_stop__dsound(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static HRESULT ma_device_restore_playback_buffer__dsound(ma_device* pDevice)
+{
+    ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
+    HRESULT hr;
+
+    hr = ma_IDirectSoundBuffer_Restore(pDeviceStateDSound->pPlaybackBuffer);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    /* Restoring only recovers the allocation. Stop and rewind so step() can refill it before playing. */
+    hr = ma_IDirectSoundBuffer_Stop(pDeviceStateDSound->pPlaybackBuffer);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = ma_IDirectSoundBuffer_SetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, 0);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    pDeviceStateDSound->prevPlayCursorInBytesPlayback      = 0;
+    pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback = 0;
+    pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = 0;
+    pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = 0;
+    pDeviceStateDSound->framesWrittenToPlaybackDevice      = 0;
+    pDeviceStateDSound->isPlaybackDeviceStarted            = MA_FALSE;
+    pDeviceStateDSound->isPlaybackBufferLost               = MA_FALSE;
+
+    return S_OK;
+}
+
+static HRESULT ma_device_step_capture__dsound(ma_device* pDevice, ma_bool32* pWasDataProcessed)
+{
+    ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
+    HRESULT hr;
+    DWORD physicalCaptureCursorInBytes;
+    DWORD physicalReadCursorInBytes;
+    DWORD lockOffsetInBytesCapture;
+    DWORD lockSizeInBytesCapture;
+    DWORD mappedSizeInBytesCapture;
+    void* pMappedDeviceBufferCapture;
+    ma_uint32 bpfDeviceCapture = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
+
+    hr = ma_IDirectSoundCaptureBuffer_GetCurrentPosition(pDeviceStateDSound->pCaptureBuffer, &physicalCaptureCursorInBytes, &physicalReadCursorInBytes);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    /* If the previous capture position is the same as the current position we need to wait a bit longer. */
+    if (pDeviceStateDSound->prevReadCursorInBytesCapture != physicalReadCursorInBytes) {
+        /* Getting here means we have capture data available. */
+        if (pDeviceStateDSound->prevReadCursorInBytesCapture < physicalReadCursorInBytes) {
+            /* The capture position has not looped. This is the simple case. */
+            lockOffsetInBytesCapture = pDeviceStateDSound->prevReadCursorInBytesCapture;
+            lockSizeInBytesCapture   = (physicalReadCursorInBytes - pDeviceStateDSound->prevReadCursorInBytesCapture);
+        } else {
+            /*
+            The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
+            do it again from the start.
+            */
+            if (pDeviceStateDSound->prevReadCursorInBytesCapture < pDevice->capture.internalPeriodSizeInFrames*pDevice->capture.internalPeriods*bpfDeviceCapture) {
+                /* Lock up to the end of the buffer. */
+                lockOffsetInBytesCapture = pDeviceStateDSound->prevReadCursorInBytesCapture;
+                lockSizeInBytesCapture   = (pDevice->capture.internalPeriodSizeInFrames*pDevice->capture.internalPeriods*bpfDeviceCapture) - pDeviceStateDSound->prevReadCursorInBytesCapture;
+            } else {
+                /* Lock starting from the start of the buffer. */
+                lockOffsetInBytesCapture = 0;
+                lockSizeInBytesCapture   = physicalReadCursorInBytes;
+            }
+        }
+
+        if (lockSizeInBytesCapture > 0) {
+            hr = ma_IDirectSoundCaptureBuffer_Lock(pDeviceStateDSound->pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedDeviceBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
+            if (FAILED(hr)) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.");
+                return hr;
+            }
+
+            if (lockSizeInBytesCapture != mappedSizeInBytesCapture) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[DirectSound] (Capture) lockSizeInBytesCapture=%ld != mappedSizeInBytesCapture=%ld", lockSizeInBytesCapture, mappedSizeInBytesCapture);
+            }
+
+            ma_device_handle_backend_data_callback(pDevice, NULL, pMappedDeviceBufferCapture, mappedSizeInBytesCapture/bpfDeviceCapture);
+
+            hr = ma_IDirectSoundCaptureBuffer_Unlock(pDeviceStateDSound->pCaptureBuffer, pMappedDeviceBufferCapture, mappedSizeInBytesCapture, NULL, 0);
+            if (FAILED(hr)) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.");
+                return hr;
+            }
+            pDeviceStateDSound->prevReadCursorInBytesCapture = lockOffsetInBytesCapture + mappedSizeInBytesCapture;
+
+            if (pDeviceStateDSound->prevReadCursorInBytesCapture == (pDevice->capture.internalPeriodSizeInFrames*pDevice->capture.internalPeriods*bpfDeviceCapture)) {
+                pDeviceStateDSound->prevReadCursorInBytesCapture = 0;
+            }
+
+            *pWasDataProcessed = MA_TRUE;
+        }
+    }
+
+    return S_OK;
+}
+
+static HRESULT ma_device_step_playback__dsound(ma_device* pDevice, ma_bool32* pWasDataProcessed)
+{
+    ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
+    HRESULT hr;
+    DWORD availableBytesPlayback;
+    DWORD physicalPlayCursorInBytes;
+    DWORD physicalWriteCursorInBytes;
+    DWORD lockOffsetInBytesPlayback;
+    DWORD lockSizeInBytesPlayback;
+    DWORD mappedSizeInBytesPlayback;
+    void* pMappedDeviceBufferPlayback;
+    DWORD playbackBufferStatus = 0;
+    ma_uint32 bpfDevicePlayback;
+    DWORD bufferSizeInBytesPlayback;
+    ma_bool32 isPlaybackBufferUnderrun = MA_FALSE;
+
+    if (pDeviceStateDSound->isPlaybackBufferLost) {
+        return MA_DSERR_BUFFERLOST;
+    }
+
+    bpfDevicePlayback = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    bufferSizeInBytesPlayback = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * bpfDevicePlayback;
+
+    hr = ma_IDirectSoundBuffer_GetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    /* If the playback device is not started, start it now. */
+    hr = ma_IDirectSoundBuffer_GetStatus(pDeviceStateDSound->pPlaybackBuffer, &playbackBufferStatus);
+    if (hr == MA_DSERR_BUFFERLOST || (SUCCEEDED(hr) && (playbackBufferStatus & MA_DSBSTATUS_BUFFERLOST) != 0)) {
+        return MA_DSERR_BUFFERLOST;
+    }
+
+    if (SUCCEEDED(hr) && (playbackBufferStatus & MA_DSBSTATUS_PLAYING) == 0 && pDeviceStateDSound->isPlaybackDeviceStarted) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[DirectSound] Attempting to resume audio due to state: %d.", (int)playbackBufferStatus);
+
+        hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
+        if (FAILED(hr)) {
+            if (hr != MA_DSERR_BUFFERLOST) {
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed after attempting to resume from state %d.", (int)playbackBufferStatus);
+            }
+            
+            return hr;
+        }
+    } else {
+        if (physicalPlayCursorInBytes < pDeviceStateDSound->prevPlayCursorInBytesPlayback) {
+            pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback = !pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback;
+        }
+
+        pDeviceStateDSound->prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
+
+        /* If there's any bytes available for writing we can do that now. The space between the virtual cursor position and play cursor. */
+        if (pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback == pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback) {
+            /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
+            if (physicalPlayCursorInBytes <= pDeviceStateDSound->virtualWriteCursorInBytesPlayback) {
+                availableBytesPlayback  = bufferSizeInBytesPlayback - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
+                availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
+            } else {
+                /* This is an error. */
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] (Playback): Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.", physicalPlayCursorInBytes, pDeviceStateDSound->virtualWriteCursorInBytesPlayback);
+                availableBytesPlayback = 0;
+                isPlaybackBufferUnderrun = MA_TRUE;
+            }
+        } else {
+            /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
+            if (physicalPlayCursorInBytes >= pDeviceStateDSound->virtualWriteCursorInBytesPlayback) {
+                availableBytesPlayback = physicalPlayCursorInBytes - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
+            } else {
+                /* This is an error. */
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] (Playback): Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.", physicalPlayCursorInBytes, pDeviceStateDSound->virtualWriteCursorInBytesPlayback);
+                availableBytesPlayback = 0;
+                isPlaybackBufferUnderrun = MA_TRUE;
+            }
+        }
+
+        /* Once playing, the region from the play cursor to the hardware write cursor is already committed. */
+        if (pDeviceStateDSound->isPlaybackDeviceStarted) {
+            DWORD safeWriteSizeInBytes;
+
+            if (physicalWriteCursorInBytes >= physicalPlayCursorInBytes) {
+                safeWriteSizeInBytes = bufferSizeInBytesPlayback - physicalWriteCursorInBytes + physicalPlayCursorInBytes;
+            } else {
+                safeWriteSizeInBytes = physicalPlayCursorInBytes - physicalWriteCursorInBytes;
+            }
+
+            if (isPlaybackBufferUnderrun || availableBytesPlayback > safeWriteSizeInBytes) {
+                DWORD alignmentPaddingInBytes = (bpfDevicePlayback - physicalWriteCursorInBytes % bpfDevicePlayback) % bpfDevicePlayback;
+
+                /* Resume at the first complete frame after the hardware write cursor, keeping the loop flags in sync. */
+                pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = physicalWriteCursorInBytes + alignmentPaddingInBytes;
+                pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback;
+
+                if (physicalWriteCursorInBytes < physicalPlayCursorInBytes) {
+                    pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
+                }
+
+                if (pDeviceStateDSound->virtualWriteCursorInBytesPlayback == bufferSizeInBytesPlayback) {
+                    pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = 0;
+                    pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
+                }
+
+                if (safeWriteSizeInBytes > alignmentPaddingInBytes) {
+                    availableBytesPlayback = safeWriteSizeInBytes - alignmentPaddingInBytes;
+                } else {
+                    availableBytesPlayback = 0;
+                }
+            }
+        }
+
+        /* Only process complete frames, even if a cursor is reported between frame boundaries. */
+        availableBytesPlayback -= availableBytesPlayback % bpfDevicePlayback;
+
+        /* If there's no room available for writing we need to wait for more. */
+        if (availableBytesPlayback > 0) {
+            /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
+            lockOffsetInBytesPlayback = pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
+            lockSizeInBytesPlayback = ma_min(availableBytesPlayback, bufferSizeInBytesPlayback - lockOffsetInBytesPlayback);
+
+            hr = ma_IDirectSoundBuffer_Lock(pDeviceStateDSound->pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedDeviceBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
+            if (FAILED(hr)) {
+                if (hr != MA_DSERR_BUFFERLOST) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.");
+                }
+
+                return hr;
+            }
+
+            /* At this point we have a buffer for output. */
+            ma_device_handle_backend_data_callback(pDevice, pMappedDeviceBufferPlayback, NULL, (mappedSizeInBytesPlayback/bpfDevicePlayback));
+
+            hr = ma_IDirectSoundBuffer_Unlock(pDeviceStateDSound->pPlaybackBuffer, pMappedDeviceBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
+            if (FAILED(hr)) {
+                if (hr != MA_DSERR_BUFFERLOST) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.");
+                }
+
+                return hr;
+            }
+
+            pDeviceStateDSound->virtualWriteCursorInBytesPlayback += mappedSizeInBytesPlayback;
+            if (pDeviceStateDSound->virtualWriteCursorInBytesPlayback == pDevice->playback.internalPeriodSizeInFrames*pDevice->playback.internalPeriods*bpfDevicePlayback) {
+                pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = 0;
+                pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
+            }
+
+            /*
+            We may need to start the device. We want two full periods to be written before starting the playback device. Having an extra period adds
+            a bit of a buffer to prevent the playback buffer from getting starved.
+            */
+            if (pDeviceStateDSound->framesWrittenToPlaybackDevice < mappedSizeInBytesPlayback/bpfDevicePlayback) {
+                pDeviceStateDSound->framesWrittenToPlaybackDevice += mappedSizeInBytesPlayback/bpfDevicePlayback;
+                if (!pDeviceStateDSound->isPlaybackDeviceStarted && pDeviceStateDSound->framesWrittenToPlaybackDevice >= pDevice->playback.internalPeriodSizeInFrames) {
+                    hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
+                    if (FAILED(hr)) {
+                        if (hr != MA_DSERR_BUFFERLOST) {
+                            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.");
+                        }
+
+                        return hr;
+                    }
+
+                    pDeviceStateDSound->isPlaybackDeviceStarted = MA_TRUE;
+                }
+            }
+
+            *pWasDataProcessed = MA_TRUE;
+        } else {
+            /* Make sure the device is started or else our pointers will never progress. */
+            if (availableBytesPlayback == 0 && !pDeviceStateDSound->isPlaybackDeviceStarted) {
+                hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
+                if (FAILED(hr)) {
+                    if (hr != MA_DSERR_BUFFERLOST) {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.");
+                    }
+
+                    return hr;
+                }
+
+                pDeviceStateDSound->isPlaybackDeviceStarted = MA_TRUE;
+            }
+        }
+    }
+
+    return S_OK;
+}
+
 static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
     ma_device_state_dsound* pDeviceStateDSound = ma_device_get_backend_state__dsound(pDevice);
@@ -27568,7 +27859,7 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
 
     There are two issues with using notification events. The first is that I was unable to get the latency as
     low as a can with polling. Most likely an issue on my side, but I wasn't able to figure it out.
-    
+
     The other issue is with the handling of device rerouting. From what I can tell, DirectSound does not have a
     way to register an event for detecting a device switch (if this is incorrect, I'd be interested to hear about
     it). This make it difficult to handle with respect to `WaitForMultipleObjects()` because when the device
@@ -27581,233 +27872,30 @@ static ma_result ma_device_step__dsound(ma_device* pDevice, ma_blocking_mode blo
     /* We keep looping until we process some data. */
     while (ma_device_is_started(pDevice)) {
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-            DWORD physicalCaptureCursorInBytes;
-            DWORD physicalReadCursorInBytes;
-            DWORD lockOffsetInBytesCapture;
-            DWORD lockSizeInBytesCapture;
-            DWORD mappedSizeInBytesCapture;
-            void* pMappedDeviceBufferCapture;
-            ma_uint32 bpfDeviceCapture  = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-            
-            hr = ma_IDirectSoundCaptureBuffer_GetCurrentPosition(pDeviceStateDSound->pCaptureBuffer, &physicalCaptureCursorInBytes, &physicalReadCursorInBytes);
+            hr = ma_device_step_capture__dsound(pDevice, &wasDataProcessed);
             if (FAILED(hr)) {
                 result = ma_result_from_HRESULT(hr);
                 goto error;
-            }
-
-            /* If the previous capture position is the same as the current position we need to wait a bit longer. */
-            if (pDeviceStateDSound->prevReadCursorInBytesCapture != physicalReadCursorInBytes) {
-                /* Getting here means we have capture data available. */
-                if (pDeviceStateDSound->prevReadCursorInBytesCapture < physicalReadCursorInBytes) {
-                    /* The capture position has not looped. This is the simple case. */
-                    lockOffsetInBytesCapture = pDeviceStateDSound->prevReadCursorInBytesCapture;
-                    lockSizeInBytesCapture   = (physicalReadCursorInBytes - pDeviceStateDSound->prevReadCursorInBytesCapture);
-                } else {
-                    /*
-                    The capture position has looped. This is the more complex case. Map to the end of the buffer. If this does not return anything,
-                    do it again from the start.
-                    */
-                    if (pDeviceStateDSound->prevReadCursorInBytesCapture < pDevice->capture.internalPeriodSizeInFrames*pDevice->capture.internalPeriods*bpfDeviceCapture) {
-                        /* Lock up to the end of the buffer. */
-                        lockOffsetInBytesCapture = pDeviceStateDSound->prevReadCursorInBytesCapture;
-                        lockSizeInBytesCapture   = (pDevice->capture.internalPeriodSizeInFrames*pDevice->capture.internalPeriods*bpfDeviceCapture) - pDeviceStateDSound->prevReadCursorInBytesCapture;
-                    } else {
-                        /* Lock starting from the start of the buffer. */
-                        lockOffsetInBytesCapture = 0;
-                        lockSizeInBytesCapture   = physicalReadCursorInBytes;
-                    }
-                }
-
-                if (lockSizeInBytesCapture > 0) {
-                    hr = ma_IDirectSoundCaptureBuffer_Lock(pDeviceStateDSound->pCaptureBuffer, lockOffsetInBytesCapture, lockSizeInBytesCapture, &pMappedDeviceBufferCapture, &mappedSizeInBytesCapture, NULL, NULL, 0);
-                    if (FAILED(hr)) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from capture device in preparation for writing to the device.");
-                        result = ma_result_from_HRESULT(hr);
-                        goto error;
-                    }
-
-                    if (lockSizeInBytesCapture != mappedSizeInBytesCapture) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[DirectSound] (Capture) lockSizeInBytesCapture=%ld != mappedSizeInBytesCapture=%ld", lockSizeInBytesCapture, mappedSizeInBytesCapture);
-                    }
-
-                    ma_device_handle_backend_data_callback(pDevice, NULL, pMappedDeviceBufferCapture, mappedSizeInBytesCapture/bpfDeviceCapture);
-
-                    hr = ma_IDirectSoundCaptureBuffer_Unlock(pDeviceStateDSound->pCaptureBuffer, pMappedDeviceBufferCapture, mappedSizeInBytesCapture, NULL, 0);
-                    if (FAILED(hr)) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from capture device after reading from the device.");
-                        result = ma_result_from_HRESULT(hr);
-                        goto error;
-                    }
-                    pDeviceStateDSound->prevReadCursorInBytesCapture = lockOffsetInBytesCapture + mappedSizeInBytesCapture;
-
-                    if (pDeviceStateDSound->prevReadCursorInBytesCapture == (pDevice->capture.internalPeriodSizeInFrames*pDevice->capture.internalPeriods*bpfDeviceCapture)) {
-                        pDeviceStateDSound->prevReadCursorInBytesCapture = 0;
-                    }
-
-                    wasDataProcessed = MA_TRUE;
-                }
             }
         }
 
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            DWORD availableBytesPlayback;
-            DWORD physicalPlayCursorInBytes;
-            DWORD physicalWriteCursorInBytes;
-            DWORD lockOffsetInBytesPlayback;
-            DWORD lockSizeInBytesPlayback;
-            DWORD mappedSizeInBytesPlayback;
-            void* pMappedDeviceBufferPlayback;
-            DWORD playbackBufferStatus = 0;
-            ma_uint32 bpfDevicePlayback = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-            DWORD bufferSizeInBytesPlayback = pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * bpfDevicePlayback;
-            ma_bool32 isPlaybackBufferUnderrun = MA_FALSE;
+            hr = ma_device_step_playback__dsound(pDevice, &wasDataProcessed);
+            if (hr == MA_DSERR_BUFFERLOST) {
+                pDeviceStateDSound->isPlaybackBufferLost = MA_TRUE;
 
-            hr = ma_IDirectSoundBuffer_GetCurrentPosition(pDeviceStateDSound->pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
+                hr = ma_device_restore_playback_buffer__dsound(pDevice);
+                if (hr == MA_DSERR_BUFFERLOST || hr == MA_DSERR_OTHERAPPHASPRIO) {
+                    /* Another application may still own the buffer. Retry through the normal wait below. */
+                    hr = S_OK;
+                } else if (FAILED(hr)) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to restore the playback buffer.");
+                }
+            }
+
             if (FAILED(hr)) {
                 result = ma_result_from_HRESULT(hr);
                 goto error;
-            }
-
-            /* If the playback device is not started, start it now. */
-            hr = ma_IDirectSoundBuffer_GetStatus(pDeviceStateDSound->pPlaybackBuffer, &playbackBufferStatus);
-            if (SUCCEEDED(hr) && (playbackBufferStatus & MA_DSBSTATUS_PLAYING) == 0 && pDeviceStateDSound->isPlaybackDeviceStarted) {
-                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[DirectSound] Attempting to resume audio due to state: %d.", (int)playbackBufferStatus);
-                hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
-                if (FAILED(hr)) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed after attempting to resume from state %d.", (int)playbackBufferStatus);
-                    result = ma_result_from_HRESULT(hr);
-                    goto error;
-                }
-            } else {
-                if (physicalPlayCursorInBytes < pDeviceStateDSound->prevPlayCursorInBytesPlayback) {
-                    pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback = !pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback;
-                }
-
-                pDeviceStateDSound->prevPlayCursorInBytesPlayback  = physicalPlayCursorInBytes;
-
-                /* If there's any bytes available for writing we can do that now. The space between the virtual cursor position and play cursor. */
-                if (pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback == pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback) {
-                    /* Same loop iteration. The available bytes wraps all the way around from the virtual write cursor to the physical play cursor. */
-                    if (physicalPlayCursorInBytes <= pDeviceStateDSound->virtualWriteCursorInBytesPlayback) {
-                        availableBytesPlayback  = bufferSizeInBytesPlayback - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
-                        availableBytesPlayback += physicalPlayCursorInBytes;    /* Wrap around. */
-                    } else {
-                        /* This is an error. */
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] (Playback): Play cursor has moved in front of the write cursor (same loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.", physicalPlayCursorInBytes, pDeviceStateDSound->virtualWriteCursorInBytesPlayback);
-                        availableBytesPlayback = 0;
-                        isPlaybackBufferUnderrun = MA_TRUE;
-                    }
-                } else {
-                    /* Different loop iterations. The available bytes only goes from the virtual write cursor to the physical play cursor. */
-                    if (physicalPlayCursorInBytes >= pDeviceStateDSound->virtualWriteCursorInBytesPlayback) {
-                        availableBytesPlayback = physicalPlayCursorInBytes - pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
-                    } else {
-                        /* This is an error. */
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[DirectSound] (Playback): Write cursor has moved behind the play cursor (different loop iterations). physicalPlayCursorInBytes=%ld, virtualWriteCursorInBytes=%ld.", physicalPlayCursorInBytes, pDeviceStateDSound->virtualWriteCursorInBytesPlayback);
-                        availableBytesPlayback = 0;
-                        isPlaybackBufferUnderrun = MA_TRUE;
-                    }
-                }
-
-                /* Once playing, the region from the play cursor to the hardware write cursor is already committed. */
-                if (pDeviceStateDSound->isPlaybackDeviceStarted) {
-                    DWORD safeWriteSizeInBytes;
-
-                    if (physicalWriteCursorInBytes >= physicalPlayCursorInBytes) {
-                        safeWriteSizeInBytes = bufferSizeInBytesPlayback - physicalWriteCursorInBytes + physicalPlayCursorInBytes;
-                    } else {
-                        safeWriteSizeInBytes = physicalPlayCursorInBytes - physicalWriteCursorInBytes;
-                    }
-
-                    if (isPlaybackBufferUnderrun || availableBytesPlayback > safeWriteSizeInBytes) {
-                        DWORD alignmentPaddingInBytes = (bpfDevicePlayback - physicalWriteCursorInBytes % bpfDevicePlayback) % bpfDevicePlayback;
-
-                        /* Resume at the first complete frame after the hardware write cursor, keeping the loop flags in sync. */
-                        pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = physicalWriteCursorInBytes + alignmentPaddingInBytes;
-                        pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = pDeviceStateDSound->physicalPlayCursorLoopFlagPlayback;
-                        
-                        if (physicalWriteCursorInBytes < physicalPlayCursorInBytes) {
-                            pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
-                        }
-                        
-                        if (pDeviceStateDSound->virtualWriteCursorInBytesPlayback == bufferSizeInBytesPlayback) {
-                            pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = 0;
-                            pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
-                        }
-
-                        if (safeWriteSizeInBytes > alignmentPaddingInBytes) {
-                            availableBytesPlayback = safeWriteSizeInBytes - alignmentPaddingInBytes;
-                        } else {
-                            availableBytesPlayback = 0;
-                        }
-
-                    }
-                }
-
-                /* Only process complete frames, even if a cursor is reported between frame boundaries. */
-                availableBytesPlayback -= availableBytesPlayback % bpfDevicePlayback;
-
-                /* If there's no room available for writing we need to wait for more. */
-                if (availableBytesPlayback > 0) {
-                    /* Getting here means there room available somewhere. We limit this to either the end of the buffer or the physical play cursor, whichever is closest. */
-                    lockOffsetInBytesPlayback = pDeviceStateDSound->virtualWriteCursorInBytesPlayback;
-                    lockSizeInBytesPlayback = ma_min(availableBytesPlayback, bufferSizeInBytesPlayback - lockOffsetInBytesPlayback);
-
-                    hr = ma_IDirectSoundBuffer_Lock(pDeviceStateDSound->pPlaybackBuffer, lockOffsetInBytesPlayback, lockSizeInBytesPlayback, &pMappedDeviceBufferPlayback, &mappedSizeInBytesPlayback, NULL, NULL, 0);
-                    if (FAILED(hr)) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to map buffer from playback device in preparation for writing to the device.");
-                        result = ma_result_from_HRESULT(hr);
-                        goto error;
-                    }
-
-                    /* At this point we have a buffer for output. */
-                    ma_device_handle_backend_data_callback(pDevice, pMappedDeviceBufferPlayback, NULL, (mappedSizeInBytesPlayback/bpfDevicePlayback));
-
-                    hr = ma_IDirectSoundBuffer_Unlock(pDeviceStateDSound->pPlaybackBuffer, pMappedDeviceBufferPlayback, mappedSizeInBytesPlayback, NULL, 0);
-                    if (FAILED(hr)) {
-                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to unlock internal buffer from playback device after writing to the device.");
-                        result = ma_result_from_HRESULT(hr);
-                        goto error;
-                    }
-
-                    pDeviceStateDSound->virtualWriteCursorInBytesPlayback += mappedSizeInBytesPlayback;
-                    if (pDeviceStateDSound->virtualWriteCursorInBytesPlayback == pDevice->playback.internalPeriodSizeInFrames*pDevice->playback.internalPeriods*bpfDevicePlayback) {
-                        pDeviceStateDSound->virtualWriteCursorInBytesPlayback  = 0;
-                        pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback = !pDeviceStateDSound->virtualWriteCursorLoopFlagPlayback;
-                    }
-
-                    /*
-                    We may need to start the device. We want two full periods to be written before starting the playback device. Having an extra period adds
-                    a bit of a buffer to prevent the playback buffer from getting starved.
-                    */
-                    if (pDeviceStateDSound->framesWrittenToPlaybackDevice < mappedSizeInBytesPlayback/bpfDevicePlayback) {
-                        pDeviceStateDSound->framesWrittenToPlaybackDevice += mappedSizeInBytesPlayback/bpfDevicePlayback;
-                        if (!pDeviceStateDSound->isPlaybackDeviceStarted && pDeviceStateDSound->framesWrittenToPlaybackDevice >= pDevice->playback.internalPeriodSizeInFrames) {
-                            hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
-                            if (FAILED(hr)) {
-                                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.");
-                                result = ma_result_from_HRESULT(hr);
-                                goto error;
-                            }
-
-                            pDeviceStateDSound->isPlaybackDeviceStarted = MA_TRUE;
-                        }
-                    }
-
-                    wasDataProcessed = MA_TRUE;
-                } else {
-                    /* Make sure the device is started or else our pointers will never progress. */
-                    if (availableBytesPlayback == 0 && !pDeviceStateDSound->isPlaybackDeviceStarted) {
-                        hr = ma_IDirectSoundBuffer_Play(pDeviceStateDSound->pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
-                        if (FAILED(hr)) {
-                            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed.");
-                            result = ma_result_from_HRESULT(hr);
-                            goto error;
-                        }
-
-                        pDeviceStateDSound->isPlaybackDeviceStarted = MA_TRUE;
-                    }
-                }
             }
         }
 
