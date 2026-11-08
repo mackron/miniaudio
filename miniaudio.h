@@ -8260,6 +8260,7 @@ typedef union
     union
     {
         int i;
+        unsigned int u;
         char s[256];
         void* p;
     } custom;                       /* External backends could be anything. Give them a few options. */
