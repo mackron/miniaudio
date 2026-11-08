@@ -52780,6 +52780,7 @@ typedef struct ma_device_state_vita
     int port;
     ma_bool32 isRunning;    /* Used for tracking whether or not the background thread should be terminated. */
     ma_thread thread;       /* Need to call sceAudioOutOutput() from a separate thread because it is always blocking. */
+    ma_semaphore semaphore;
     ma_uint32 subBufferIndexRead;
     ma_uint32 subBufferIndexWrite;
     ma_uint32 validSubBufferCount;
@@ -52862,7 +52863,19 @@ static ma_thread_result MA_THREADCALL ma_device_audio_thread__vita(void* pUserDa
 {
     ma_device_state_vita* pDeviceStateVita = (ma_device_state_vita*)pUserData;
 
-    while (ma_atomic_load_explicit_32(&pDeviceStateVita->isRunning, ma_atomic_memory_order_relaxed)) {
+    for (;;) {
+        ma_result result;
+
+        result = ma_semaphore_wait(&pDeviceStateVita->semaphore);
+        if (!ma_atomic_load_explicit_32(&pDeviceStateVita->isRunning, ma_atomic_memory_order_relaxed)) {
+            break;
+        }
+
+        if (result != MA_SUCCESS) {
+            ma_sleep(10);
+            continue;
+        }
+
         if (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) > 0) {
             ma_uint32 subBufferIndex;
             int resultVita;
@@ -52878,9 +52891,6 @@ static ma_thread_result MA_THREADCALL ma_device_audio_thread__vita(void* pUserDa
 
             ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexRead, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
             ma_atomic_fetch_sub_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
-        } else {
-            /* Just a dumb sleep so we don't peg the CPU while the device is not stopped. */
-            ma_sleep(10);
         }
     }
 
@@ -52968,14 +52978,19 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     pDeviceStateVita->pSubBuffers = ma_malloc(pDeviceStateVita->subBufferSizeInBytes * 2, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateVita->pSubBuffers == NULL) {
         result = MA_OUT_OF_MEMORY;
-        goto error;
+        goto error_0;
     }
 
     pDeviceStateVita->port = sceAudioOutOpenPort(portType, (int)periodSizeInFrames, (int)sampleRate, (channels == 1) ? SCE_AUDIO_OUT_MODE_MONO : SCE_AUDIO_OUT_MODE_STEREO);
     if (pDeviceStateVita->port < 0) {
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[Vita] Failed to open port.");
         result = MA_ERROR;
-        goto error;
+        goto error_0;
+    }
+
+    result = ma_semaphore_init(0, &pDeviceStateVita->semaphore);
+    if (result != MA_SUCCESS) {
+        goto error_0;
     }
 
     /* Make sure the running status is set appropriately so the audio thread doesn't immediately terminate itself. */
@@ -52989,7 +53004,7 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     result = ma_thread_create(&pDeviceStateVita->thread, ma_thread_priority_default, 0, ma_device_audio_thread__vita, pDeviceStateVita, ma_device_get_allocation_callbacks(pDevice));
     if (result != MA_SUCCESS) {
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[Vita] Failed to create audio thread.");
-        goto error;
+        goto error_1;
     }
 
     /* Update the descriptor with the actual internal settings. */
@@ -53004,7 +53019,9 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
 
     return MA_SUCCESS;
 
-error:
+error_1:
+    ma_semaphore_uninit(&pDeviceStateVita->semaphore);
+error_0:
     if (pDeviceStateVita->port >= 0) {
         sceAudioOutReleasePort(pDeviceStateVita->port);
     }
@@ -53020,7 +53037,9 @@ static void ma_device_uninit__vita(ma_device* pDevice)
 
     /* Kill the thread first. */
     ma_atomic_store_explicit_32(&pDeviceStateVita->isRunning, 0, ma_atomic_memory_order_relaxed);
+    ma_semaphore_release(&pDeviceStateVita->semaphore);
     ma_thread_wait(&pDeviceStateVita->thread);
+    ma_semaphore_uninit(&pDeviceStateVita->semaphore);
 
     sceAudioOutReleasePort(pDeviceStateVita->port);
     ma_free(pDeviceStateVita->pSubBuffers, ma_device_get_allocation_callbacks(pDevice));
@@ -53076,6 +53095,7 @@ static ma_result ma_device_step__vita(ma_device* pDevice, ma_blocking_mode block
             ma_device_handle_backend_data_callback(pDevice, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex), NULL, pDevice->playback.internalPeriodSizeInFrames);
             ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexWrite, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
             ma_atomic_fetch_add_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
+            ma_semaphore_release(&pDeviceStateVita->semaphore);
 
             return MA_SUCCESS;
         }
