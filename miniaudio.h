@@ -52908,6 +52908,8 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
         return MA_OUT_OF_MEMORY;
     }
 
+    pDeviceStateVita->port = -1;
+
     /* Port type. */
     portType = SCE_AUDIO_OUT_PORT_TYPE_BGM;
     if (pDeviceConfigVita->portType == MA_VITA_PORT_TYPE_MAIN) {
@@ -52951,14 +52953,15 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     pDeviceStateVita->subBufferSizeInBytes = periodSizeInFrames * ma_get_bytes_per_frame(format, channels);
     pDeviceStateVita->pSubBuffers = ma_malloc(pDeviceStateVita->subBufferSizeInBytes * 2, ma_device_get_allocation_callbacks(pDevice));
     if (pDeviceStateVita->pSubBuffers == NULL) {
-        return MA_OUT_OF_MEMORY;
+        result = MA_OUT_OF_MEMORY;
+        goto error;
     }
 
     pDeviceStateVita->port = sceAudioOutOpenPort(portType, (int)periodSizeInFrames, (int)sampleRate, (channels == 1) ? SCE_AUDIO_OUT_MODE_MONO : SCE_AUDIO_OUT_MODE_STEREO);
     if (pDeviceStateVita->port < 0) {
-        ma_free(pDeviceStateVita->pSubBuffers, ma_device_get_allocation_callbacks(pDevice));
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[Vita] Failed to open port.");
-        return MA_ERROR;
+        result = MA_ERROR;
+        goto error;
     }
 
     /* Make sure the running status is set appropriately so the audio thread doesn't immediately terminate itself. */
@@ -52971,10 +52974,8 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     */
     result = ma_thread_create(&pDeviceStateVita->thread, ma_thread_priority_default, 0, ma_device_audio_thread__vita, pDeviceStateVita, ma_device_get_allocation_callbacks(pDevice));
     if (result != MA_SUCCESS) {
-        sceAudioOutReleasePort(pDeviceStateVita->port);
-        ma_free(pDeviceStateVita->pSubBuffers, ma_device_get_allocation_callbacks(pDevice));
         ma_log_postf(pLog, MA_LOG_LEVEL_ERROR, "[Vita] Failed to create audio thread.");
-        return MA_ERROR;
+        goto error;
     }
 
     /* Update the descriptor with the actual internal settings. */
@@ -52987,6 +52988,15 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     *ppDeviceState = pDeviceStateVita;
 
     return MA_SUCCESS;
+
+error:
+    if (pDeviceStateVita->port >= 0) {
+        sceAudioOutReleasePort(pDeviceStateVita->port);
+    }
+
+    ma_free(pDeviceStateVita->pSubBuffers, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateVita, ma_device_get_allocation_callbacks(pDevice));
+    return result;
 }
 
 static void ma_device_uninit__vita(ma_device* pDevice)
