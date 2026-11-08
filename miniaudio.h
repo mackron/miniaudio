@@ -52773,6 +52773,7 @@ typedef struct ma_context_state_vita
 
 typedef struct ma_device_state_vita
 {
+    ma_device* pDevice;
     int port;
     ma_bool32 isRunning;    /* Used for tracking whether or not the background thread should be terminated. */
     ma_thread thread;       /* Need to call sceAudioOutOutput() from a separate thread because it is always blocking. */
@@ -52860,9 +52861,17 @@ static ma_thread_result MA_THREADCALL ma_device_audio_thread__vita(void* pUserDa
 
     while (ma_atomic_load_explicit_32(&pDeviceStateVita->isRunning, ma_atomic_memory_order_relaxed)) {
         if (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) > 0) {
-            ma_uint32 subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndexRead, ma_atomic_memory_order_relaxed);
+            ma_uint32 subBufferIndex;
+            int resultVita;
 
-            sceAudioOutOutput(pDeviceStateVita->port, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex));
+            subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndexRead, ma_atomic_memory_order_relaxed);
+            resultVita = sceAudioOutOutput(pDeviceStateVita->port, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex));
+            if (resultVita < 0) {
+                ma_log_postf(ma_device_get_log(pDeviceStateVita->pDevice), MA_LOG_LEVEL_ERROR, "[Vita] Failed to output audio. Error code: %d.", resultVita);
+
+                /* A failed output call may return immediately. Sleep for a bit so we don't use excessive CPU. */
+                ma_sleep(10);
+            }
 
             ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexRead, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
             ma_atomic_fetch_sub_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
@@ -52909,7 +52918,8 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
         return MA_OUT_OF_MEMORY;
     }
 
-    pDeviceStateVita->port = -1;
+    pDeviceStateVita->pDevice = pDevice;
+    pDeviceStateVita->port    = -1;
 
     /* Port type. */
     portType = SCE_AUDIO_OUT_PORT_TYPE_BGM;
