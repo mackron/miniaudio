@@ -281,13 +281,9 @@ static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContex
         pContextStateSDL->SDL_GetNumAudioDevices  = SDL_GetNumAudioDevices;
         #if !defined(__EMSCRIPTEN__) && SDL_VERSION_ATLEAST(2, 24, 0)
         pContextStateSDL->SDL_GetDefaultAudioInfo = SDL_GetDefaultAudioInfo;
-        #else
-        pContextStateSDL->SDL_GetDefaultAudioInfo = NULL;
         #endif
         #if !defined(__EMSCRIPTEN__) && SDL_VERSION_ATLEAST(2, 0, 16)
         pContextStateSDL->SDL_GetAudioDeviceSpec  = SDL_GetAudioDeviceSpec;
-        #else
-        pContextStateSDL->SDL_GetAudioDeviceSpec  = NULL;
         #endif
         pContextStateSDL->SDL_GetAudioDeviceName  = SDL_GetAudioDeviceName;
         pContextStateSDL->SDL_CloseAudioDevice    = SDL_CloseAudioDevice;
