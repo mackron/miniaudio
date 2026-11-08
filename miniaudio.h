@@ -19118,14 +19118,17 @@ static ma_result ma_thread_create__vita(ma_thread* pThread, ma_thread_priority p
         stackSize = 0x10000;
     }
 
-    thd = sceKernelCreateThread(name, ma_vita_thread_proxy, 0x10000100, (SceSize)stackSize, 0, 0, NULL);
+    thd = sceKernelCreateThread(name, ma_vita_thread_proxy, initPriority, (SceSize)stackSize, 0, 0, NULL);
     if (thd < 0) {
         return MA_ERROR;
     }
 
     data.entryProc = entryProc;
     data.pData     = pData;
-    sceKernelStartThread(thd, sizeof(data), &data);
+    if (sceKernelStartThread(thd, sizeof(data), &data) < 0) {
+        sceKernelDeleteThread(thd);
+        return MA_ERROR;
+    }
 
     *pThread = thd;
 
