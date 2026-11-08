@@ -52995,6 +52995,7 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     pDescriptorPlayback->sampleRate         = sampleRate;
     pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
     pDescriptorPlayback->periodCount        = 2;
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
 
     *ppDeviceState = pDeviceStateVita;
 
