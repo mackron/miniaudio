@@ -53039,10 +53039,18 @@ static ma_result ma_device_start__vita(ma_device* pDevice)
 static ma_result ma_device_stop__vita(ma_device* pDevice)
 {
     ma_device_state_vita* pDeviceStateVita = ma_device_get_backend_state__vita(pDevice);
+    int resultVita;
     
     /* Wait for the buffers to be drained. */
     while (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) > 0) {
         ma_sleep(1);
+    }
+
+    /* A NULL buffer waits for the last submitted audio to finish playing. */
+    resultVita = sceAudioOutOutput(pDeviceStateVita->port, NULL);
+    if (resultVita < 0) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[Vita] Failed to drain audio. Error code: %d.", resultVita);
+        return MA_ERROR;
     }
 
     return MA_SUCCESS;
