@@ -27,6 +27,7 @@ will receive the captured audio.
     opensl
     webaudio
     null
+    sdl3
     sdl2
 
 "waveform" can be one of the following:
@@ -50,6 +51,24 @@ are specified the last one on the command line will have priority.
 */
 /*#define MA_DEBUG_OUTPUT*/
 #include "../common/common.c"
+
+/*
+SDL2 and SDL3 headers cannot share a translation unit. For compile-time linking, prefer SDL3.
+Define MA_ENABLE_SDL2 (without MA_ENABLE_SDL3), or MA_NO_SDL3, to select SDL2 instead.
+Runtime linking supports both backends without either set of SDL headers.
+*/
+#if defined(MA_NO_RUNTIME_LINKING) || defined(MA_EMSCRIPTEN)
+    #if defined(MA_NO_SDL3) || (defined(MA_ENABLE_SDL2) && !defined(MA_ENABLE_SDL3))
+        #ifndef MA_NO_SDL3
+            #define MA_NO_SDL3
+        #endif
+    #else
+        #ifndef MA_NO_SDL2
+            #define MA_NO_SDL2
+        #endif
+    #endif
+#endif
+#include "../../extras/backends/sdl3/miniaudio_sdl3.c"
 #include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 
 #ifdef ENABLE_LIBVORBIS
@@ -205,6 +224,10 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_null, NULL);
         goto done;
     }
+    if (strcmp(arg, "sdl3") == 0) {
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl3, NULL);
+        goto done;
+    }
     if (strcmp(arg, "sdl2") == 0) {
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl2, NULL);
         goto done;
@@ -299,6 +322,10 @@ void print_enabled_backends(void)
             backend.pVTable->onBackendInfo(&backendInfo);
             printf("    %s\n", backendInfo.pName);
         }
+    }
+
+    if (ma_device_backend_sdl3 != NULL) {
+        printf("    SDL3\n");
     }
 
     if (ma_device_backend_sdl2 != NULL) {
