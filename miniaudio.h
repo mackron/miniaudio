@@ -52775,7 +52775,8 @@ typedef struct ma_device_state_vita
     int port;
     ma_bool32 isRunning;    /* Used for tracking whether or not the background thread should be terminated. */
     ma_thread thread;       /* Need to call sceAudioOutOutput() from a separate thread because it is always blocking. */
-    ma_uint32 subBufferIndex;
+    ma_uint32 subBufferIndexRead;
+    ma_uint32 subBufferIndexWrite;
     ma_uint32 validSubBufferCount;
     void* pSubBuffers;
     ma_uint32 subBufferSizeInBytes;
@@ -52858,11 +52859,11 @@ static ma_thread_result MA_THREADCALL ma_device_audio_thread__vita(void* pUserDa
 
     while (ma_atomic_load_explicit_32(&pDeviceStateVita->isRunning, ma_atomic_memory_order_relaxed)) {
         if (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) > 0) {
-            ma_uint32 subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndex, ma_atomic_memory_order_relaxed);
+            ma_uint32 subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndexRead, ma_atomic_memory_order_relaxed);
 
             sceAudioOutOutput(pDeviceStateVita->port, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex));
 
-            ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndex, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
+            ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexRead, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
             ma_atomic_fetch_sub_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
         } else {
             /* Just a dumb sleep so we don't peg the CPU while the device is not stopped. */
@@ -53005,7 +53006,8 @@ static ma_result ma_device_start__vita(ma_device* pDevice)
 {
     ma_device_state_vita* pDeviceStateVita = ma_device_get_backend_state__vita(pDevice);
 
-    ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndex,      0, ma_atomic_memory_order_relaxed);
+    ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexRead,  0, ma_atomic_memory_order_relaxed);
+    ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexWrite, 0, ma_atomic_memory_order_relaxed);
     ma_atomic_store_explicit_32(&pDeviceStateVita->validSubBufferCount, 0, ma_atomic_memory_order_relaxed);
 
     /* Don't actually do anything here. We start by simply outputting data. Stopping is just not outputting data. */
@@ -53018,7 +53020,7 @@ static ma_result ma_device_stop__vita(ma_device* pDevice)
     ma_device_state_vita* pDeviceStateVita = ma_device_get_backend_state__vita(pDevice);
     
     /* Wait for the buffers to be drained. */
-    while (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_relaxed) > 0) {
+    while (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) > 0) {
         ma_sleep(1);
     }
 
@@ -53035,8 +53037,11 @@ static ma_result ma_device_step__vita(ma_device* pDevice, ma_blocking_mode block
         }
 
         if (ma_atomic_load_explicit_32(&pDeviceStateVita->validSubBufferCount, ma_atomic_memory_order_acquire) < 2) {
-            ma_uint32 subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndex, ma_atomic_memory_order_relaxed);
+            ma_uint32 subBufferIndex;
+            
+            subBufferIndex = ma_atomic_load_explicit_32(&pDeviceStateVita->subBufferIndexWrite, ma_atomic_memory_order_relaxed);
             ma_device_handle_backend_data_callback(pDevice, ma_device_get_sub_buffer__vita(pDeviceStateVita, subBufferIndex), NULL, pDevice->playback.internalPeriodSizeInFrames);
+            ma_atomic_store_explicit_32(&pDeviceStateVita->subBufferIndexWrite, (subBufferIndex + 1) & 1, ma_atomic_memory_order_relaxed);
             ma_atomic_fetch_add_explicit_32(&pDeviceStateVita->validSubBufferCount, 1, ma_atomic_memory_order_release);
 
             return MA_SUCCESS;
