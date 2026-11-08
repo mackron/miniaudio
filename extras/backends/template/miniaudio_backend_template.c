@@ -117,7 +117,7 @@ static ma_result ma_context_enumerate_devices__template(ma_context* pContext, ma
 static ma_result ma_device_init__template(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)
 {
     ma_device_state_template* pDeviceStateTemplate;
-    ma_device_config_template* pDeviceConfigTemplate = (ma_device_config_template*)pDeviceBackendConfig;
+    const ma_device_config_template* pDeviceConfigTemplate = (const ma_device_config_template*)pDeviceBackendConfig;
     ma_context_state_template* pContextStateTemplate = ma_context_get_backend_state__template(ma_device_get_context(pDevice));
     ma_device_config_template defaultConfig;
     ma_device_type deviceType = ma_device_get_type(pDevice);
@@ -159,7 +159,7 @@ static ma_result ma_device_init__template(ma_device* pDevice, const void* pDevic
 
         /* Negotiate the format. */
         format = pDescriptorCapture->format;
-        if (format != ma_format_f32) {
+        if (format != ma_format_f32 && format != ma_format_s16) {
             format = ma_format_f32;
         }
 
@@ -185,6 +185,9 @@ static ma_result ma_device_init__template(ma_device* pDevice, const void* pDevic
         if (periodSizeInFrames < 1024) {
             periodSizeInFrames = 1024;
         }
+        if (periodSizeInFrames > 16384) {
+            periodSizeInFrames = 16384;
+        }
 
         /* Initialize any backend-specific stuff here. */
 
@@ -193,7 +196,10 @@ static ma_result ma_device_init__template(ma_device* pDevice, const void* pDevic
         pDescriptorCapture->channels           = channels;
         pDescriptorCapture->sampleRate         = sampleRate;
         pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
-        pDescriptorCapture->periodCount        = 1; /* Just set this 1 if you're unsure. Set it to 2 if you are using a double-buffering technique. */
+        pDescriptorCapture->periodCount        = 1; /* Just set this to 1 if you're unsure. Set it to 2 if you are using a double-buffering technique. */
+
+        /* Set the channel map to match the backend's native channel order. */
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), channels);
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -204,7 +210,7 @@ static ma_result ma_device_init__template(ma_device* pDevice, const void* pDevic
         ma_uint32 periodSizeInFrames;
 
         format = pDescriptorPlayback->format;
-        if (format != ma_format_f32) {
+        if (format != ma_format_f32 && format != ma_format_s16) {
             format = ma_format_f32;
         }
 
@@ -222,6 +228,9 @@ static ma_result ma_device_init__template(ma_device* pDevice, const void* pDevic
         if (periodSizeInFrames < 1024) {
             periodSizeInFrames = 1024;
         }
+        if (periodSizeInFrames > 16384) {
+            periodSizeInFrames = 16384;
+        }
 
         /* Initialize any backend-specific stuff here. */
 
@@ -231,6 +240,9 @@ static ma_result ma_device_init__template(ma_device* pDevice, const void* pDevic
         pDescriptorPlayback->sampleRate         = sampleRate;
         pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
         pDescriptorPlayback->periodCount        = 1;
+
+        /* Set the channel map to match the backend's native channel order. */
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), channels);
     }
 
     *ppDeviceState = pDeviceStateTemplate;
@@ -280,7 +292,7 @@ static ma_result ma_device_stop__template(ma_device* pDevice)
         (void)pDeviceStateTemplate;
     }
 
-    return MA_NOT_IMPLEMENTED;
+    return MA_SUCCESS;
 }
 
 static ma_result ma_device_step__template(ma_device* pDevice, ma_blocking_mode blockingMode)
