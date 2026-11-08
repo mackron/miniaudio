@@ -207,11 +207,6 @@ static void ma_backend_info__sdl2(ma_device_backend_info* pBackendInfo)
 {
     MA_SDL2_ASSERT(pBackendInfo != NULL);
     pBackendInfo->pName = "SDL2";
-    
-    #if defined(MA_EMSCRIPTEN)
-    pBackendInfo->noAudioThread = MA_TRUE;
-    pBackendInfo->isMultiThreadedModeAllowedWhenThreadingDisabled = MA_TRUE;
-    #endif
 }
 
 static ma_result ma_context_init__sdl2(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
@@ -526,13 +521,6 @@ void ma_audio_callback_capture__sdl2(void* pUserData, ma_uint8* pBuffer, int buf
 
     frameCount = (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.capture.format, pDeviceStateSDL->async.capture.channels);
 
-    #if defined(MA_EMSCRIPTEN)
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
-        ma_device_handle_backend_data_callback(pDevice, NULL, pBuffer, frameCount);
-        return;
-    }
-    #endif
-
     ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, NULL, pBuffer, frameCount);
 }
 
@@ -543,13 +531,6 @@ void ma_audio_callback_playback__sdl2(void* pUserData, ma_uint8* pBuffer, int bu
     ma_uint32 frameCount;
 
     frameCount = (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceStateSDL->async.playback.format, pDeviceStateSDL->async.playback.channels);
-
-    #if defined(MA_EMSCRIPTEN)
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
-        ma_device_handle_backend_data_callback(pDevice, pBuffer, NULL, frameCount);
-        return;
-    }
-    #endif
 
     ma_device_state_async_process(&pDeviceStateSDL->async, pDevice, pBuffer, NULL, frameCount);
 }
@@ -737,17 +718,9 @@ static ma_result ma_device_start__sdl2(ma_device* pDevice)
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
     ma_context_state_sdl2* pContextStateSDL = ma_context_get_backend_state__sdl2(ma_device_get_context(pDevice));
     ma_device_type deviceType = ma_device_get_type(pDevice);
-    ma_bool32 prefillPlayback;
-
-    prefillPlayback = (deviceType == ma_device_type_playback);
-    #if defined(MA_EMSCRIPTEN)
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
-        prefillPlayback = MA_FALSE;
-    }
-    #endif
 
     /* Fill playback from the client before SDL can request data. Duplex must wait for capture to start. */
-    if (prefillPlayback) {
+    if (deviceType == ma_device_type_playback) {
         ma_result result;
 
         result = ma_device_handle_backend_data_callback(pDevice, pDeviceStateSDL->async.playback.pBuffer, NULL, pDeviceStateSDL->async.playback.frameCap);
@@ -792,14 +765,11 @@ static ma_result ma_device_step__sdl2(ma_device* pDevice, ma_blocking_mode block
 {
     ma_device_state_sdl2* pDeviceStateSDL = ma_device_get_backend_state__sdl2(pDevice);
 
-    #if defined(MA_EMSCRIPTEN)
-    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_MULTI_THREADED) {
-        MA_SDL2_ASSERT(!"[SDL2] Incorrectly calling step() in multi-threaded mode.");
-        return MA_ERROR;
-    }
-
     /* We should not be blocking on the web build. Force non-blocking mode here. */
-    blockingMode = MA_BLOCKING_MODE_NON_BLOCKING;
+    #if defined(MA_EMSCRIPTEN)
+    if (ma_device_get_threading_mode(pDevice) == MA_THREADING_MODE_SINGLE_THREADED) {
+        blockingMode = MA_BLOCKING_MODE_NON_BLOCKING;
+    }
     #endif
 
     return ma_device_state_async_step(&pDeviceStateSDL->async, pDevice, blockingMode, NULL);

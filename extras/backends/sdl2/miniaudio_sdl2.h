@@ -6,6 +6,9 @@ and device configs.
 Device IDs store the SDL device name in ma_device_id.custom.s. An empty name selects the default
 device. Names that do not fit in the ID are skipped during enumeration. Devices with identical
 names cannot be distinguished by SDL2.
+
+On Emscripten, multi-threaded mode requires pthreads. Without threading, the application must call
+ma_device_step() regularly from its browser main loop. Single-threaded stepping does not block.
 */
 #ifndef miniaudio_backend_sdl2_h
 #define miniaudio_backend_sdl2_h
