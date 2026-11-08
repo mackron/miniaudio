@@ -52933,7 +52933,7 @@ static ma_result ma_device_init__vita(ma_device* pDevice, const void* pDeviceBac
     /* Channels is always mono or stereo. Default to stereo. */
     channels = pDescriptorPlayback->channels;
     if (channels != 1 && channels != 2) {
-        channels = 1;
+        channels = 2;
     }
 
     /* Sample rate. */
