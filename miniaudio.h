@@ -62143,7 +62143,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     14
-#define MA_DR_WAV_VERSION_REVISION  6
+#define MA_DR_WAV_VERSION_REVISION  7
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -62579,7 +62579,7 @@ extern "C" {
 #define MA_DR_FLAC_XSTRINGIFY(x)     MA_DR_FLAC_STRINGIFY(x)
 #define MA_DR_FLAC_VERSION_MAJOR     0
 #define MA_DR_FLAC_VERSION_MINOR     13
-#define MA_DR_FLAC_VERSION_REVISION  4
+#define MA_DR_FLAC_VERSION_REVISION  5
 #define MA_DR_FLAC_VERSION_STRING    MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MAJOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MINOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_REVISION)
 #include <stddef.h>
 #if defined(_MSC_VER) && _MSC_VER >= 1700
@@ -62886,7 +62886,7 @@ extern "C" {
 #define MA_DR_MP3_XSTRINGIFY(x)     MA_DR_MP3_STRINGIFY(x)
 #define MA_DR_MP3_VERSION_MAJOR     0
 #define MA_DR_MP3_VERSION_MINOR     7
-#define MA_DR_MP3_VERSION_REVISION  4
+#define MA_DR_MP3_VERSION_REVISION  5
 #define MA_DR_MP3_VERSION_STRING    MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MAJOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MINOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME  1152
@@ -81409,7 +81409,11 @@ MA_PRIVATE ma_uint64 ma_dr_wav__metadata_process_chunk(ma_dr_wav__metadata_parse
             ma_uint8 subchunkSizeBuffer[4];
             ma_uint64 subchunkDataSize;
             ma_uint64 subchunkBytesRead = 0;
-            ma_uint64 bytesJustRead = ma_dr_wav__metadata_parser_read(pParser, subchunkId, sizeof(subchunkId), &bytesRead);
+            ma_uint64 bytesJustRead;
+            if (pChunkHeader->sizeInBytes - bytesRead < sizeof(subchunkId)) {
+                break;
+            }
+            bytesJustRead = ma_dr_wav__metadata_parser_read(pParser, subchunkId, sizeof(subchunkId), &bytesRead);
             if (bytesJustRead != sizeof(subchunkId)) {
                 break;
             }
@@ -81420,11 +81424,17 @@ MA_PRIVATE ma_uint64 ma_dr_wav__metadata_process_chunk(ma_dr_wav__metadata_parse
                 listType = ma_dr_wav_metadata_location_inside_info_list;
                 continue;
             }
+            if (pChunkHeader->sizeInBytes - bytesRead < sizeof(subchunkSizeBuffer)) {
+                break;
+            }
             bytesJustRead = ma_dr_wav__metadata_parser_read(pParser, subchunkSizeBuffer, sizeof(subchunkSizeBuffer), &bytesRead);
             if (bytesJustRead != sizeof(subchunkSizeBuffer)) {
                 break;
             }
             subchunkDataSize = ma_dr_wav_bytes_to_u32(subchunkSizeBuffer);
+            if (subchunkDataSize + (subchunkDataSize % 2) > pChunkHeader->sizeInBytes - bytesRead) {
+                break;
+            }
             if (ma_dr_wav__chunk_matches(allowedMetadataTypes, subchunkId, ma_dr_wav_metadata_type_list_label, "labl") || ma_dr_wav__chunk_matches(allowedMetadataTypes, subchunkId, ma_dr_wav_metadata_type_list_note, "note")) {
                 if (subchunkDataSize >= MA_DR_WAV_LIST_LABEL_OR_NOTE_BYTES) {
                     if (pParser->stage == ma_dr_wav__metadata_parser_stage_count) {
@@ -88947,14 +88957,18 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__binary_search_internal(ma_dr_fla
                             break;
                         }
                     } else {
-                        const double approxCompressionRatio = (ma_int64)(lastSuccessfulSeekOffset - pFlac->firstFLACFramePosInBytes) / ((ma_int64)(pcmRangeLo * pFlac->channels * pFlac->bitsPerSample)/8.0);
                         byteRangeLo = lastSuccessfulSeekOffset;
                         if (byteRangeHi < byteRangeLo) {
                             byteRangeHi = byteRangeLo;
                         }
-                        targetByte = lastSuccessfulSeekOffset + (ma_uint64)(((ma_int64)((pcmFrameIndex-pcmRangeLo) * pFlac->channels * pFlac->bitsPerSample)/8.0) * approxCompressionRatio);
-                        if (targetByte > byteRangeHi) {
-                            targetByte = byteRangeHi;
+                        if (pcmRangeLo > 0) {
+                            const double approxCompressionRatio = (ma_int64)(lastSuccessfulSeekOffset - pFlac->firstFLACFramePosInBytes) / ((ma_int64)(pcmRangeLo * pFlac->channels * pFlac->bitsPerSample)/8.0);
+                            targetByte = lastSuccessfulSeekOffset + (ma_uint64)(((ma_int64)((pcmFrameIndex-pcmRangeLo) * pFlac->channels * pFlac->bitsPerSample)/8.0) * approxCompressionRatio);
+                            if (targetByte > byteRangeHi) {
+                                targetByte = byteRangeHi;
+                            }
+                        } else {
+                            targetByte = byteRangeLo + ((byteRangeHi - byteRangeLo) / 2);
                         }
                         if (closestSeekOffsetBeforeTargetPCMFrame < lastSuccessfulSeekOffset) {
                             closestSeekOffsetBeforeTargetPCMFrame = lastSuccessfulSeekOffset;
@@ -96021,12 +96035,12 @@ static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc on
                     if (onMeta != NULL) {
                         ma_dr_mp3_metadata_type metadataType = isXing ? MA_DR_MP3_METADATA_TYPE_XING : MA_DR_MP3_METADATA_TYPE_VBRI;
                         size_t tagDataSize;
-                        tagDataSize  = (size_t)firstFrameInfo.frame_bytes;
+                        tagDataSize  = frameBytes;
                         tagDataSize -= (size_t)(pTagDataBeg - pFirstFrameData);
                         ma_dr_mp3__on_meta(pMP3, metadataType, pTagDataBeg, tagDataSize);
                     }
                     pMP3->pcmFramesRemainingInMP3Frame = 0;
-                    pMP3->streamStartOffset += (ma_uint32)(firstFrameInfo.frame_bytes);
+                    pMP3->streamStartOffset = pMP3->streamCursor - pMP3->dataSize;
                     ma_dr_mp3dec_init(&pMP3->decoder);
                 }
                 done_xing_info:;
