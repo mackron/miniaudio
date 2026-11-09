@@ -32967,6 +32967,9 @@ typedef void (* ma_JackShutdownCallback)  (void* arg);
 #define ma_JackPortIsPhysical      4
 #endif
 
+typedef void (* ma_JackErrorCallback)(const char* message);
+
+typedef void              (* ma_jack_set_error_function_proc)      (ma_JackErrorCallback func);
 typedef ma_jack_client_t* (* ma_jack_client_open_proc)             (const char* client_name, ma_jack_options_t options, ma_jack_status_t* status, ...);
 typedef int               (* ma_jack_client_close_proc)            (ma_jack_client_t* client);
 typedef int               (* ma_jack_client_name_size_proc)        (void);
@@ -33473,6 +33476,12 @@ static ma_result ma_context_uninit__jack(ma_context* pContext)
     return MA_SUCCESS;
 }
 
+static void ma_silence_error__jack(const char* message)
+{
+    /* Do nothing. */
+    (void)message;
+}
+
 static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
 #ifndef MA_NO_RUNTIME_LINKING
@@ -33554,6 +33563,21 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
     pContext->jack.jack_port_get_buffer          = (ma_proc)_jack_port_get_buffer;
     pContext->jack.jack_free                     = (ma_proc)_jack_free;
 #endif
+
+    /* Silence JACK's process-wide error output before probing the server. */
+    {
+        ma_jack_set_error_function_proc jackSetErrorFunction;
+
+    #ifndef MA_NO_RUNTIME_LINKING
+        jackSetErrorFunction = (ma_jack_set_error_function_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_set_error_function");
+    #else
+        jackSetErrorFunction = jack_set_error_function;
+    #endif
+
+        if (jackSetErrorFunction != NULL) {
+            jackSetErrorFunction(ma_silence_error__jack);
+        }
+    }
 
     if (pConfig->jack.pClientName != NULL) {
         pContext->jack.pClientName = ma_copy_string(pConfig->jack.pClientName, &pContext->allocationCallbacks);
