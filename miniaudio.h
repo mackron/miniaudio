@@ -12243,11 +12243,13 @@ struct ma_sound
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
     MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
+    MA_ATOMIC(8, ma_uint64) cursorInPCMFrames; /* Source position after consuming input from the processing cache. */
     MA_ATOMIC(4, ma_bool32) atEnd;
     ma_sound_notifications notifications;
     float* pProcessingCache;            /* Will be null if pDataSource is null. */
     ma_uint32 processingCacheFramesRemaining;
     ma_uint32 processingCacheCap;
+    ma_data_source_break_type processingCacheBreakType; /* Transition to apply when the processing cache is consumed. */
     ma_bool8 ownsDataSource;
 
 #ifndef MA_NO_RESOURCE_MANAGER
@@ -91115,6 +91117,41 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     *pFrameCountOut = totalFramesProcessedOut;
 }
 
+static void ma_sound_reset_processing_state(ma_sound* pSound, ma_uint64 cursor)
+{
+    pSound->processingCacheFramesRemaining = 0;
+    pSound->processingCacheBreakType = ma_data_source_break_type_none;
+    ma_resampler_reset(&pSound->engineNode.resampler);
+
+    ma_atomic_store_explicit_64(&pSound->cursorInPCMFrames, cursor, ma_atomic_memory_order_relaxed);
+}
+
+static void ma_sound_advance_cursor(ma_sound* pSound, ma_uint64 frameCount)
+{
+    ma_uint64 cursor;
+
+    cursor = ma_atomic_load_explicit_64(&pSound->cursorInPCMFrames, ma_atomic_memory_order_relaxed) + frameCount;
+    
+    if (pSound->processingCacheFramesRemaining == 0) {
+        if (pSound->processingCacheBreakType == ma_data_source_break_type_loop) {
+            ma_data_source* pCurrentDataSource;
+
+            pCurrentDataSource = ma_data_source_get_current(pSound->pDataSource);
+            if (pCurrentDataSource == NULL) {
+                pCurrentDataSource = pSound->pDataSource;
+            }
+
+            ma_data_source_get_loop_point_in_pcm_frames(pCurrentDataSource, &cursor, NULL);
+        } else if (pSound->processingCacheBreakType == ma_data_source_break_type_chain) {
+            cursor = 0;
+        }
+
+        pSound->processingCacheBreakType = ma_data_source_break_type_none;
+    }
+
+    ma_atomic_store_explicit_64(&pSound->cursorInPCMFrames, cursor, ma_atomic_memory_order_relaxed);
+}
+
 static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     /* For sounds, we need to first read from the data source. Then we need to apply the engine effects (pan, pitch, fades, etc.). */
@@ -91147,12 +91184,21 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     /* If we're seeking, do so now before reading. */
     seekTarget = ma_atomic_load_64(&pSound->seekTarget);
     if (seekTarget != MA_SEEK_TARGET_NONE) {
-        ma_data_source_seek_to_pcm_frame(pSound->pDataSource, seekTarget);
+        result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, seekTarget);
+        if (result == MA_BUSY) {
+            *pFrameCountOut = 0;
+            return;
+        }
 
-        /* Any time-dependant effects need to have their times updated. */
-        ma_node_set_time(pSound, seekTarget);
+        if (result == MA_SUCCESS) {
+            ma_sound_reset_processing_state(pSound, seekTarget);
 
-        ma_atomic_exchange_64(&pSound->seekTarget, MA_SEEK_TARGET_NONE);
+            /* Any time-dependant effects need to have their times updated. */
+            ma_node_set_time(pSound, seekTarget);
+        }
+
+        /* Do not discard a newer seek request made while this one was being processed. */
+        ma_atomic_compare_and_swap_64(&pSound->seekTarget, seekTarget, MA_SEEK_TARGET_NONE);
     }
 
     /*
@@ -91196,6 +91242,8 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 MA_ASSERT(frameCountIn <= pSound->processingCacheFramesRemaining);
                 pSound->processingCacheFramesRemaining -= frameCountIn;
 
+                ma_sound_advance_cursor(pSound, frameCountIn);
+
                 /* Move any remaining data in the cache down. */
                 if (pSound->processingCacheFramesRemaining > 0) {
                     MA_MOVE_MEMORY(pSound->pProcessingCache, ma_offset_pcm_frames_ptr_f32(pSound->pProcessingCache, frameCountIn, dataSourceChannels), pSound->processingCacheFramesRemaining * ma_get_bytes_per_frame(ma_format_f32, dataSourceChannels));
@@ -91203,14 +91251,16 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 
                 totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
 
-                if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
-                    break;  /* Might have reached the end. */
+                if (result != MA_SUCCESS || ma_sound_at_end(pSound) || (frameCountIn == 0 && frameCountOut == 0)) {
+                    break;  /* Might have reached the end or could not make progress. */
                 }
             } else {
+                ma_data_source_break_type breakType = ma_data_source_break_type_none;
+
                 /* Getting here means there's nothing in the cache. Read more data from the data source. */
                 if (dataSourceFormat == ma_format_f32) {
                     /* Fast path. No conversion to f32 necessary. */
-                    result = ma_data_source_read_pcm_frames(pSound->pDataSource, pSound->pProcessingCache, pSound->processingCacheCap, &framesJustRead);
+                    result = ma_data_source_read_pcm_frames_ex(pSound->pDataSource, pSound->pProcessingCache, pSound->processingCacheCap, &framesJustRead, &breakType);
                 } else {
                     /* Slow path. Need to convert to f32. */
                     ma_uint64 totalFramesConverted = 0;
@@ -91222,13 +91272,14 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                             framesToConvertThisIteration = tempCapInFrames;
                         }
 
-                        result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToConvertThisIteration, &framesConverted);
-                        if (result != MA_SUCCESS) {
-                            break;
-                        }
+                        result = ma_data_source_read_pcm_frames_ex(pSound->pDataSource, temp, framesToConvertThisIteration, &framesConverted, &breakType);
 
                         ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pSound->pProcessingCache, totalFramesConverted, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesConverted, dataSourceChannels, ma_dither_mode_none);
                         totalFramesConverted += framesConverted;
+
+                        if (result != MA_SUCCESS || breakType != ma_data_source_break_type_none) {
+                            break;
+                        }
                     }
 
                     framesJustRead = totalFramesConverted;
@@ -91245,13 +91296,19 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
 
                 MA_ASSERT(framesJustRead <= pSound->processingCacheCap);
                 pSound->processingCacheFramesRemaining = (ma_uint32)framesJustRead;
+                pSound->processingCacheBreakType = breakType;
+
+                if (framesJustRead == 0) {
+                    ma_sound_advance_cursor(pSound, 0);
+                }
 
                 /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
                 if (result == MA_AT_END) {
                     ma_sound_set_at_end(pSound, MA_TRUE);   /* This will be set to false in ma_sound_start(). */
                 }
 
-                if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
+                /* Process valid frames even when the read also returned MA_BUSY or an error. */
+                if (framesJustRead == 0 && (result != MA_SUCCESS || ma_sound_at_end(pSound))) {
                     break;
                 }
             }
@@ -92752,6 +92809,16 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
 
     ma_sound_set_looping(pSound, (pConfig->flags & MA_SOUND_FLAG_LOOPING) != 0);
 
+    if (pSound->pDataSource != NULL) {
+        ma_uint64 cursor;
+
+        if (ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, &cursor) != MA_SUCCESS) {
+            cursor = 0;
+        }
+
+        ma_atomic_store_explicit_64(&pSound->cursorInPCMFrames, cursor, ma_atomic_memory_order_relaxed);
+    }
+
     return MA_SUCCESS;
 }
 
@@ -93049,6 +93116,10 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
         ma_result result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, 0);
         if (result != MA_SUCCESS && result != MA_NOT_IMPLEMENTED) {
             return result;  /* Failed to seek back to the start. */
+        }
+
+        if (result == MA_SUCCESS) {
+            ma_sound_reset_processing_state(pSound, 0);
         }
 
         /* Make sure we clear the end indicator. */
@@ -93801,6 +93872,12 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(const ma_sound* pSound, ma_ui
 {
     ma_uint64 seekTarget;
 
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -93814,9 +93891,10 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(const ma_sound* pSound, ma_ui
     if (seekTarget != MA_SEEK_TARGET_NONE) {
         *pCursor = seekTarget;
         return MA_SUCCESS;
-    } else {
-        return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
     }
+
+    *pCursor = ma_atomic_load_explicit_64(&pSound->cursorInPCMFrames, ma_atomic_memory_order_relaxed);
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(const ma_sound* pSound, ma_uint64* pLength)
