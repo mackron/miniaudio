@@ -77198,10 +77198,15 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     /* If we're seeking, do so now before reading. */
     seekTarget = ma_atomic_load_64(&pSound->seekTarget);
     if (seekTarget != MA_SEEK_TARGET_NONE) {
-        ma_data_source_seek_to_pcm_frame(pSound->pDataSource, seekTarget);
+        result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, seekTarget);
+        if (result == MA_SUCCESS) {
+            /* Discard input and resampler history from before the seek. */
+            pSound->processingCacheFramesRemaining = 0;
+            ma_resampler_reset(&pSound->engineNode.resampler);
 
-        /* Any time-dependant effects need to have their times updated. */
-        ma_node_set_time(pSound, seekTarget);
+            /* Any time-dependant effects need to have their times updated. */
+            ma_node_set_time(pSound, seekTarget);
+        }
 
         ma_atomic_exchange_64(&pSound->seekTarget, MA_SEEK_TARGET_NONE);
     }
