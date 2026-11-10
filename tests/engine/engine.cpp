@@ -26,13 +26,9 @@ int main(int argc, char** argv)
     ma_resource_manager resourceManager;
     ma_engine_config engineConfig;
     ma_engine engine;
-    const char* pFilePaths[] = {
-        "data/16-44100-stereo.flac",
-        "data/48000-stereo.ogg",
-        "data/48000-stereo.opus"
-    };
+    const char* const* pFilePaths;
+    int filePathCount;
     std::vector<ma_sound*> sounds;
-
 
     ma_decoding_backend_vtable* pDecodingBackendVTables[] =
     {
@@ -43,6 +39,14 @@ int main(int argc, char** argv)
         ma_decoding_backend_mp3
     };
 
+
+    if (argc < 2) {
+        printf("Usage: %s <file path> [file path ...]\n", argv[0]);
+        return 1;
+    }
+
+    pFilePaths = argv + 1;
+    filePathCount = argc - 1;
 
     /* Need a default VFS to act as the underlying VFS for debugging. */
     ma_default_vfs_init(&vfsDefault, NULL);
@@ -84,7 +88,7 @@ int main(int argc, char** argv)
         for (ma_uint32 i = 0; i < soundCount; i += 1) {
             pSound = new ma_sound;
 
-            result = ma_sound_init_from_file(&engine, pFilePaths[i % ma_countof(pFilePaths)], MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_ASYNC, NULL, NULL, pSound);
+            result = ma_sound_init_from_file(&engine, pFilePaths[i % filePathCount], MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_ASYNC, NULL, NULL, pSound);
             if (result == MA_SUCCESS) {
                 //ma_sound_set_position(pSound, 1, 0, 0);
                 ma_sound_set_volume(pSound, 0.1f);
@@ -147,9 +151,6 @@ int main(int argc, char** argv)
     #endif
 
     ma_engine_uninit(&engine);
-
-    (void)argc;
-    (void)argv;
 
     return 0;
 }
