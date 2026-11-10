@@ -8018,6 +8018,7 @@ struct ma_device
             ma_mutex rerouteLock;
             ma_atomic_bool32 isTearingDown;
             MA_ATOMIC(4, ma_uint32) pendingReroutes;    /* Reroute jobs posted and not yet finished. Must be used atomically. ma_device_uninit() waits for this to reach zero. */
+            ma_performance_profile performanceProfile;
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
@@ -39919,6 +39920,7 @@ static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, const ma_dev
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
+    pDevice->aaudio.performanceProfile             = pConfig->performanceProfile;
     pDevice->aaudio.usage                          = pConfig->aaudio.usage;
     pDevice->aaudio.contentType                    = pConfig->aaudio.contentType;
     pDevice->aaudio.inputPreset                    = pConfig->aaudio.inputPreset;
@@ -40128,6 +40130,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfig.capture.format                 = pDevice->capture.format;
         deviceConfig.capture.channels               = pDevice->capture.channels;
         deviceConfig.sampleRate                     = pDevice->sampleRate;
+        deviceConfig.performanceProfile             = pDevice->aaudio.performanceProfile;
         deviceConfig.aaudio.usage                          = pDevice->aaudio.usage;
         deviceConfig.aaudio.contentType                    = pDevice->aaudio.contentType;
         deviceConfig.aaudio.inputPreset                    = pDevice->aaudio.inputPreset;
