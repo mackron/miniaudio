@@ -20,8 +20,10 @@ static void ma_libopus_ds_uninit(ma_data_source* pDataSource)
     ma_libopus_uninit((ma_libopus*)pDataSource);
 }
 
-static ma_result ma_libopus_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_libopus_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_libopus_read_pcm_frames((ma_libopus*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 

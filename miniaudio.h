@@ -995,6 +995,11 @@ entire chain by linking in a loop like so:
 Note that setting up chaining is not thread safe, so care needs to be taken if you're dynamically
 changing links while the audio thread is in the middle of reading.
 
+Use `ma_data_source_read_pcm_frames_ex()` if you need to know the exact boundaries of a loop point
+or a chain transition. This function treats loop points and chain transitions as break points and
+will return early at these boundaries. The `pBreakType` parameter will receive the break point type
+which you can use to discriminate.
+
 Do not use `ma_decoder_seek_to_pcm_frame()` as a means to reuse a data source to play multiple
 instances of the same sound simultaneously. This can be extremely inefficient depending on the type
 of data source and can result in glitching due to subtle changes to the state of internal filters.
@@ -1044,7 +1049,7 @@ You can implement a custom data source by implementing the functions in `ma_data
     }
 
     // onRead
-    static ma_result custom_data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+    static ma_result custom_data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
     {
         // Read data here. The data format must be in the same format as returned by the
         // `MA_DATA_SOURCE_GET_DATA_FORMAT` property (see `onProp` below).
@@ -1053,6 +1058,13 @@ You can implement a custom data source by implementing the functions in `ma_data
         // 0, miniaudio will treat it as if it's reached the end.
         //
         // Return `MA_AT_END` when the end has been reached.
+        //
+        // Most backends can ignore `pBreakType`. You can use this tell miniaudio when you've
+        // reached a loop transition, in which case you would set this to
+        // `ma_data_source_break_type_loop`, set `pFramesRead` to the number of frames preceding
+        // the loop transition, and return `MA_SUCCESS`. Essentially, it just means you are
+        // breaking up your reads against loop transitions, and since the vast majority of data
+        // sources will not be doing their own loop management you can likely disregard this.
     }
 
     // onSeek
@@ -6623,6 +6635,14 @@ Data Source
 ************************************************************************************************************************************************************/
 typedef void ma_data_source;
 
+typedef enum
+{
+    ma_data_source_break_type_none = 0,
+    ma_data_source_break_type_end,
+    ma_data_source_break_type_loop,
+    ma_data_source_break_type_chain
+} ma_data_source_break_type;
+
 #define MA_DATA_SOURCE_GET_DATA_FORMAT 1   /* ma_data_source_data_format. This should be considered mandatory. */
 #define MA_DATA_SOURCE_GET_CHANNEL_MAP 2   /* ma_channel[MA_MAX_CHANNELS]. Implementations need only consider up to the channel count, but should not exceed MA_MAX_CHANNELS. */
 #define MA_DATA_SOURCE_GET_CURSOR      3   /* ma_uint64 */
@@ -6652,7 +6672,7 @@ typedef struct
     size_t    (* onSizeof)(void);    /* Should return the size of the the data source implementation's struct. For example, ma_decoder would return sizeof(ma_decoder). */
     void      (* onUninit)(ma_data_source* pDataSource);
     ma_result (* onCopy  )(ma_data_source* pDataSource, ma_data_source* pNewDataSource); /* Optional. Initializes a fully independent copy of a data source. This can be set to NULL, or return MA_NOT_IMPLEMENTED if copying is not supported. */
-    ma_result (* onRead  )(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+    ma_result (* onRead  )(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType);
     ma_result (* onSeek  )(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onProp  )(ma_data_source* pDataSource, int prop, void* pData);
 } ma_data_source_vtable;
@@ -6678,6 +6698,7 @@ typedef struct
     ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
     ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
     MA_ATOMIC(4, ma_bool32) isLooping;
+    ma_bool32 isLoopStart;                  /* A generic loop transition completed, but no frames have been read since. */
 } ma_data_source_base;
 
 MA_API ma_result ma_data_source_base_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
@@ -6685,6 +6706,7 @@ MA_API void ma_data_source_base_uninit(ma_data_source* pDataSource);
 MA_API const ma_data_source_vtable* ma_data_source_get_vtable(const ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_init_copy(ma_data_source* pDataSource, ma_data_source* pNewDataSource);
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_result ma_data_source_read_pcm_frames_ex(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType);
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float secondCount, float* pSecondsSeeked); /* Can only seek forward. Abstraction to ma_data_source_seek_pcm_frames() */
@@ -72675,12 +72697,14 @@ static void ma_audio_ring_buffer__data_source_on_uninit(ma_data_source* pDataSou
     ma_audio_ring_buffer_uninit((ma_audio_ring_buffer*)pDataSource);
 }
 
-static ma_result ma_audio_ring_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFrames, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_audio_ring_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFrames, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
     ma_audio_ring_buffer* pRingBuffer = (ma_audio_ring_buffer*)pDataSource;
     ma_result result;
     ma_uint32 framesRead;
     
+    (void)pBreakType;
+
     if (frameCount > 0xFFFFFFFF) {
         frameCount = 0xFFFFFFFF;
     }
@@ -73360,6 +73384,28 @@ static ma_result ma_data_source_prop(ma_data_source* pDataSource, int prop, void
     return pDataSourceBase->pVTable->onProp(pDataSource, prop, pData);
 }
 
+static ma_result ma_data_source_prop_get_looping(const ma_data_source* pDataSource, ma_bool32* pIsLooping)
+{
+    ma_result result;
+    ma_bool32 isLooping;
+
+    result = ma_data_source_prop((ma_data_source*)pDataSource, MA_DATA_SOURCE_GET_LOOPING, &isLooping);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pIsLooping != NULL) {
+        *pIsLooping = isLooping;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_bool32 ma_data_source_is_looping_managed_by_backend(const ma_data_source* pDataSource)
+{
+    return ma_data_source_prop_get_looping(pDataSource, NULL) == MA_SUCCESS;
+}
+
 
 static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_data_source** ppCurrentDataSource)
 {
@@ -73387,23 +73433,27 @@ static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_data_source_read_pcm_frames_from_backend(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_data_source_read_pcm_frames_from_backend(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+    ma_result result;
 
     MA_ASSERT(pDataSourceBase                  != NULL);
     MA_ASSERT(pDataSourceBase->pVTable         != NULL);
     MA_ASSERT(pDataSourceBase->pVTable->onRead != NULL);
-    MA_ASSERT(pFramesRead != NULL);
+    MA_ASSERT(pFramesRead                      != NULL);
+    MA_ASSERT(pBreakType                       != NULL);
+
+    *pFramesRead = 0;
+    *pBreakType = ma_data_source_break_type_none;
 
     if (pFramesOut != NULL) {
-        return pDataSourceBase->pVTable->onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead);
+        result = pDataSourceBase->pVTable->onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead, pBreakType);
     } else {
         /*
         No output buffer. Probably seeking forward. Read and discard. Can probably optimize this in terms of
         onSeek and onGetCursor, but need to keep in mind that the data source may not implement these functions.
         */
-        ma_result result;
         ma_uint64 framesRead;
         ma_format format;
         ma_uint32 channels;
@@ -73420,37 +73470,68 @@ static ma_result ma_data_source_read_pcm_frames_from_backend(ma_data_source* pDa
         framesRead = 0;
         while (framesRead < frameCount) {
             ma_uint64 framesReadThisIteration = 0;
-            ma_uint64 framesToRead = frameCount - framesRead;
+            ma_uint64 framesToRead;
+
+            framesToRead = frameCount - framesRead;
             if (framesToRead > discardBufferCapInFrames) {
                 framesToRead = discardBufferCapInFrames;
             }
 
-            result = pDataSourceBase->pVTable->onRead(pDataSourceBase, pDiscardBuffer, framesToRead, &framesReadThisIteration);
-            if (result != MA_SUCCESS) {
-                return result;
+            *pBreakType = ma_data_source_break_type_none;
+
+            result = pDataSourceBase->pVTable->onRead(pDataSourceBase, pDiscardBuffer, framesToRead, &framesReadThisIteration, pBreakType);
+            framesRead += framesReadThisIteration;
+
+            if (result == MA_SUCCESS && framesReadThisIteration == 0 && *pBreakType == ma_data_source_break_type_none) {
+                *pBreakType = ma_data_source_break_type_end;
             }
 
-            framesRead += framesReadThisIteration;
+            if (result != MA_SUCCESS || *pBreakType != ma_data_source_break_type_none) {
+                break;
+            }
         }
 
         *pFramesRead = framesRead;
-
-        return MA_SUCCESS;
     }
+
+    /* Chain transitions are managed by the generic data source code. Backends should never break on chain transitions. */
+    MA_ASSERT(*pBreakType != ma_data_source_break_type_chain);
+    if (*pBreakType == ma_data_source_break_type_chain) {
+        result = MA_INVALID_OPERATION;
+    }
+
+    if (result != MA_SUCCESS && result != MA_AT_END) {
+        *pBreakType = ma_data_source_break_type_none;
+        return result;
+    }
+
+    /* Backends can report the end with MA_AT_END, including when they return valid frames. */
+    if (*pBreakType == ma_data_source_break_type_none && (result == MA_AT_END || *pFramesRead == 0)) {
+        *pBreakType = ma_data_source_break_type_end;
+    }
+
+    if (*pFramesRead == 0 && *pBreakType == ma_data_source_break_type_end) {
+        return MA_AT_END;
+    }
+
+    return MA_SUCCESS;
 }
 
-static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_result result;
     ma_uint64 framesRead = 0;
     ma_bool32 loop = ma_data_source_is_looping(pDataSource);
 
+    *pBreakType = ma_data_source_break_type_none;
+
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
     }
 
     if (pDataSourceBase == NULL) {
+        *pBreakType = ma_data_source_break_type_end;
         return MA_AT_END;
     }
 
@@ -73462,7 +73543,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
 
     if ((pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE))) {
         /* No range is set - just read like normal. The data source itself will tell us when the end is reached. */
-        result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
+        result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead, pBreakType);
     } else {
         /* Need to clamp to within the range. */
         ma_uint64 relativeCursor;
@@ -73471,7 +73552,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         result = ma_data_source_get_cursor_in_pcm_frames(pDataSourceBase, &relativeCursor);
         if (result != MA_SUCCESS) {
             /* Failed to retrieve the cursor. Cannot read within a range or loop points. Just read like normal - this may happen for things like noise data sources where it doesn't really matter. */
-            result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
+            result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead, pBreakType);
         } else {
             ma_uint64 rangeBeg;
             ma_uint64 rangeEnd;
@@ -73503,8 +73584,9 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
             MA_AT_END so the higher level function can know about it.
             */
             if (frameCount > 0) {
-                result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
+                result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead, pBreakType);
             } else {
+                *pBreakType = ma_data_source_break_type_end;
                 result = MA_AT_END; /* The cursor is sitting on the end of the range which means we're at the end. */
             }
         }
@@ -73514,15 +73596,57 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         *pFramesRead = framesRead;
     }
 
-    /* We need to make sure MA_AT_END is returned if we hit the end of the range. */
-    if (result == MA_SUCCESS && framesRead == 0) {
-        result  = MA_AT_END;
+    return result;
+}
+
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    ma_result result = MA_SUCCESS;
+    void* pRunningFramesOut = pFramesOut;
+    ma_uint64 totalFramesRead = 0;
+    ma_format format;
+    ma_uint32 channels;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (pDataSource == NULL || frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We need to know the format and channels so we can advance the output buffer. */
+    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    while (totalFramesRead < frameCount) {
+        ma_uint64 framesRead;
+
+        result = ma_data_source_read_pcm_frames_ex(pDataSource, pRunningFramesOut, frameCount - totalFramesRead, &framesRead, NULL);
+        totalFramesRead += framesRead;
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        if (pRunningFramesOut != NULL) {
+            pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesRead * ma_get_bytes_per_frame(format, channels));
+        }
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
+
+    if (result == MA_AT_END && totalFramesRead > 0) {
+        result = MA_SUCCESS;
     }
 
     return result;
 }
 
-MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+MA_API ma_result ma_data_source_read_pcm_frames_ex(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
     ma_result result = MA_SUCCESS;
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -73531,8 +73655,12 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     ma_uint64 totalFramesProcessed = 0;
     ma_format format;
     ma_uint32 channels;
-    ma_uint32 emptyLoopCounter = 0; /* Keeps track of how many times 0 frames have been read. For infinite loop detection of sounds with no audio data. */
     ma_bool32 loop;
+    ma_data_source_break_type breakType = ma_data_source_break_type_none;
+
+    if (pBreakType != NULL) {
+        *pBreakType = ma_data_source_break_type_none;
+    }
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
@@ -73548,17 +73676,10 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 
     loop = ma_data_source_is_looping(pDataSource);
 
-    /*
-    We need to know the data format so we can advance the output buffer as we read frames. If this
-    fails, chaining will not work and we'll just read as much as we can from the current source.
-    */
-    if (ma_data_source_get_data_format(pDataSource, &format, &channels, NULL) != MA_SUCCESS) {
-        result = ma_data_source_resolve_current(pDataSource, (ma_data_source**)&pCurrentDataSource);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        return ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pFramesOut, frameCount, pFramesRead);
+    /* We need to know the data format so we can advance the output buffer as we read frames. */
+    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     /*
@@ -73569,6 +73690,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     /* Keep reading until we've read as many frames as possible. */
     while (totalFramesProcessed < frameCount) {
         ma_uint64 framesProcessed;
+        ma_data_source_break_type backendBreakType;
         ma_uint64 framesRemaining = frameCount - totalFramesProcessed;
 
         /* We need to resolve the data source that we'll actually be reading from. */
@@ -73578,11 +73700,16 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
         }
 
         if (pCurrentDataSource == NULL) {
+            breakType = ma_data_source_break_type_end;
             break;
         }
 
-        result = ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pRunningFramesOut, framesRemaining, &framesProcessed);
+        result = ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pRunningFramesOut, framesRemaining, &framesProcessed, &backendBreakType);
         totalFramesProcessed += framesProcessed;
+
+        if (framesProcessed > 0) {
+            pCurrentDataSource->isLoopStart = MA_FALSE;
+        }
 
         /*
         If we encountered an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
@@ -73592,16 +73719,25 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             break;
         }
 
+        /* Backends that manage looping also detect their own empty loops. */
+        if (backendBreakType == ma_data_source_break_type_loop) {
+            breakType = ma_data_source_break_type_loop;
+            result = MA_SUCCESS;
+            break;
+        }
+
         /*
-        We can determine if we've reached the end by checking if ma_data_source_read_pcm_frames_within_range() returned
-        MA_AT_END. To loop back to the start, all we need to do is seek back to the first frame.
+        The break type tells us when the current source has reached the end, including when valid
+        frames were read. To loop back to the start, all we need to do is seek back to the first
+        frame.
         */
-        if (result == MA_AT_END) {
+        if (backendBreakType == ma_data_source_break_type_end) {
             /*
             The result needs to be reset back to MA_SUCCESS (from MA_AT_END) so that we don't
             accidentally return MA_AT_END when data has been read in prior loop iterations. at the
             end of this function, the result will be checked for MA_SUCCESS, and if the total
-            number of frames processed is 0, will be explicitly set to MA_AT_END.
+            number of frames processed is 0 without a loop or chain transition, will be explicitly
+            set to MA_AT_END.
             */
             result = MA_SUCCESS;
 
@@ -73611,13 +73747,20 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             if so, switch to it.
             */
             if (loop) {
-                if (framesProcessed == 0) {
-                    emptyLoopCounter += 1;
-                    if (emptyLoopCounter > 1) {
-                        break;  /* Infinite loop detected. Get out. */
-                    }
-                } else {
-                    emptyLoopCounter = 0;
+                ma_uint64 loopEndInFrames;
+
+                /* A backend that manages it's own looping has already handled the transition or detected an empty loop. */
+                if (ma_data_source_is_looping_managed_by_backend(pDataSource)) {
+                    breakType = ma_data_source_break_type_end;
+                    break;
+                }
+
+                loopEndInFrames = ma_min(pCurrentDataSource->loopEndInFrames, pCurrentDataSource->rangeEndInFrames - pCurrentDataSource->rangeBegInFrames);
+
+                /* Do not retry an empty loop, including one that returned no data after its previous transition. */
+                if (pCurrentDataSource->isLoopStart || pCurrentDataSource->loopBegInFrames >= loopEndInFrames) {
+                    breakType = ma_data_source_break_type_end;
+                    break;
                 }
 
                 result = ma_data_source_seek_to_pcm_frame(pCurrentDataSource, pCurrentDataSource->loopBegInFrames);
@@ -73625,26 +73768,37 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                     break;  /* Failed to loop. Abort. */
                 }
 
-                /* Don't return MA_AT_END for looping sounds. */
-                result = MA_SUCCESS;
+                pCurrentDataSource->isLoopStart = MA_TRUE;
+
+                breakType = ma_data_source_break_type_loop;
+                break;
             } else {
+                ma_data_source* pNextDataSource;
+
                 if (pCurrentDataSource->pNext != NULL) {
-                    pDataSourceBase->pCurrent = pCurrentDataSource->pNext;
+                    pNextDataSource = pCurrentDataSource->pNext;
                 } else if (pCurrentDataSource->onGetNext != NULL) {
-                    pDataSourceBase->pCurrent = pCurrentDataSource->onGetNext(pCurrentDataSource);
-                    if (pDataSourceBase->pCurrent == NULL) {
+                    pNextDataSource = pCurrentDataSource->onGetNext(pCurrentDataSource);
+                    if (pNextDataSource == NULL) {
+                        pDataSourceBase->pCurrent = NULL;
+                        breakType = ma_data_source_break_type_end;
                         break;  /* Our callback did not return a next data source. We're done. */
                     }
                 } else {
                     /* Reached the end of the chain. We're done. */
+                    breakType = ma_data_source_break_type_end;
                     break;
                 }
 
                 /* The next data source needs to be rewound to ensure data is read in looping scenarios. */
-                result = ma_data_source_seek_to_pcm_frame(pDataSourceBase->pCurrent, 0);
+                result = ma_data_source_seek_to_pcm_frame(pNextDataSource, 0);
                 if (result != MA_SUCCESS) {
                     break;
                 }
+
+                pDataSourceBase->pCurrent = pNextDataSource;
+                breakType = ma_data_source_break_type_chain;
+                break;
             }
         }
 
@@ -73657,9 +73811,13 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
         *pFramesRead = totalFramesProcessed;
     }
 
+    if (pBreakType != NULL) {
+        *pBreakType = breakType;
+    }
+
     MA_ASSERT(!(result == MA_AT_END && totalFramesProcessed > 0));  /* We should never be returning MA_AT_END if we read some data. */
 
-    if (result == MA_SUCCESS && totalFramesProcessed == 0) {
+    if (result == MA_SUCCESS && totalFramesProcessed == 0 && breakType != ma_data_source_break_type_loop && breakType != ma_data_source_break_type_chain) {
         result  = MA_AT_END;
     }
 
@@ -73674,6 +73832,7 @@ MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+    ma_result result;
 
     if (pDataSourceBase == NULL) {
         return MA_INVALID_ARGS;
@@ -73689,7 +73848,12 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
 
     MA_ASSERT(pDataSourceBase->pVTable != NULL);
 
-    return pDataSourceBase->pVTable->onSeek(pDataSource, pDataSourceBase->rangeBegInFrames + frameIndex);
+    result = pDataSourceBase->pVTable->onSeek(pDataSource, pDataSourceBase->rangeBegInFrames + frameIndex);
+    if (result == MA_SUCCESS) {
+        pDataSourceBase->isLoopStart = MA_FALSE;
+    }
+
+    return result;
 }
 
 MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float secondCount, float* pSecondsSeeked)
@@ -73978,7 +74142,7 @@ MA_API ma_bool32 ma_data_source_is_looping(const ma_data_source* pDataSource)
         return MA_FALSE;
     }
 
-    result = ma_data_source_prop((ma_data_source*)pDataSource, MA_DATA_SOURCE_GET_LOOPING, &isLooping);
+    result = ma_data_source_prop_get_looping(pDataSource, &isLooping);
     if (result == MA_SUCCESS) {
         return isLooping;
     }
@@ -74014,6 +74178,10 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
 
         result = ma_data_source_prop(pDataSource, MA_DATA_SOURCE_SET_RANGE, &range);
         if (result != MA_NOT_IMPLEMENTED) {
+            if (result == MA_SUCCESS) {
+                pDataSourceBase->isLoopStart = MA_FALSE;
+            }
+
             return result;
         }
     }
@@ -74142,6 +74310,8 @@ MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDa
         }
     }
 
+    pDataSourceBase->isLoopStart = MA_FALSE;
+
     return MA_SUCCESS;
 }
 
@@ -74266,8 +74436,10 @@ static ma_result ma_audio_buffer__data_source_on_copy(ma_data_source* pDataSourc
     return ma_audio_buffer_init_copy((ma_audio_buffer*)pDataSource, (ma_audio_buffer*)pNewDataSource);
 }
 
-static ma_result ma_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_audio_buffer_read_pcm_frames((ma_audio_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -74855,8 +75027,10 @@ static void ma_paged_audio_buffer__data_source_on_uninit(ma_data_source* pDataSo
     ma_paged_audio_buffer_uninit((ma_paged_audio_buffer*)pDataSource);
 }
 
-static ma_result ma_paged_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_paged_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_paged_audio_buffer_read_pcm_frames((ma_paged_audio_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -77082,8 +77256,10 @@ static void ma_wav_ds_uninit(ma_data_source* pDataSource)
     ma_wav_uninit((ma_wav*)pDataSource);
 }
 
-static ma_result ma_wav_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_wav_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_wav_read_pcm_frames((ma_wav*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -77696,8 +77872,10 @@ static void ma_flac_ds_uninit(ma_data_source* pDataSource)
     ma_flac_uninit((ma_flac*)pDataSource);
 }
 
-static ma_result ma_flac_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_flac_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_flac_read_pcm_frames((ma_flac*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -78259,8 +78437,10 @@ static void ma_mp3_ds_uninit(ma_data_source* pDataSource)
     ma_mp3_uninit((ma_mp3*)pDataSource);
 }
 
-static ma_result ma_mp3_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_mp3_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_mp3_read_pcm_frames((ma_mp3*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -78889,8 +79069,10 @@ static void ma_stbvorbis_ds_uninit(ma_data_source* pDataSource)
     ma_stbvorbis_uninit((ma_stbvorbis*)pDataSource);
 }
 
-static ma_result ma_stbvorbis_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_stbvorbis_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_stbvorbis_read_pcm_frames((ma_stbvorbis*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -80125,8 +80307,10 @@ static ma_result ma_decoder__data_source_on_copy(ma_data_source* pDataSource, ma
     return ma_decoder_init_copy((ma_decoder*)pDataSource, (ma_decoder*)pNewDataSource);
 }
 
-static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -81619,8 +81803,10 @@ static ma_result ma_waveform__data_source_on_copy(ma_data_source* pDataSource, m
     return ma_waveform_init_copy((ma_waveform*)pDataSource, (ma_waveform*)pNewDataSource);
 }
 
-static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -82230,8 +82416,10 @@ static ma_result ma_noise__data_source_on_copy(ma_data_source* pDataSource, ma_d
     return ma_noise_init_copy((ma_noise*)pDataSource, (ma_noise*)pNewDataSource);
 }
 
-static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
+    (void)pBreakType;
+
     return ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
@@ -84569,9 +84757,11 @@ static ma_result ma_resource_manager_data_buffer_cb__copy(ma_data_source* pDataS
     return ma_resource_manager_data_buffer_init_copy((ma_resource_manager_data_buffer*)pDataSource, (ma_resource_manager_data_buffer*)pNewDataSource);
 }
 
-static ma_result ma_resource_manager_data_buffer_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_resource_manager_data_buffer_read_pcm_frames_internal(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType);
+
+static ma_result ma_resource_manager_data_buffer_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
-    return ma_resource_manager_data_buffer_read_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
+    return ma_resource_manager_data_buffer_read_pcm_frames_internal((ma_resource_manager_data_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead, pBreakType);
 }
 
 static ma_result ma_resource_manager_data_buffer_cb__seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -85116,10 +85306,17 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
 
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    return ma_data_source_read_pcm_frames(pDataBuffer, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_resource_manager_data_buffer_read_pcm_frames_internal(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
+{
     ma_result result = MA_SUCCESS;
     ma_uint64 framesRead = 0;
     ma_bool32 isDecodedBufferBusy = MA_FALSE;
     ma_bool32 isAtRangeEnd = MA_FALSE;
+
+    *pBreakType = ma_data_source_break_type_none;
 
     /* Safety. */
     if (pFramesRead != NULL) {
@@ -85183,7 +85380,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 
     /* Don't attempt to read anything if we've got no frames available. */
     if (frameCount > 0) {
-        result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead);
+        result = ma_data_source_read_pcm_frames_ex(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, pBreakType);
     }
 
     if (pDataBuffer->range.endInFrames != ~((ma_uint64)0)) {
@@ -85201,7 +85398,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     If we returned MA_AT_END, but the node is still loading, we don't want to return that code or else the caller will interpret the sound
     as at the end and terminate decoding.
     */
-    if (result == MA_AT_END) {
+    if (result == MA_AT_END || *pBreakType == ma_data_source_break_type_end) {
         if (!isAtRangeEnd && ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
             result = MA_BUSY;
         }
@@ -85215,8 +85412,8 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         *pFramesRead = framesRead;
     }
 
-    if (result == MA_SUCCESS && framesRead == 0) {
-        result  = MA_AT_END;
+    if (result != MA_SUCCESS && result != MA_AT_END) {
+        *pBreakType = ma_data_source_break_type_none;
     }
 
     return result;
@@ -85547,9 +85744,11 @@ static ma_result ma_resource_manager_data_stream_cb__init_copy(ma_data_source* p
     return ma_resource_manager_data_stream_init_copy((ma_resource_manager_data_stream*)pDataSource, (ma_resource_manager_data_stream*)pNewDataSource);
 }
 
-static ma_result ma_resource_manager_data_stream_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_resource_manager_data_stream_read_pcm_frames_ex(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType);
+
+static ma_result ma_resource_manager_data_stream_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
-    return ma_resource_manager_data_stream_read_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pFramesOut, frameCount, pFramesRead);
+    return ma_resource_manager_data_stream_read_pcm_frames_ex((ma_resource_manager_data_stream*)pDataSource, pFramesOut, frameCount, pFramesRead, pBreakType);
 }
 
 static ma_result ma_resource_manager_data_stream_cb__seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -86130,6 +86329,14 @@ static ma_result ma_resource_manager_data_stream_fill_page(ma_resource_manager_d
         }
     }
 
+    /* Complete a loop at the page boundary before publishing the page. */
+    if (!isAtEnd && pDataStream->isDecoderLooping && cursor >= loopEnd && loopPoint.begInFrames < loopEnd) {
+        result = ma_data_source_seek_to_pcm_frame(&pDataStream->decoder, loopPoint.begInFrames);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
     pDataStream->pageLoopEndInPCMFrames[pageIndex] = loopEnd;
     if (isAtEnd) {
         ma_atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
@@ -86276,8 +86483,8 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
     cursor = pDataStream->pageCursorInPCMFrames[pDataStream->currentPageIndex] + pDataStream->relativeCursor + frameCount;
     loopEnd = pDataStream->pageLoopEndInPCMFrames[pDataStream->currentPageIndex];
 
-    if (pDataStream->appliedLooping && cursor > loopEnd && loopEnd > pDataStream->loopPoint.begInFrames) {
-        cursor = pDataStream->loopPoint.begInFrames + 1 + (cursor - loopEnd - 1) % (loopEnd - pDataStream->loopPoint.begInFrames);
+    if (pDataStream->appliedLooping && cursor >= loopEnd && loopEnd > pDataStream->loopPoint.begInFrames) {
+        cursor = pDataStream->loopPoint.begInFrames + (cursor - loopEnd) % (loopEnd - pDataStream->loopPoint.begInFrames);
     }
 
     ma_atomic_exchange_64(&pDataStream->absoluteCursor, pDataStream->range.begInFrames + cursor);
@@ -86319,10 +86526,17 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 
 MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    return ma_data_source_read_pcm_frames(pDataStream, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_resource_manager_data_stream_read_pcm_frames_ex(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
+{
     ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesProcessed;
     ma_format format;
     ma_uint32 channels;
+
+    *pBreakType = ma_data_source_break_type_none;
 
     /* Safety. */
     if (pFramesRead != NULL) {
@@ -86362,11 +86576,39 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
     while (totalFramesProcessed < frameCount) {
         void* pMappedFrames;
         ma_uint64 mappedFrameCount;
+        ma_bool32 isLoopBoundary = MA_FALSE;
 
         mappedFrameCount = frameCount - totalFramesProcessed;
+
         result = ma_resource_manager_data_stream_map(pDataStream, &pMappedFrames, &mappedFrameCount);
         if (result != MA_SUCCESS) {
             break;
+        }
+
+        if (pDataStream->appliedLooping) {
+            ma_uint64 cursor;
+            ma_uint64 loopEnd;
+
+            cursor = pDataStream->pageCursorInPCMFrames[pDataStream->currentPageIndex] + pDataStream->relativeCursor;
+            loopEnd = pDataStream->pageLoopEndInPCMFrames[pDataStream->currentPageIndex];
+
+            if (loopEnd > pDataStream->loopPoint.begInFrames) {
+                if (cursor >= loopEnd) {
+                    cursor = pDataStream->loopPoint.begInFrames + (cursor - loopEnd) % (loopEnd - pDataStream->loopPoint.begInFrames);
+                }
+
+                /* A page can start after a loop discovered while filling it, including after an explicit seek. */
+                if (ma_atomic_load_64(&pDataStream->absoluteCursor) != pDataStream->range.begInFrames + cursor) {
+                    ma_atomic_exchange_64(&pDataStream->absoluteCursor, pDataStream->range.begInFrames + cursor);
+                    *pBreakType = ma_data_source_break_type_loop;
+                    break;
+                }
+
+                if (mappedFrameCount >= loopEnd - cursor) {
+                    mappedFrameCount  = loopEnd - cursor;
+                    isLoopBoundary = MA_TRUE;
+                }
+            }
         }
 
         /* Copy the mapped data to the output buffer if we have one. It's allowed for pFramesOut to be NULL in which case a relative forward seek is performed. */
@@ -86380,14 +86622,22 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
         if (result != MA_SUCCESS) {
             break;  /* This is really bad - will only get an error here if we failed to post a job to the queue for loading the next page. */
         }
+
+        if (isLoopBoundary) {
+            *pBreakType = ma_data_source_break_type_loop;
+            break;
+        }
     }
 
     if (pFramesRead != NULL) {
         *pFramesRead = totalFramesProcessed;
     }
 
-    if (result == MA_SUCCESS && totalFramesProcessed == 0) {
-        result  = MA_AT_END;
+    if (result == MA_AT_END) {
+        *pBreakType = ma_data_source_break_type_end;
+        if (totalFramesProcessed > 0) {
+            result = MA_SUCCESS;
+        }
     }
 
     return result;
@@ -86412,6 +86662,8 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
 
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
+    ma_result result;
+
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
@@ -86435,8 +86687,9 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
         return MA_INVALID_ARGS;
     }
 
-    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
-        return MA_INVALID_OPERATION;
+    result = ma_resource_manager_data_stream_result(pDataStream);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     /*
@@ -87528,10 +87781,12 @@ static void ma_node_graph_data_source__on_uninit(ma_data_source* pDataSource)
     ma_node_graph_uninit((ma_node_graph*)pDataSource);
 }
 
-static ma_result ma_node_graph_data_source__on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_node_graph_data_source__on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
     /* Since there's no notion of an end, we don't ever want to return MA_AT_END here. But it is possible to return 0. */
     ma_node_graph* pNodeGraph = (ma_node_graph*)pDataSource;
+    (void)pBreakType;
+
     MA_ASSERT(pNodeGraph != NULL);
 
     return ma_node_graph_read_pcm_frames(pNodeGraph, pFramesOut, frameCount, pFramesRead);

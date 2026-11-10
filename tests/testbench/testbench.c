@@ -225,12 +225,14 @@ static ma_result ma_test_data_source_copy(ma_data_source* pDataSource, ma_data_s
     return MA_SUCCESS;
 }
 
-static ma_result ma_test_data_source_read(ma_data_source* pDataSource, void* pFrames, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_test_data_source_read(ma_data_source* pDataSource, void* pFrames, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_data_source_break_type* pBreakType)
 {
     ma_test_data_source* pTestDataSource = (ma_test_data_source*)pDataSource;
     ma_result result;
     ma_uint64 length;
     ma_uint64 framesRemaining;
+
+    (void)pBreakType;
 
     /* miniaudio should always be giving us a valid pointer for pFramesRead. */
     if (pFramesRead == NULL) {
