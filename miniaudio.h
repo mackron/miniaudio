@@ -65618,6 +65618,17 @@ MA_API ma_result ma_linear_resampler_get_heap_size(const ma_linear_resampler_con
     return MA_SUCCESS;
 }
 
+static void ma_linear_resampler_reset_time(ma_linear_resampler* pResampler)
+{
+    if (pResampler->lpfOrder == 0) {
+        pResampler->inTimeInt = 0;
+    } else {
+        pResampler->inTimeInt = 1;  /* Set this to one to force an input sample to always be loaded for the first output frame. */
+    }
+
+    pResampler->inTimeFrac = 0;
+}
+
 MA_API ma_result ma_linear_resampler_init_preallocated(const ma_linear_resampler_config* pConfig, void* pHeap, ma_linear_resampler* pResampler)
 {
     ma_result result;
@@ -65670,13 +65681,7 @@ MA_API ma_result ma_linear_resampler_init_preallocated(const ma_linear_resampler
         return result;
     }
 
-    if (pResampler->lpfOrder == 0) {
-        pResampler->inTimeInt = 0;
-    } else {
-        pResampler->inTimeInt = 1;  /* Set this to one to force an input sample to always be loaded for the first output frame. */
-    }
-
-    pResampler->inTimeFrac = 0;
+    ma_linear_resampler_reset_time(pResampler);
 
     return MA_SUCCESS;
 }
@@ -67875,11 +67880,11 @@ MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler)
         return MA_INVALID_ARGS;
     }
 
-    /* Timers need to be cleared back to zero. */
-    pResampler->inTimeInt  = 1;  /* Set this to one to force an input sample to always be loaded for the first output frame. */
-    pResampler->inTimeFrac = 0;
+    ma_linear_resampler_reset_time(pResampler);
 
     /* Cached samples need to be cleared. */
+    pResampler->cachedFrameCount = 0;
+
     if (pResampler->format == ma_format_f32) {
         for (iChannel = 0; iChannel < pResampler->channels; iChannel += 1) {
             pResampler->x0.f32[iChannel] = 0;
