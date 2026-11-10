@@ -22445,6 +22445,7 @@ static ULONG STDMETHODCALLTYPE ma_IMMNotificationClient_Release(ma_IMMNotificati
 
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, const WCHAR* pDeviceID, DWORD dwNewState)
 {
+    ma_result result;
     ma_bool32 isThisDevice = MA_FALSE;
     ma_bool32 isCapture    = MA_FALSE;
     ma_bool32 isPlayback   = MA_FALSE;
@@ -22502,16 +22503,24 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
 
             if (isPlayback) {
                 if (pThis->pDevice->wasapi.isDetachedPlayback) {
+                    result = ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
+                    if (result != MA_SUCCESS) {
+                        return S_OK;
+                    }
+
                     pThis->pDevice->wasapi.isDetachedPlayback = MA_FALSE;
-                    ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
                     tryRestartingDevice = MA_TRUE;
                 }
             }
 
             if (isCapture) {
                 if (pThis->pDevice->wasapi.isDetachedCapture) {
+                    result = ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                    if (result != MA_SUCCESS) {
+                        return S_OK;
+                    }
+
                     pThis->pDevice->wasapi.isDetachedCapture = MA_FALSE;
-                    ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
                     tryRestartingDevice = MA_TRUE;
                 }
             }
@@ -22598,6 +22607,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     it again if the state before stopping was ma_device_state_started.
     */
     {
+        ma_result result;
         ma_uint32 previousState = ma_device_get_state(pThis->pDevice);
         ma_bool8 restartDevice = MA_FALSE;
 
@@ -22615,9 +22625,9 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
             ma_mutex_lock(&pThis->pDevice->wasapi.rerouteLock);
             {
                 if (dataFlow == ma_eRender) {
-                    ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
+                    result = ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
 
-                    if (pThis->pDevice->wasapi.isDetachedPlayback) {
+                    if (result == MA_SUCCESS && pThis->pDevice->wasapi.isDetachedPlayback) {
                         pThis->pDevice->wasapi.isDetachedPlayback = MA_FALSE;
 
                         if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedCapture) {
@@ -22629,9 +22639,9 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
                     }
                 }
                 else {
-                    ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                    result = ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
 
-                    if (pThis->pDevice->wasapi.isDetachedCapture) {
+                    if (result == MA_SUCCESS && pThis->pDevice->wasapi.isDetachedCapture) {
                         pThis->pDevice->wasapi.isDetachedCapture = MA_FALSE;
 
                         if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedPlayback) {
@@ -22644,6 +22654,10 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
                 }
             }
             ma_mutex_unlock(&pThis->pDevice->wasapi.rerouteLock);
+
+            if (result != MA_SUCCESS) {
+                return S_OK;
+            }
 
             if (restartDevice) {
                 ma_device_start(pThis->pDevice);
@@ -24619,6 +24633,19 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
 {
     HRESULT hr;
 
+    /* A failed reroute may have released the clients. Check both sides before starting either one. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        if (pDevice->wasapi.pAudioClientCapture == NULL || pDevice->wasapi.pCaptureClient == NULL) {
+            return MA_FAILED_TO_START_BACKEND_DEVICE;
+        }
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        if (pDevice->wasapi.pAudioClientPlayback == NULL || pDevice->wasapi.pRenderClient == NULL) {
+            return MA_FAILED_TO_START_BACKEND_DEVICE;
+        }
+    }
+
     if (pDevice->pContext->wasapi.hAvrt) {
         const char* pTaskName = ma_to_usage_string__wasapi(pDevice->wasapi.usage);
         if (pTaskName) {
@@ -24678,7 +24705,7 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
         pDevice->wasapi.hAvrtHandle = NULL;
     }
 
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+    if ((pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) && pDevice->wasapi.pAudioClientCapture != NULL) {
         /* If we have a mapped buffer we need to release it. */
         if (pDevice->wasapi.pMappedBufferCapture != NULL) {
             ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
@@ -24699,11 +24726,11 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.");
             return ma_result_from_HRESULT(hr);
         }
-
-        ma_atomic_bool32_set(&pDevice->wasapi.isStartedCapture, MA_FALSE);
     }
 
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    ma_atomic_bool32_set(&pDevice->wasapi.isStartedCapture, MA_FALSE);
+
+    if ((pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) && pDevice->wasapi.pAudioClientPlayback != NULL) {
         if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
             ma_silence_pcm_frames(
                 ma_offset_pcm_frames_ptr(pDevice->wasapi.pMappedBufferPlayback, pDevice->wasapi.mappedBufferPlaybackLen, pDevice->playback.internalFormat, pDevice->playback.internalChannels),
@@ -24774,9 +24801,9 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.");
             return ma_result_from_HRESULT(hr);
         }
-
-        ma_atomic_bool32_set(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
     }
+
+    ma_atomic_bool32_set(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
 
     return MA_SUCCESS;
 }
@@ -24806,6 +24833,14 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 totalFramesProcessed = 0;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (pDevice->wasapi.pCaptureClient == NULL) {
+        return MA_DEVICE_NOT_INITIALIZED;
+    }
 
     /*
     When reading, we need to get a buffer and process all of it before releasing it. Because the
@@ -25003,6 +25038,14 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 totalFramesProcessed = 0;
+
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = 0;
+    }
+
+    if (pDevice->wasapi.pRenderClient == NULL) {
+        return MA_DEVICE_NOT_INITIALIZED;
+    }
 
     /* Keep writing to the device until it's stopped or we've consumed all of our input. */
     while (ma_device_get_state(pDevice) == ma_device_state_started && totalFramesProcessed < frameCount) {
