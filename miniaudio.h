@@ -73293,6 +73293,27 @@ static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job*
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
+    /*
+    A page job that was already decoding when this job was posted will have posted its follow-up
+    page job with a later execution order than this one. That job still references the node (and
+    owns the decoder), so it must run before the node is freed. In that case we re-post this job
+    with a fresh execution order so it ends up being the last one. No other thread can post jobs
+    for this node since it has been removed, and none of its jobs can run concurrently with this
+    one, so the execution counter is stable here.
+    */
+    if (ma_atomic_load_32(&pDataBufferNode->executionCounter) != pJob->order + 1) {
+        ma_result result;
+        ma_job newJob;
+
+        newJob = *pJob;
+        newJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+
+        result = ma_resource_manager_post_job(pResourceManager, &newJob);
+        ma_atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
+
+        return result;
+    }
+
     /* The event needs to be signalled last. */
     if (pJob->data.resourceManager.freeDataBufferNode.pDoneNotification != NULL) {
         ma_async_notification_signal(pJob->data.resourceManager.freeDataBufferNode.pDoneNotification);
