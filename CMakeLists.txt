@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 
+# Allow toolchains to select the MSVC debug information format.
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+endif()
+
 # Extract version from miniaudio.h
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio.h" MINIAUDIO_HEADER_CONTENTS)
 string(REGEX MATCH "#define MA_VERSION_MAJOR[ \t]+([0-9]+)" _major_match "${MINIAUDIO_HEADER_CONTENTS}")
