@@ -1,5 +1,5 @@
 #include "../../../miniaudio.c"
-#include "ma_ltrim_node.c"
+#include "miniaudio_ltrim_node.c"
 
 #include <stdio.h>
 

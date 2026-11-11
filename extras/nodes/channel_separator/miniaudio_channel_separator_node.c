@@ -1,7 +1,7 @@
 #ifndef miniaudio_channel_separator_node_c
 #define miniaudio_channel_separator_node_c
 
-#include "ma_channel_separator_node.h"
+#include "miniaudio_channel_separator_node.h"
 
 #include <string.h> /* For memset(). */
 

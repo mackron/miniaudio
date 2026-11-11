@@ -1,4 +1,4 @@
-/* Include ma_ltrim_node.h after miniaudio.h */
+/* Include miniaudio_ltrim_node.h after miniaudio.h */
 #ifndef miniaudio_ltrim_node_h
 #define miniaudio_ltrim_node_h
 

@@ -808,30 +808,33 @@ endif()
 
 if(NOT MINIAUDIO_NO_EXTRA_NODES)
     function(add_extra_node name)
-        add_library(miniaudio_${name}_node
-            extras/nodes/ma_${name}_node/ma_${name}_node.c
-            extras/nodes/ma_${name}_node/ma_${name}_node.h
+        set(target_name miniaudio_${name}_node)
+        set(source_dir extras/nodes/${name})
+
+        add_library(${target_name}
+            ${source_dir}/${target_name}.c
+            ${source_dir}/${target_name}.h
         )
 
         if(MINIAUDIO_FORCE_CXX)
-            set_source_file_language_cxx(extras/nodes/ma_${name}_node/ma_${name}_node.c)
+            set_source_file_language_cxx(${source_dir}/${target_name}.c)
         endif()
         
         set(libs "${LIBS_TO_INSTALL}")
 
-        list(APPEND libs miniaudio_${name}_node)
+        list(APPEND libs ${target_name})
         set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
         if(MINIAUDIO_INSTALL)
-            install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/extras/nodes/ma_${name}_node)
+            install(FILES ${source_dir}/${target_name}.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/miniaudio/${source_dir})
         endif()
 
-        target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
-        target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
-        target_compile_definitions(miniaudio_${name}_node PRIVATE ${COMPILE_DEFINES})
+        target_include_directories(${target_name} PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/${source_dir})
+        target_compile_options    (${target_name} PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(${target_name} PRIVATE ${COMPILE_DEFINES})
 
         if(MINIAUDIO_BUILD_EXAMPLES)
-            add_executable(miniaudio_${name}_node_example extras/nodes/ma_${name}_node/ma_${name}_node_example.c)
-            target_link_libraries(miniaudio_${name}_node_example PRIVATE miniaudio_example)
+            add_executable(${target_name}_example ${source_dir}/${target_name}_example.c)
+            target_link_libraries(${target_name}_example PRIVATE miniaudio_example)
         endif()
     endfunction()
 

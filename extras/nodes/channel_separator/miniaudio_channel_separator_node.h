@@ -1,4 +1,4 @@
-/* Include ma_channel_separator_node.h after miniaudio.h */
+/* Include miniaudio_channel_separator_node.h after miniaudio.h */
 #ifndef miniaudio_channel_separator_node_h
 #define miniaudio_channel_separator_node_h
 

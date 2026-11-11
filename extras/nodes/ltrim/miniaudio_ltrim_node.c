@@ -1,7 +1,7 @@
 #ifndef miniaudio_ltrim_node_c
 #define miniaudio_ltrim_node_c
 
-#include "ma_ltrim_node.h"
+#include "miniaudio_ltrim_node.h"
 
 #include <string.h> /* For memset(). */
 

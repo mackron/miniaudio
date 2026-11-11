@@ -2,7 +2,7 @@
 #define miniaudio_vocoder_node_c
 
 #define VOCLIB_IMPLEMENTATION
-#include "ma_vocoder_node.h"
+#include "miniaudio_vocoder_node.h"
 
 #include <string.h> /* For memset(). */
 

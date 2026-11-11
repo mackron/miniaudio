@@ -1,5 +1,5 @@
 #include "../../../miniaudio.c"
-#include "ma_reverb_node.c"
+#include "miniaudio_reverb_node.c"
 
 #include <stdio.h>
 

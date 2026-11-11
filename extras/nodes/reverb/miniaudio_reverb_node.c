@@ -2,7 +2,7 @@
 #define miniaudio_reverb_node_c
 
 #define VERBLIB_IMPLEMENTATION
-#include "ma_reverb_node.h"
+#include "miniaudio_reverb_node.h"
 
 #include <string.h> /* For memset(). */
 

@@ -1,6 +1,6 @@
 #include "../../../miniaudio.c"
-#include "ma_channel_separator_node.c"
-#include "../ma_channel_combiner_node/ma_channel_combiner_node.c"
+#include "miniaudio_channel_separator_node.c"
+#include "../channel_combiner/miniaudio_channel_combiner_node.c"
 
 #include <stdio.h>
 

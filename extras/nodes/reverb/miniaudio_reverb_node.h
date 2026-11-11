@@ -1,4 +1,4 @@
-/* Include ma_reverb_node.h after miniaudio.h */
+/* Include miniaudio_reverb_node.h after miniaudio.h */
 #ifndef miniaudio_reverb_node_h
 #define miniaudio_reverb_node_h
 
