@@ -2,6 +2,7 @@ std :: import<std>
 
 miniaudio_h             := <../miniaudio.h>
 miniaudio_c             := <../miniaudio.c>
+fs_c                    :: <../../fs/fs.c>
 dr_wav_h                :: <../../dr_libs/dr_wav.h>
 dr_flac_h               :: <../../dr_libs/dr_flac.h>
 dr_mp3_h                :: <../../dr_libs/dr_mp3.h>
@@ -14,6 +15,11 @@ minify :: function(src:string) string
 {
     return std.trim_trailing_whitespace(std.remove_empty_lines(std.remove_c_block_comments(src)))
 }
+
+
+// va_copy
+miniaudio_h("/\* BEG ma_va_copy.c \*/\R":"\R/\* END ma_va_copy.c \*/") = @(fs_c("/\* BEG fs_va_copy.c \*/\R":"\R/\* END fs_va_copy.c \*/"))
+    ["\bfs_va_copy\b"] <= "ma_va_copy"
 
 
 // dr_wav

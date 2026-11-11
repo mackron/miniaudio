@@ -14432,21 +14432,21 @@ static void ma__free_default(void* p, void* pUserData)
 Logging
 
 **************************************************************************************************************************************************************/
+/* BEG ma_va_copy.c */
 #ifndef ma_va_copy
     #if !defined(_MSC_VER) || _MSC_VER >= 1800
-        #if !defined(__STDC_VERSION__) || (defined(__GNUC__) && __GNUC__ < 3)   /* <-- va_copy() is not available when using `-std=c89`. The `!defined(__STDC_VERSION__)` parts is what checks for this. */
-            #if defined(__va_copy)
-                #define ma_va_copy(dst, src) __va_copy(dst, src)
-            #else
-                #define ma_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
-            #endif
-        #else
+        #if defined(va_copy) || (defined(__cplusplus) && __cplusplus >= 201103L) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L && (!defined(__GNUC__) || __GNUC__ >= 3))
             #define ma_va_copy(dst, src) va_copy((dst), (src))
+        #elif defined(__va_copy)
+            #define ma_va_copy(dst, src) __va_copy(dst, src)
+        #else
+            #define ma_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
         #endif
     #else
         #define ma_va_copy(dst, src) ((dst) = (src))
     #endif
 #endif
+/* END ma_va_copy.c */
 
 MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
 {
