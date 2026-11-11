@@ -54740,9 +54740,27 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
     ma_device_config config;
     MA_ZERO_OBJECT(&config);
     config.contextConfig = ma_context_config_init();
-    config.aaudio = ma_device_config_aaudio_init();
     config.deviceType = deviceType;
     config.resampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate don't matter here. */
+
+    config.wasapi       = ma_device_config_wasapi_init();
+    config.dsound       = ma_device_config_dsound_init();
+    config.winmm        = ma_device_config_winmm_init();
+    config.coreaudio    = ma_device_config_coreaudio_init();
+    config.pipewire     = ma_device_config_pipewire_init();
+    config.pulseaudio   = ma_device_config_pulseaudio_init();
+    config.jack         = ma_device_config_jack_init();
+    config.alsa         = ma_device_config_alsa_init();
+    config.sndio        = ma_device_config_sndio_init();
+    config.audio4       = ma_device_config_audio4_init();
+    config.oss          = ma_device_config_oss_init();
+    config.aaudio       = ma_device_config_aaudio_init();
+    config.opensl       = ma_device_config_opensl_init();
+    config.webaudio     = ma_device_config_webaudio_init();
+    config.dreamcast    = ma_device_config_dreamcast_init(0);
+    config.xaudio       = ma_device_config_xaudio_init();
+    config.vita         = ma_device_config_vita_init();
+    config.null_backend = ma_device_config_null_init();
 
     return config;
 }
