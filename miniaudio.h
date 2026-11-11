@@ -23733,7 +23733,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                 if (SUCCEEDED(hr)) {
                     /* The format returned by PKEY_AudioEngine_DeviceFormat is supported. */
                     ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_exclusive, pInfo);
-                } else {
+                } else if (hr != MA_AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED) {
                     /*
                     The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
                     count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
@@ -23776,6 +23776,10 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                             wf.nAvgBytesPerSec = wf.nBlockAlign * wf.nSamplesPerSec;
 
                             hr = ma_IAudioClient_IsFormatSupported(pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
+                            if (hr == MA_AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED) {
+                                break;
+                            }
+
                             if (SUCCEEDED(hr)) {
                                 ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((MA_WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
                                 found = MA_TRUE;
@@ -23783,14 +23787,16 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                             }
                         }
 
-                        if (found) {
+                        if (found || hr == MA_AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED) {
                             break;
                         }
                     }
 
+                    /*
                     if (!found) {
-                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to find suitable device format for device info retrieval.");
+                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[WASAPI] Failed to find suitable exclusive mode format for device info retrieval.");
                     }
+                    */
                 }
             } else {
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to retrieve device format for device info retrieval.");
