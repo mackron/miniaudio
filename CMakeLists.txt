@@ -46,6 +46,7 @@ option(MINIAUDIO_NO_DREAMCAST                  "Disable the Dreamcast backend"  
 option(MINIAUDIO_NO_XAUDIO                     "Disable the XAudio (OG Xbox) backend" OFF)
 option(MINIAUDIO_NO_VITA                       "Disable the Vita backend"             OFF)
 option(MINIAUDIO_NO_NULL                       "Disable the null backend"             OFF)
+option(MINIAUDIO_NO_SDL3                       "Disable the SDL3 backend"             OFF)
 option(MINIAUDIO_NO_SDL2                       "Disable the SDL2 backend"             OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"            OFF)
@@ -66,6 +67,7 @@ option(MINIAUDIO_ENABLE_DREAMCAST              "Enable the Dreamcast backend"   
 option(MINIAUDIO_ENABLE_XAUDIO                 "Enable the XAudio (OG Xbox) backend"  OFF)
 option(MINIAUDIO_ENABLE_VITA                   "Enable the Vita backend"              OFF)
 option(MINIAUDIO_ENABLE_NULL                   "Enable the null backend"              OFF)
+option(MINIAUDIO_ENABLE_SDL3                   "Enable the SDL3 backend"              OFF)
 option(MINIAUDIO_ENABLE_SDL2                   "Enable the SDL2 backend"              OFF)
 option(MINIAUDIO_NO_DECODING                   "Disable decoding APIs"                OFF)
 option(MINIAUDIO_NO_ENCODING                   "Disable encoding APIs"                OFF)
@@ -127,6 +129,7 @@ normalize_backend_enabled_option(DREAMCAST)
 normalize_backend_enabled_option(XAUDIO)
 normalize_backend_enabled_option(VITA)
 normalize_backend_enabled_option(NULL)
+normalize_backend_enabled_option(SDL3)
 normalize_backend_enabled_option(SDL2)
 
 
@@ -248,6 +251,19 @@ if(MINIAUDIO_NO_RUNTIME_LINKING)
     endif()
 endif()
 
+# SDL3.
+if(NOT MINIAUDIO_NO_SDL3)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL3 IMPORTED_TARGET sdl3)
+    endif()
+
+    if(NOT TARGET PkgConfig::SDL3)
+        message(STATUS "SDL3 development files not found. Disabling SDL3 backend.")
+        set(MINIAUDIO_NO_SDL3 ON)
+    endif()
+endif()
+
 # SDL2. We do this outside of the MINIAUDIO_NO_RUNTIME_LINKING check because we use SDL2 in some examples.
 if(NOT MINIAUDIO_NO_SDL2)
     find_package(PkgConfig QUIET)
@@ -319,6 +335,9 @@ endif()
 if(MINIAUDIO_NO_NULL)
     list(APPEND COMPILE_DEFINES MA_NO_NULL)
 endif()
+if(MINIAUDIO_NO_SDL3)
+    list(APPEND COMPILE_DEFINES MA_NO_SDL3)
+endif()
 if(MINIAUDIO_NO_SDL2)
     list(APPEND COMPILE_DEFINES MA_NO_SDL2)
 endif()
@@ -378,6 +397,9 @@ if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     endif()
     if(MINIAUDIO_ENABLE_NULL)
         list(APPEND COMPILE_DEFINES MA_ENABLE_NULL)
+    endif()
+    if(MINIAUDIO_ENABLE_SDL3)
+        list(APPEND COMPILE_DEFINES MA_ENABLE_SDL3)
     endif()
     if(MINIAUDIO_ENABLE_SDL2)
         list(APPEND COMPILE_DEFINES MA_ENABLE_SDL2)
@@ -724,6 +746,24 @@ target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
 # Extra Backends
 if(NOT MINIAUDIO_NO_DEVICEIO)
+    if(NOT MINIAUDIO_NO_SDL3)
+        add_library(miniaudio_sdl3 STATIC
+            extras/backends/sdl3/miniaudio_sdl3.c
+            extras/backends/sdl3/miniaudio_sdl3.h
+        )
+
+        list(APPEND LIBS_TO_INSTALL miniaudio_sdl3)
+        install(FILES extras/backends/sdl3/miniaudio_sdl3.h DESTINATION include/miniaudio/extras/backends/sdl3)
+
+        target_include_directories(miniaudio_sdl3 PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/sdl3)
+        target_compile_options    (miniaudio_sdl3 PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_sdl3 PRIVATE ${COMPILE_DEFINES})
+
+        if(MINIAUDIO_NO_RUNTIME_LINKING)
+            target_link_libraries(miniaudio_sdl3 PRIVATE PkgConfig::SDL3)
+        endif()
+    endif()
+
     if(NOT MINIAUDIO_NO_SDL2)
         add_library(miniaudio_sdl2 STATIC
             extras/backends/sdl2/miniaudio_sdl2.c
@@ -870,6 +910,11 @@ target_link_libraries (miniaudio_test INTERFACE ${COMMON_LINK_LIBRARIES})
 if(MINIAUDIO_NO_RUNTIME_LINKING)
     target_compile_definitions(miniaudio_test INTERFACE MA_NO_RUNTIME_LINKING)
 
+    if(NOT TARGET PkgConfig::SDL3)
+        message(STATUS "Disabling SDL3 backend for tests because SDL3 development files were not found.")
+        target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL3)
+    endif()
+
     if(NOT TARGET PkgConfig::SDL2)
         message(STATUS "Disabling SDL2 backend for tests because SDL2 development files were not found.")
         target_compile_definitions(miniaudio_test INTERFACE MA_NO_SDL2)
@@ -960,8 +1005,15 @@ if(MINIAUDIO_BUILD_TESTS)
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
     if(MINIAUDIO_NO_RUNTIME_LINKING)
-        if(NOT MINIAUDIO_NO_SDL2 AND TARGET PkgConfig::SDL2)
+        # SDL2 and SDL3 cannot share a translation unit. Prefer SDL3 unless SDL2 is explicitly selected.
+        if(NOT MINIAUDIO_NO_SDL3 AND TARGET PkgConfig::SDL3 AND (NOT MINIAUDIO_ENABLE_SDL2 OR MINIAUDIO_ENABLE_SDL3))
+            target_compile_definitions(miniaudio_deviceio PRIVATE MA_NO_SDL2)
+            target_link_libraries(miniaudio_deviceio PRIVATE PkgConfig::SDL3)
+        elseif(NOT MINIAUDIO_NO_SDL2 AND TARGET PkgConfig::SDL2)
+            target_compile_definitions(miniaudio_deviceio PRIVATE MA_NO_SDL3)
             target_link_libraries(miniaudio_deviceio PRIVATE PkgConfig::SDL2)
+        else()
+            target_compile_definitions(miniaudio_deviceio PRIVATE MA_NO_SDL2 MA_NO_SDL3)
         endif()
     endif()
     if (TARGET libvorbis_interface)
