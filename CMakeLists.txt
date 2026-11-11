@@ -790,6 +790,10 @@ if(MINIAUDIO_BUILD_TESTS)
     
     add_miniaudio_test(miniaudio_generation generation/generation.c)
     add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
+
+    add_miniaudio_test(miniaudio_resource_manager resource_manager/resource_manager.c)
+    add_test(NAME miniaudio_resource_manager COMMAND miniaudio_resource_manager)
+    set_tests_properties(miniaudio_resource_manager PROPERTIES TIMEOUT 10)
 endif()
 
 # Examples
