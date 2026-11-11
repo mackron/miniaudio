@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h> /* For INT_MAX. */
 
 #if defined(__clang__) && defined(__has_attribute)
     #if __has_attribute(suppress)
@@ -24,14 +25,12 @@
 /* BEG fs_va_copy.c */
 #ifndef fs_va_copy
     #if !defined(_MSC_VER) || _MSC_VER >= 1800
-        #if !defined(__STDC_VERSION__) || (defined(__GNUC__) && __GNUC__ < 3)   /* <-- va_copy() is not available when using `-std=c89`. The `!defined(__STDC_VERSION__)` parts is what checks for this. */
-            #if defined(__va_copy)
-                #define fs_va_copy(dst, src) __va_copy(dst, src)
-            #else
-                #define fs_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
-            #endif
-        #else
+        #if defined(va_copy) || (defined(__cplusplus) && __cplusplus >= 201103L) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L && (!defined(__GNUC__) || __GNUC__ >= 3))
             #define fs_va_copy(dst, src) va_copy((dst), (src))
+        #elif defined(__va_copy)
+            #define fs_va_copy(dst, src) __va_copy(dst, src)
+        #else
+            #define fs_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
         #endif
     #else
         #define fs_va_copy(dst, src) ((dst) = (src))
@@ -128,7 +127,7 @@ FS_API int fs_strncpy(char* dst, const char* src, size_t count)
         dst[i] = src[i];
     }
 
-    if (src[i] == '\0' || i == count || count == ((size_t)-1)) {
+    if (i == count || src[i] == '\0' || count == ((size_t)-1)) {
         dst[i] = '\0';
         return 0;
     }
@@ -371,7 +370,7 @@ FS_API int fs_strnicmp(const char* str1, const char* str2, size_t count)
 }
 
 
-/* BEG fs_result.c */
+/* BEG fs_result_description.c */
 FS_API const char* fs_result_description(fs_result result)
 {
     switch (result)
@@ -433,7 +432,9 @@ FS_API const char* fs_result_description(fs_result result)
         default:                               return "Unknown error";
     }
 }
+/* END fs_result_description.c */
 
+/* BEG fs_result_conversion.c */
 #include <errno.h>
 
 FS_API fs_result fs_result_from_errno(int error)
@@ -716,7 +717,7 @@ FS_API fs_result fs_result_from_GetLastError(void)
     }
 }
 #endif /* _WIN32 */
-/* END fs_result.c */
+/* END fs_result_conversion.c */
 
 
 /* BEG fs_allocation_callbacks.c */
@@ -835,7 +836,7 @@ Parameter ordering is the same as c89thread to make amalgamation easier.
 
 /* BEG fs_thread_mtx.c */
 #if defined(FS_WIN32) && !defined(FS_USE_PTHREAD)
-FS_API int fs_mtx_init(fs_mtx* mutex, int type)
+FS_API fs_result fs_mtx_init(fs_mtx* mutex, int type)
 {
     HANDLE hMutex;
 
@@ -877,7 +878,7 @@ FS_API void fs_mtx_destroy(fs_mtx* mutex)
     CloseHandle((HANDLE)mutex->handle);
 }
 
-FS_API int fs_mtx_lock(fs_mtx* mutex)
+FS_API fs_result fs_mtx_lock(fs_mtx* mutex)
 {
     DWORD result;
 
@@ -886,6 +887,10 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
     }
 
     result = WaitForSingleObject((HANDLE)mutex->handle, INFINITE);
+    if (result == WAIT_ABANDONED) {
+        ReleaseMutex((HANDLE)mutex->handle);
+        return FS_ERROR;
+    }
     if (result != WAIT_OBJECT_0) {
         return FS_ERROR;
     }
@@ -893,7 +898,7 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
     return FS_SUCCESS;
 }
 
-FS_API int fs_mtx_unlock(fs_mtx* mutex)
+FS_API fs_result fs_mtx_unlock(fs_mtx* mutex)
 {
     BOOL result;
 
@@ -914,7 +919,16 @@ FS_API int fs_mtx_unlock(fs_mtx* mutex)
     return FS_SUCCESS;
 }
 #else
-FS_API int fs_mtx_init(fs_mtx* mutex, int type)
+static fs_result fs_result_from_pthread(int e)
+{
+    if (e == 0) {
+        return FS_SUCCESS;
+    } else {
+        return fs_result_from_errno(e);
+    }
+}
+
+FS_API fs_result fs_mtx_init(fs_mtx* mutex, int type)
 {
     int result;
 
@@ -925,19 +939,18 @@ FS_API int fs_mtx_init(fs_mtx* mutex, int type)
     #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
     {
         /* Initialize the main mutex */
-        result = pthread_mutex_init(&mutex->mutex, NULL);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_init(&mutex->mutex, NULL));
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
         
         /* For recursive mutexes, we need the guard mutex and metadata */
         if ((type & fs_mtx_recursive) != 0) {
-            if (pthread_mutex_init(&mutex->guard, NULL) != 0) {
+            if (fs_result_from_pthread(pthread_mutex_init(&mutex->guard, NULL)) != FS_SUCCESS) {
                 pthread_mutex_destroy(&mutex->mutex);
                 return FS_ERROR;
             }
 
-            mutex->owner = 0;  /* No owner initially. */
             mutex->recursionCount = 0;
         }
         
@@ -947,19 +960,25 @@ FS_API int fs_mtx_init(fs_mtx* mutex, int type)
     }
     #else
     {
-        pthread_mutexattr_t attr;   /* For specifying whether or not the mutex is recursive. */
-
-        pthread_mutexattr_init(&attr);
         if ((type & fs_mtx_recursive) != 0) {
-            pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+            pthread_mutexattr_t attr;
+
+            result = fs_result_from_pthread(pthread_mutexattr_init(&attr));
+            if (result != FS_SUCCESS) {
+                return FS_ERROR;
+            }
+
+            result = fs_result_from_pthread(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE));
+            if (result == FS_SUCCESS) {
+                result = fs_result_from_pthread(pthread_mutex_init((pthread_mutex_t*)mutex, &attr));
+            }
+
+            pthread_mutexattr_destroy(&attr);
         } else {
-            pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);     /* Will deadlock. Consistent with Win32. */
+            result = fs_result_from_pthread(pthread_mutex_init((pthread_mutex_t*)mutex, NULL));
         }
 
-        result = pthread_mutex_init((pthread_mutex_t*)mutex, &attr);
-        pthread_mutexattr_destroy(&attr);
-
-        if (result != 0) {
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
 
@@ -990,7 +1009,7 @@ FS_API void fs_mtx_destroy(fs_mtx* mutex)
     #endif
 }
 
-FS_API int fs_mtx_lock(fs_mtx* mutex)
+FS_API fs_result fs_mtx_lock(fs_mtx* mutex)
 {
     int result;
 
@@ -1004,8 +1023,8 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
 
         /* Optimized path for plain mutexes. */
         if ((mutex->type & fs_mtx_recursive) == 0) {
-            result = pthread_mutex_lock(&mutex->mutex);
-            if (result != 0) {
+            result = fs_result_from_pthread(pthread_mutex_lock(&mutex->mutex));
+            if (result != FS_SUCCESS) {
                 return FS_ERROR;
             }
 
@@ -1016,13 +1035,18 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
         currentThread = pthread_self();
         
         /* First, lock the guard mutex to safely access the metadata. */
-        result = pthread_mutex_lock(&mutex->guard);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_lock(&mutex->guard));
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
 
         /* We can bomb out early if the current thread already owns this mutex. */
         if (mutex->recursionCount > 0 && pthread_equal(mutex->owner, currentThread)) {
+            if (mutex->recursionCount == INT_MAX) {
+                pthread_mutex_unlock(&mutex->guard);
+                return FS_ERROR;
+            }
+
             mutex->recursionCount += 1;
             pthread_mutex_unlock(&mutex->guard);
             return FS_SUCCESS;
@@ -1031,14 +1055,14 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
         /* The guard mutex needs to be unlocked before locking the main mutex or else we'll deadlock. */
         pthread_mutex_unlock(&mutex->guard);
         
-        result = pthread_mutex_lock(&mutex->mutex);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_lock(&mutex->mutex));
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
         
         /* Update metadata. */
-        result = pthread_mutex_lock(&mutex->guard);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_lock(&mutex->guard));
+        if (result != FS_SUCCESS) {
             pthread_mutex_unlock(&mutex->mutex);
             return FS_ERROR;
         }
@@ -1052,8 +1076,8 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
     }
     #else
     {
-        result = pthread_mutex_lock((pthread_mutex_t*)mutex);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_lock((pthread_mutex_t*)mutex));
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
 
@@ -1062,7 +1086,7 @@ FS_API int fs_mtx_lock(fs_mtx* mutex)
     #endif
 }
 
-FS_API int fs_mtx_unlock(fs_mtx* mutex)
+FS_API fs_result fs_mtx_unlock(fs_mtx* mutex)
 {
     int result;
 
@@ -1076,8 +1100,8 @@ FS_API int fs_mtx_unlock(fs_mtx* mutex)
 
         /* Optimized path for plain mutexes. */
         if ((mutex->type & fs_mtx_recursive) == 0) {
-            result = pthread_mutex_unlock(&mutex->mutex);
-            if (result != 0) {
+            result = fs_result_from_pthread(pthread_mutex_unlock(&mutex->mutex));
+            if (result != FS_SUCCESS) {
                 return FS_ERROR;
             }
 
@@ -1088,8 +1112,8 @@ FS_API int fs_mtx_unlock(fs_mtx* mutex)
         currentThread = pthread_self();
         
         /* Lock the guard mutex to safely access the metadata */
-        result = pthread_mutex_lock(&mutex->guard);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_lock(&mutex->guard));
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
         
@@ -1103,12 +1127,11 @@ FS_API int fs_mtx_unlock(fs_mtx* mutex)
         mutex->recursionCount -= 1;
 
         if (mutex->recursionCount == 0) {
-            /* Last unlock. Clear ownership and unlock the main mutex. */
-            mutex->owner = 0;
+            /* Last unlock. Unlock the main mutex. */
             pthread_mutex_unlock(&mutex->guard);
 
-            result = pthread_mutex_unlock(&mutex->mutex);
-            if (result != 0) {
+            result = fs_result_from_pthread(pthread_mutex_unlock(&mutex->mutex));
+            if (result != FS_SUCCESS) {
                 return FS_ERROR;
             }
         } else {
@@ -1120,8 +1143,8 @@ FS_API int fs_mtx_unlock(fs_mtx* mutex)
     }
     #else
     {
-        result = pthread_mutex_unlock((pthread_mutex_t*)mutex);
-        if (result != 0) {
+        result = fs_result_from_pthread(pthread_mutex_unlock((pthread_mutex_t*)mutex));
+        if (result != FS_SUCCESS) {
             return FS_ERROR;
         }
 
@@ -1208,6 +1231,14 @@ FS_API fs_result fs_stream_write(fs_stream* pStream, const void* pSrc, size_t by
 
     if (pBytesWritten != NULL) {
         *pBytesWritten = bytesWritten;
+    } else {
+        /*
+        The caller has not specified a destination for the bytes written. If we didn't write the exact
+        number of bytes as requested we'll need to report an error.
+        */
+        if (result == FS_SUCCESS && bytesWritten != bytesToWrite) {
+            result = FS_ERROR;
+        }
     }
 
     return result;
@@ -1394,9 +1425,27 @@ FS_API fs_result fs_stream_read_to_end(fs_stream* pStream, fs_format format, con
         size_t chunkSize = 4096;
         size_t bytesRead;
 
+        /* Prevent a size_t overflow. Should never happen in practice because the system would reach an out-of-memory state before hitting this, but checking anyway for completeness. */
+        if (FS_SIZE_MAX - dataSize < chunkSize) {
+            fs_free(pData, pAllocationCallbacks);
+            return FS_TOO_BIG;
+        }
+
         if (dataSize + chunkSize > dataCap) {
             void* pNewData;
-            size_t newCap = dataCap * 2;
+            size_t newCap;
+
+            if (dataCap > FS_SIZE_MAX/2) {
+                newCap = FS_SIZE_MAX;
+
+                if (newCap == dataCap) {
+                    fs_free(pData, pAllocationCallbacks);
+                    return FS_TOO_BIG;
+                }
+            } else {
+                newCap = dataCap * 2;
+            }
+
             if (newCap == 0) {
                 newCap = chunkSize;
             }
@@ -1420,10 +1469,23 @@ FS_API fs_result fs_stream_read_to_end(fs_stream* pStream, fs_format format, con
         }
     }
 
+    /* Do not return partial data on error. The output pointers must remain cleared on failure. */
+    if (result != FS_SUCCESS && result != FS_AT_END) {
+        fs_free(pData, pAllocationCallbacks);
+        return result;
+    }
+
     /* If we're opening in text mode, we need to append a null terminator. */
     if (format == FS_FORMAT_TEXT) {
         if (dataSize >= dataCap) {
             void* pNewData;
+
+            /* A pedantic overflow check in preparation for the null terminator. */
+            if (dataSize == FS_SIZE_MAX) {
+                fs_free(pData, pAllocationCallbacks);
+                return FS_TOO_BIG;
+            }
+
             pNewData = fs_realloc(pData, dataSize + 1, pAllocationCallbacks);
             if (pNewData == NULL) {
                 fs_free(pData, pAllocationCallbacks);
@@ -1442,12 +1504,7 @@ FS_API fs_result fs_stream_read_to_end(fs_stream* pStream, fs_format format, con
         *pDataSize = dataSize;
     }
 
-    /* Make sure the caller is aware of any errors. */
-    if (result != FS_SUCCESS && result != FS_AT_END) {
-        return result;
-    } else {
-        return FS_SUCCESS;
-    }
+    return FS_SUCCESS;
 }
 /* END fs_stream.c */
 
@@ -1505,7 +1562,7 @@ static fs_result fs_backend_rename(const fs_backend* pBackend, fs* pFS, const ch
 {
     FS_ASSERT(pBackend != NULL);
 
-    if (pBackend->remove == NULL) {
+    if (pBackend->rename == NULL) {
         return FS_NOT_IMPLEMENTED;
     } else {
         return pBackend->rename(pFS, pOldName, pNewName);
@@ -2018,7 +2075,7 @@ static fs_result fs_mount_list_remove(fs_mount_list* pList, fs_mount_point* pMou
     FS_MOVE_MEMORY
     (
         pMountPoint,
-        FS_OFFSET_PTR(pList, fs_mount_list_get_header_size() + mountPointAllocSize),
+        FS_OFFSET_PTR(pMountPoint, + mountPointAllocSize),
         fs_mount_list_get_alloc_size(pList) - ((fs_uintptr)pMountPoint - (fs_uintptr)FS_OFFSET_PTR(pList, fs_mount_list_get_header_size())) - mountPointAllocSize
     );
 
@@ -2399,16 +2456,16 @@ static fs_result fs_resolve_sub_path_from_mount_point(fs* pFS, fs_mount_point* p
             return FS_DOES_NOT_EXIST;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. */
         }
 
-        pResolvedSubPath->len = (size_t)stringLen;
-
         if ((size_t)stringLen >= sizeof(pResolvedSubPath->stack)) {
             result = fs_string_alloc((size_t)stringLen, fs_get_allocation_callbacks(pFS), pResolvedSubPath);
             if (result != FS_SUCCESS) {
                 return result;
             }
 
-            fs_path_normalize(pResolvedSubPath->heap, pResolvedSubPath->len + 1, pSubPath, FS_NULL_TERMINATED, normalizeOptions);    /* <-- This should never fail. */
+            fs_path_normalize(pResolvedSubPath->heap, (size_t)stringLen + 1, pSubPath, FS_NULL_TERMINATED, normalizeOptions);    /* <-- This should never fail. */
         }
+
+        pResolvedSubPath->len = (size_t)stringLen;
     } else {
         *pResolvedSubPath = fs_string_new_ref(pSubPath, FS_NULL_TERMINATED);
     }
@@ -2436,16 +2493,17 @@ static fs_result fs_resolve_real_path_from_mount_point(fs* pFS, fs_mount_point* 
         return FS_PATH_TOO_LONG;    /* The only error we would get here is if the path is too long. */
     }
 
-    pResolvedRealPath->len = (size_t)stringLen;
-
     if ((size_t)stringLen >= sizeof(pResolvedRealPath->stack)) {
         result = fs_string_alloc((size_t)stringLen, fs_get_allocation_callbacks(pFS), pResolvedRealPath);
         if (result != FS_SUCCESS) {
+            fs_string_free(&subPath, fs_get_allocation_callbacks(pFS));
             return result;
         }
 
-        fs_path_append(pResolvedRealPath->heap, pResolvedRealPath->len + 1, fs_mount_point_real_path(pMountPoint), fs_mount_point_real_path_len(pMountPoint), fs_string_cstr(&subPath), fs_string_len(&subPath));    /* <-- This should never fail. */
+        fs_path_append(pResolvedRealPath->heap, (size_t)stringLen + 1, fs_mount_point_real_path(pMountPoint), fs_mount_point_real_path_len(pMountPoint), fs_string_cstr(&subPath), fs_string_len(&subPath));    /* <-- This should never fail. */
     }
+
+    pResolvedRealPath->len = (size_t)stringLen;
 
     /* Now that actual path has been constructed we can discard of our sub-path. */
     fs_string_free(&subPath, fs_get_allocation_callbacks(pFS));
@@ -2589,13 +2647,22 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
     We need a mutex for fs_open_archive() and fs_close_archive(). This needs to be recursive because
     during garbage collection we may end up closing archives in archives.
     */
-    fs_mtx_init(&pFS->archiveLock, fs_mtx_recursive);
+    result = fs_mtx_init(&pFS->archiveLock, fs_mtx_recursive);
+    if (result != FS_SUCCESS) {
+        fs_free(pFS, fs_get_allocation_callbacks(pFS));
+        return result;
+    }
 
     /*
     We need a mutex for the reference counting. This is needed because we may have multiple threads
     opening and closing files at the same time.
     */
-    fs_mtx_init(&pFS->refLock, fs_mtx_recursive);
+    result = fs_mtx_init(&pFS->refLock, fs_mtx_recursive);
+    if (result != FS_SUCCESS) {
+        fs_mtx_destroy(&pFS->archiveLock);
+        fs_free(pFS, fs_get_allocation_callbacks(pFS));
+        return result;
+    }
 
     /* We're now ready to initialize the backend. */
     result = fs_backend_init(pBackend, pFS, pConfig->pBackendConfig, pConfig->pStream);
@@ -2609,6 +2676,9 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
             if (pConfig->pStream != NULL && initialStreamCursor != -1) {
                 fs_stream_seek(pConfig->pStream, initialStreamCursor, FS_SEEK_SET);
             }
+
+            fs_mtx_destroy(&pFS->refLock);
+            fs_mtx_destroy(&pFS->archiveLock);
 
             fs_free(pFS, fs_get_allocation_callbacks(pFS));
             return result;
@@ -2628,8 +2698,25 @@ FS_API fs_result fs_init(const fs_config* pConfig, fs** ppFS)
 
 FS_API void fs_uninit(fs* pFS)
 {
+    fs_result iteratorResult;
+    fs_mount_list_iterator iterator;
+
     if (pFS == NULL) {
         return;
+    }
+
+    /*
+    Release references held by read mounts before garbage collecting archives. Directory mounts do not hold
+    references, but archive mounts and file systems mounted with fs_mount_fs() do.
+    */
+    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+        if (iterator.pArchive != NULL) {
+            if (iterator.internal.pMountPoint->closeArchiveOnUnmount) {
+                fs_close_archive(iterator.pArchive);
+            } else {
+                fs_unref(iterator.pArchive);
+            }
+        }
     }
 
     /*
@@ -3207,10 +3294,10 @@ static fs_result fs_open_or_info_from_archive(fs* pFS, const char* pFilePath, in
         fs_bool32 isArchive = FS_FALSE;
 
         /* Skip over "." and ".." segments. */
-        if (fs_strncmp(iFilePathSeg.pFullPath, ".", iFilePathSeg.segmentLength) == 0) {
+        if (fs_strncmp(iFilePathSeg.pFullPath + iFilePathSeg.segmentOffset, ".", iFilePathSeg.segmentLength) == 0) {
             continue;
         }
-        if (fs_strncmp(iFilePathSeg.pFullPath, "..", iFilePathSeg.segmentLength) == 0) {
+        if (fs_strncmp(iFilePathSeg.pFullPath + iFilePathSeg.segmentOffset, "..", iFilePathSeg.segmentLength) == 0) {
             continue;
         }
 
@@ -3490,7 +3577,13 @@ static fs_result fs_file_alloc_and_open_or_info(fs* pFS, const char* pFilePath, 
 
                 /* Don't try creating a directory if there is */
                 result = fs_mkdir(pFS, pDirPath, FS_IGNORE_MOUNTS);
-                if (result != FS_SUCCESS && result != FS_ALREADY_EXISTS) {
+
+                /* The path string is no longer needed. */
+                fs_free(pDirPathHeap, fs_get_allocation_callbacks(pFS));
+                pDirPathHeap = NULL;
+                pDirPath = NULL;
+
+                if (result != FS_SUCCESS && result != FS_ALREADY_EXISTS) {  /* <-- This is checking the result of fs_mkdir() just a few lines above. */
                     fs_stream_delete_duplicate((*ppFile)->pStreamForBackend, fs_get_allocation_callbacks(pFS));
                     fs_file_free(ppFile);
                     return result;
@@ -3543,11 +3636,11 @@ static fs_result fs_validate_path(const char* pPath, size_t pathLen, int mode)
         fs_result result;
 
         for (result = fs_path_first(pPath, pathLen, &iPathSeg); result == FS_SUCCESS; result = fs_path_next(&iPathSeg)) {
-            if (fs_strncmp(iPathSeg.pFullPath, ".", iPathSeg.segmentLength) == 0) {
+            if (fs_strncmp(iPathSeg.pFullPath + iPathSeg.segmentOffset, ".", iPathSeg.segmentLength) == 0) {
                 return FS_INVALID_ARGS;
             }
 
-            if (fs_strncmp(iPathSeg.pFullPath, "..", iPathSeg.segmentLength) == 0) {
+            if (fs_strncmp(iPathSeg.pFullPath + iPathSeg.segmentOffset, "..", iPathSeg.segmentLength) == 0) {
                 return FS_INVALID_ARGS;
             }
         }
@@ -4167,10 +4260,10 @@ static fs_iterator_internal* fs_iterator_internal_gather(fs_iterator_internal* p
             size_t dirPathRemainingLen;
 
             /* Skip over "." and ".." segments. */
-            if (fs_strncmp(iDirPathSeg.pFullPath, ".", iDirPathSeg.segmentLength) == 0) {
+            if (fs_strncmp(iDirPathSeg.pFullPath + iDirPathSeg.segmentOffset, ".", iDirPathSeg.segmentLength) == 0) {
                 continue;
             }
-            if (fs_strncmp(iDirPathSeg.pFullPath, "..", iDirPathSeg.segmentLength) == 0) {
+            if (fs_strncmp(iDirPathSeg.pFullPath + iDirPathSeg.segmentOffset, "..", iDirPathSeg.segmentLength) == 0) {
                 continue;
             }
 
@@ -4862,7 +4955,7 @@ static fs_result fs_mount_read(fs* pFS, const char* pActualPath, const char* pVi
     /* Must use fs_backend_info() instead of fs_info() because otherwise fs_info() will attempt to read from mounts when we're in the process of trying to add one (this function). */
     result = fs_backend_info(fs_get_backend_or_default(pFS), pFS, (pActualPath[0] != '\0') ? pActualPath : ".", FS_IGNORE_MOUNTS, &fileInfo);
     if (result != FS_SUCCESS) {
-        fs_unmount_read(pFS, pActualPath, options);
+        fs_mount_list_remove(pFS->pReadMountPoints, pNewMountPoint);
         return result;
     }
 
@@ -4870,7 +4963,7 @@ static fs_result fs_mount_read(fs* pFS, const char* pActualPath, const char* pVi
     if (!fileInfo.directory) {
         result = fs_open_archive(pFS, pActualPath, FS_READ | FS_VERBOSE, &pNewMountPoint->pArchive);
         if (result != FS_SUCCESS) {
-            fs_unmount_read(pFS, pActualPath, options);
+            fs_mount_list_remove(pFS->pReadMountPoints, pNewMountPoint);
             return result;
         }
 
@@ -4950,12 +5043,12 @@ static fs_result fs_mount_write(fs* pFS, const char* pActualPath, const char* pV
     /* Must use fs_backend_info() instead of fs_info() because otherwise fs_info() will attempt to read from mounts when we're in the process of trying to add one (this function). */
     result = fs_backend_info(fs_get_backend_or_default(pFS), pFS, (pActualPath[0] != '\0') ? pActualPath : ".", FS_IGNORE_MOUNTS, &fileInfo);
     if (result != FS_SUCCESS && result != FS_DOES_NOT_EXIST) {
-        fs_unmount_write(pFS, pActualPath, options);
+        fs_mount_list_remove(pFS->pWriteMountPoints, pNewMountPoint);
         return result;
     }
 
     if (!fileInfo.directory && result != FS_DOES_NOT_EXIST) {
-        fs_unmount_write(pFS, pActualPath, options);
+        fs_mount_list_remove(pFS->pWriteMountPoints, pNewMountPoint);
         return FS_INVALID_ARGS;
     }
 
@@ -4963,7 +5056,7 @@ static fs_result fs_mount_write(fs* pFS, const char* pActualPath, const char* pV
     if ((options & FS_NO_CREATE_DIRS) == 0) {
         fs_result result = fs_mkdir(pFS, pActualPath, FS_IGNORE_MOUNTS);
         if (result != FS_SUCCESS && result != FS_ALREADY_EXISTS) {
-            fs_unmount_write(pFS, pActualPath, options);
+            fs_mount_list_remove(pFS->pWriteMountPoints, pNewMountPoint);
             return result;
         }
     }
@@ -5179,7 +5272,6 @@ FS_API fs_result fs_mount_fs(fs* pFS, fs* pOtherFS, const char* pVirtualPath, in
     for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
         if (pOtherFS == iterator.pArchive && strcmp(pVirtualPath, iterator.pMountPointPath) == 0) {
             /* File system is already mounted to the virtual path. Just pretend we're successful. */
-            fs_ref(pOtherFS);
             return FS_SUCCESS;
         }
     }
@@ -5212,11 +5304,18 @@ FS_API fs_result fs_unmount_fs(fs* pFS, fs* pOtherFS, int options)
 
     FS_UNUSED(options);
 
-    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS && !fs_mount_list_at_end(&iterator); /*iteratorResult = fs_mount_list_next(&iterator)*/) {
         if (iterator.pArchive == pOtherFS) {
             fs_mount_list_remove(pFS->pReadMountPoints, iterator.internal.pMountPoint);
             fs_unref(pOtherFS);
-            return FS_SUCCESS;
+
+            /*
+            Since we just removed this item we don't want to advance the cursor. We do, however, need to re-resolve
+            the members in preparation for the next iteration.
+            */
+            iteratorResult = fs_mount_list_iterator_resolve_members(&iterator, iterator.internal.cursor);
+        } else {
+            iteratorResult = fs_mount_list_next(&iterator);
         }
     }
 
@@ -5283,317 +5382,38 @@ FS_API fs_result fs_file_open_and_write(fs* pFS, const char* pFilePath, const vo
 #define FS_SERIALIZED_SIG_0 0x52535346
 #define FS_SERIALIZED_SIG_1 0x00315A4C
 
-static fs_result fs_serialize_directory(fs* pFS, const char* pDirectoryPath, const char* pBasePath, int options, fs_stream* pOutputStream, fs_stream* pTOCStream, fs_uint32* pTOCEntryCount, fs_uint64* pRunningFileOffset)
+static fs_result fs_stream_write_u32_le(fs_stream* pStream, fs_uint32 value)
 {
-    fs_result result;
-    fs_iterator* pIterator;
-    char padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    fs_uint8 bytes[4];
 
-    FS_ASSERT(pTOCEntryCount != NULL);
+    bytes[0] = (fs_uint8)(value >>  0);
+    bytes[1] = (fs_uint8)(value >>  8);
+    bytes[2] = (fs_uint8)(value >> 16);
+    bytes[3] = (fs_uint8)(value >> 24);
 
-    for (pIterator = fs_first(pFS, pDirectoryPath, options); pIterator != NULL; pIterator = fs_next(pIterator)) {
-        fs_string path = fs_string_new();
-        int pathLen;
-        const char* pTrimmedPath;
-        size_t trimmedPathLen;
-        fs_uint32 fileFlags;
-        fs_uint64 fileSize;
-        fs_uint64 fileOffset;
-
-        *pTOCEntryCount += 1;
-
-        /* Flags. */
-        fileFlags = 0;
-        if (pIterator->info.directory) {
-            fileFlags |= 0x1;    /* Directory. */
-        }
-
-        result = fs_stream_write(pTOCStream, &fileFlags, 4, NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-
-
-        /* Construct the full path. It's the full path, trimmed with the base path, that we store in the TOC. */
-        pathLen = fs_path_append(path.stack, sizeof(path.stack), pDirectoryPath, FS_NULL_TERMINATED, pIterator->pName, pIterator->nameLen);
-        if (pathLen < 0) {
-            return FS_ERROR;
-        }
-
-        path.len = (size_t)pathLen;
-
-        if (path.len > sizeof(path.stack)) {
-            result = fs_string_alloc(pathLen, fs_get_allocation_callbacks(pFS), &path);
-            if (result != FS_SUCCESS) {
-                return result;
-            }
-
-            fs_path_append(path.heap, path.len + 1, pDirectoryPath, FS_NULL_TERMINATED, pIterator->pName, pIterator->nameLen);
-        }
-
-        pTrimmedPath = fs_path_trim_base(fs_string_cstr(&path), fs_string_len(&path), pBasePath, FS_NULL_TERMINATED);
-        if (pTrimmedPath == NULL) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return FS_ERROR;
-        }
-
-        trimmedPathLen = strlen(pTrimmedPath);
-
-        /* Path Length. */
-        result = fs_stream_write(pTOCStream, &trimmedPathLen, 4, NULL);
-        if (result != FS_SUCCESS) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-        /* Path. */
-        result = fs_stream_write(pTOCStream, pTrimmedPath, trimmedPathLen, NULL);
-        if (result != FS_SUCCESS) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-        /* Null Terminator. */
-        result = fs_stream_write(pTOCStream, "\0", 1, NULL);
-        if (result != FS_SUCCESS) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-        /* Padding. */
-        result = fs_stream_write(pTOCStream, padding, FS_ALIGN(trimmedPathLen + 1, 8) - (trimmedPathLen + 1), NULL);
-        if (result != FS_SUCCESS) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-
-        if (pIterator->info.directory) {
-            fileOffset = 0;
-            fileSize = 0;
-        } else {
-            fileOffset = *pRunningFileOffset;
-            fileSize = 0;
-
-            /* Open the file and transfer the data to the stream. */
-            {
-                fs_file* pFile;
-                char buffer[4096];
-                size_t bytesRead;
-
-                result = fs_file_open(pFS, fs_string_cstr(&path), FS_READ | options, &pFile);
-                if (result != FS_SUCCESS) {
-                    fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-                    return result;
-                }
-
-                for (;;) {
-                    result = fs_file_read(pFile, buffer, sizeof(buffer), &bytesRead);
-                    if (result != FS_SUCCESS && result != FS_AT_END) {
-                        fs_file_close(pFile);
-                        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-                        return result;
-                    }
-
-                    if (bytesRead == 0) {
-                        break;
-                    }
-
-                    result = fs_stream_write(pOutputStream, buffer, bytesRead, NULL);
-                    if (result != FS_SUCCESS) {
-                        fs_file_close(pFile);
-                        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-                        return result;
-                    }
-
-                    fileSize += bytesRead;
-
-                    if (result == FS_AT_END) {
-                        break;
-                    }
-                }
-
-                fs_file_close(pFile);
-                pFile = NULL;
-            }
-            *pRunningFileOffset += fileSize;
-
-            /* Add padding zeros to align the data to 8 bytes. */
-            result = fs_stream_write(pOutputStream, padding, (size_t)(FS_ALIGN(*pRunningFileOffset, 8) - *pRunningFileOffset), NULL);
-            if (result != FS_SUCCESS) {
-                fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-                return result;
-            }
-            *pRunningFileOffset = FS_ALIGN(*pRunningFileOffset, 8);
-        }
-
-
-        /* File Size. */
-        result = fs_stream_write(pTOCStream, &fileSize, 8, NULL);
-        if (result != FS_SUCCESS) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-        /* File Offset. */
-        result = fs_stream_write(pTOCStream, &fileOffset, 8, NULL);
-        if (result != FS_SUCCESS) {
-            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-            return result;
-        }
-
-
-        /* If it was a directory we need to call this function recursively. */
-        if (pIterator->info.directory) {
-            result = fs_serialize_directory(pFS, fs_string_cstr(&path), pBasePath, options, pOutputStream, pTOCStream, pTOCEntryCount, pRunningFileOffset);
-            if (result != FS_SUCCESS) {
-                fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-                return result;
-            }
-        }
-
-
-        /* The full path is no longer needed. */
-        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
-    }
-
-    return FS_SUCCESS;
+    return fs_stream_write(pStream, bytes, sizeof(bytes), NULL);
 }
 
-FS_API fs_result fs_serialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pOutputStream)
+static fs_result fs_stream_write_u64_le(fs_stream* pStream, fs_uint64 value)
 {
-    fs_result result;
-    fs_uint32 sig[2] = { FS_SERIALIZED_SIG_0, FS_SERIALIZED_SIG_1 };
-    fs_memory_stream toc;
-    fs_uint32 tocEntryCount = 0;    /* <-- Must be initialized to zero. */
-    fs_uint64 runningOffset = 0;    /* <-- Must be initialized to zero. */
-    fs_uint64 tocOffset;
-    fs_int64 initialPos;
+    fs_uint8 bytes[8];
 
-    if (pOutputStream == NULL) {
-        return FS_INVALID_ARGS;
-    }
+    bytes[0] = (fs_uint8)(value >>  0);
+    bytes[1] = (fs_uint8)(value >>  8);
+    bytes[2] = (fs_uint8)(value >> 16);
+    bytes[3] = (fs_uint8)(value >> 24);
+    bytes[4] = (fs_uint8)(value >> 32);
+    bytes[5] = (fs_uint8)(value >> 40);
+    bytes[6] = (fs_uint8)(value >> 48);
+    bytes[7] = (fs_uint8)(value >> 56);
 
-    if (pDirectoryPath == NULL) {
-        pDirectoryPath = "";
-    }
-
-
-    /* Initialize the TOC stream. We fill out the TOC stream separately, and then at the end we append it to the end of the main stream. */
-    result = fs_memory_stream_init_write(fs_get_allocation_callbacks(pFS), &toc);
-    if (result != FS_SUCCESS) {
-        return result;
-    }
-
-
-    /*
-    We want our data to be aligned to 8 bytes, so we'll grab the initial position of the stream and write some padding
-    to get our initial aligment set up.
-    */
-    result = fs_stream_tell(pOutputStream, &initialPos);
-    if (result != FS_SUCCESS) {
-        fs_memory_stream_uninit(&toc);
-        return result;
-    }
-
-    result = fs_stream_write(pOutputStream, "\0\0\0\0\0\0\0\0", (size_t)(FS_ALIGN(initialPos, 8) - initialPos), NULL);
-    if (result != FS_SUCCESS) {
-        fs_memory_stream_uninit(&toc);
-        return result;
-    }
-
-
-    /* File Data. */
-    result = fs_serialize_directory(pFS, pDirectoryPath, pDirectoryPath, options, pOutputStream, (fs_stream*)&toc, &tocEntryCount, &runningOffset);
-    if (result != FS_SUCCESS) {
-        fs_memory_stream_uninit(&toc);
-        return result;
-    }
-
-    /* TOC. */
-    {
-        void* pTOCData;
-        size_t tocDataSize;
-
-        /* Grab the TOC offset for output later. */
-        tocOffset = runningOffset;
-
-        pTOCData = fs_memory_stream_take_ownership(&toc, &tocDataSize); /* <-- Should never fail. */
-        FS_ASSERT(pTOCData != NULL || tocDataSize == 0);
-
-        fs_memory_stream_uninit(&toc);
-
-        result = fs_stream_write(pOutputStream, pTOCData, tocDataSize, NULL);
-        fs_free(pTOCData, fs_get_allocation_callbacks(pFS));
-
-        if (result != FS_SUCCESS) {
-            fs_memory_stream_uninit(&toc);
-            return result;
-        }
-
-        runningOffset += tocDataSize;
-    }
-
-    /* Tail. */
-    {
-        char padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-        fs_int64 baseOffset;
-        fs_uint32 reserved;
-
-        /* Padding to align to 8 bytes. */
-        result = fs_stream_write(pOutputStream, padding, (size_t)(FS_ALIGN(runningOffset, 8) - runningOffset), NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-        runningOffset = FS_ALIGN(runningOffset, 8);
-
-
-        /*
-        We'll only be outputting 32 more bytes at this point:
-
-            Signature (8 bytes)
-            Base Offset (8 bytes)
-            TOC Offset (8 bytes)
-            TOC Entry Count (4 bytes)
-            Reserved (4 bytes)
-        */
-        baseOffset = -(fs_int64)(runningOffset + 32);
-
-        /* Signature. */
-        result = fs_stream_write(pOutputStream, sig, 8, NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-
-        /* Base Offset. */
-        result = fs_stream_write(pOutputStream, &baseOffset, 8, NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-
-        /* TOC Offset. */
-        result = fs_stream_write(pOutputStream, &tocOffset, 8, NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-
-        /* TOC Entry Count. */
-        result = fs_stream_write(pOutputStream, &tocEntryCount, 4, NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-
-        /* Reserved. */
-        reserved = 0;
-        result = fs_stream_write(pOutputStream, &reserved, 4, NULL);
-        if (result != FS_SUCCESS) {
-            return result;
-        }
-    }
-
-    return FS_SUCCESS;
+    return fs_stream_write(pStream, bytes, sizeof(bytes), NULL);
 }
 
+static fs_result fs_stream_write_s64_le(fs_stream* pStream, fs_int64 value)
+{
+    return fs_stream_write_u64_le(pStream, (fs_uint64)value);
+}
 
 
 static fs_result fs_stream_read_u32_le(fs_stream* pStream, fs_uint32* pResult)
@@ -5643,6 +5463,419 @@ static fs_result fs_stream_read_s64_le(fs_stream* pStream, fs_int64* pResult)
     return FS_SUCCESS;
 }
 
+
+static fs_result fs_serialize_entry(fs* pFS, fs_iterator* pIterator, const char* pFilePath, size_t filePathLen, const char* pBasePath, int options, fs_stream* pOutputStream, fs_stream* pTOCStream, fs_uint64* pRunningFileOffset)
+{
+    fs_result result;
+    const char* pTrimmedPath;
+    size_t trimmedPathLen;
+    fs_uint32 fileFlags;
+    fs_uint64 fileSize;
+    fs_uint64 fileOffset;
+    char padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    /* Flags. */
+    fileFlags = 0;
+    if (pIterator->info.directory) {
+        fileFlags |= 0x1;    /* Directory. */
+    }
+
+    result = fs_stream_write_u32_le(pTOCStream, fileFlags);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    pTrimmedPath = fs_path_trim_base(pFilePath, filePathLen, pBasePath, FS_NULL_TERMINATED);
+    if (pTrimmedPath == NULL) {
+        return FS_ERROR;
+    }
+
+    trimmedPathLen = strlen(pTrimmedPath);
+    if (trimmedPathLen > 0xFFFF) {  /* We don't allow file paths longer than 65535 bytes, which should be plenty long enough for all practical use cases. */
+        return FS_TOO_BIG;
+    }
+
+    /* Path Length. */
+    result = fs_stream_write_u32_le(pTOCStream, (fs_uint32)trimmedPathLen);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* Path. */
+    result = fs_stream_write(pTOCStream, pTrimmedPath, trimmedPathLen, NULL);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* Null Terminator. */
+    result = fs_stream_write(pTOCStream, "\0", 1, NULL);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* Padding. */
+    result = fs_stream_write(pTOCStream, padding, FS_ALIGN(trimmedPathLen + 1, 8) - (trimmedPathLen + 1), NULL);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+
+    if (pIterator->info.directory) {
+        fileOffset = 0;
+        fileSize = 0;
+    } else {
+        fileOffset = *pRunningFileOffset;
+        fileSize = 0;
+
+        /* Open the file and transfer the data to the stream. */
+        {
+            fs_file* pFile;
+            char buffer[4096];
+            size_t bytesRead;
+
+            result = fs_file_open(pFS, pFilePath, FS_READ | options, &pFile);
+            if (result != FS_SUCCESS) {
+                return result;
+            }
+
+            for (;;) {
+                result = fs_file_read(pFile, buffer, sizeof(buffer), &bytesRead);
+                if (result != FS_SUCCESS && result != FS_AT_END) {
+                    fs_file_close(pFile);
+                    return result;
+                }
+
+                if (bytesRead == 0) {
+                    break;
+                }
+
+                result = fs_stream_write(pOutputStream, buffer, bytesRead, NULL);
+                if (result != FS_SUCCESS) {
+                    fs_file_close(pFile);
+                    return result;
+                }
+
+                if (FS_UINT64_MAX - fileSize < bytesRead) {
+                    fs_file_close(pFile);
+                    return FS_TOO_BIG;  /* File is too big. Should never happen in practice. */
+                }
+
+                fileSize += bytesRead;
+
+                if (result == FS_AT_END) {
+                    break;
+                }
+            }
+
+            fs_file_close(pFile);
+            pFile = NULL;
+        }
+
+        if (FS_UINT64_MAX - *pRunningFileOffset < fileSize) {
+            return FS_TOO_BIG;
+        }
+
+        *pRunningFileOffset += fileSize;
+
+
+        /* Add padding zeros to align the data to 8 bytes. */
+        {
+            fs_uint64 runningFileOffsetAligned = FS_ALIGN(*pRunningFileOffset, 8);
+            if (runningFileOffsetAligned < *pRunningFileOffset) {   /* If the aligned offset is less than the unaligned offset, it means it overflowed. */
+                return FS_TOO_BIG;
+            }
+
+            result = fs_stream_write(pOutputStream, padding, (size_t)(runningFileOffsetAligned - *pRunningFileOffset), NULL);
+            if (result != FS_SUCCESS) {
+                return result;
+            }
+
+            *pRunningFileOffset = runningFileOffsetAligned;
+        }
+    }
+
+
+    /* File Size. */
+    result = fs_stream_write_u64_le(pTOCStream, fileSize);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    /* File Offset. */
+    result = fs_stream_write_u64_le(pTOCStream, fileOffset);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+    return FS_SUCCESS;
+}
+
+static fs_result fs_serialize_directory(fs* pFS, const char* pDirectoryPath, const char* pBasePath, int options, fs_stream* pOutputStream, fs_stream* pTOCStream, fs_uint32* pTOCEntryCount, fs_uint64* pRunningFileOffset)
+{
+    fs_result result;
+    fs_iterator* pIterator;
+
+    FS_ASSERT(pTOCEntryCount != NULL);
+
+    for (pIterator = fs_first(pFS, pDirectoryPath, options); pIterator != NULL; pIterator = fs_next(pIterator)) {
+        fs_string path = fs_string_new();
+        int pathLen;
+
+        if (*pTOCEntryCount == 0xFFFFFFFFUL) {
+            fs_free_iterator(pIterator);
+            return FS_TOO_BIG;  /* Too many files. Should basically never happen. */
+        }
+
+        *pTOCEntryCount += 1;
+
+        /* Construct the full path. It's the full path, trimmed with the base path, that we store in the TOC. */
+        pathLen = fs_path_append(path.stack, sizeof(path.stack), pDirectoryPath, FS_NULL_TERMINATED, pIterator->pName, pIterator->nameLen);
+        if (pathLen < 0) {
+            fs_free_iterator(pIterator);
+            return FS_ERROR;
+        }
+
+        path.len = (size_t)pathLen;
+
+        if (path.len >= sizeof(path.stack)) {
+            result = fs_string_alloc(pathLen, fs_get_allocation_callbacks(pFS), &path);
+            if (result != FS_SUCCESS) {
+                fs_free_iterator(pIterator);
+                return result;
+            }
+
+            fs_path_append(path.heap, path.len + 1, pDirectoryPath, FS_NULL_TERMINATED, pIterator->pName, pIterator->nameLen);
+        }
+
+        result = fs_serialize_entry(pFS, pIterator, fs_string_cstr(&path), fs_string_len(&path), pBasePath, options, pOutputStream, pTOCStream, pRunningFileOffset);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+            fs_free_iterator(pIterator);
+            return result;
+        }
+
+        /* If it was a directory we need to call this function recursively. */
+        if (pIterator->info.directory) {
+            result = fs_serialize_directory(pFS, fs_string_cstr(&path), pBasePath, options, pOutputStream, pTOCStream, pTOCEntryCount, pRunningFileOffset);
+            if (result != FS_SUCCESS) {
+                fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+                fs_free_iterator(pIterator);
+                return result;
+            }
+        }
+
+        fs_string_free(&path, fs_get_allocation_callbacks(pFS));
+    }
+
+    return FS_SUCCESS;
+}
+
+FS_API fs_result fs_serialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pOutputStream)
+{
+    fs_result result;
+    fs_memory_stream toc;
+    fs_uint32 tocEntryCount = 0;    /* <-- Must be initialized to zero. */
+    fs_uint64 runningOffset = 0;    /* <-- Must be initialized to zero. */
+    fs_uint64 tocOffset;
+    fs_int64 initialPos;
+    fs_int64 initialPosAligned;
+
+    if (pOutputStream == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    if (pDirectoryPath == NULL) {
+        pDirectoryPath = "";
+    }
+
+
+    /* Initialize the TOC stream. We fill out the TOC stream separately, and then at the end we append it to the end of the main stream. */
+    result = fs_memory_stream_init_write(fs_get_allocation_callbacks(pFS), &toc);
+    if (result != FS_SUCCESS) {
+        return result;
+    }
+
+
+    /*
+    We want our data to be aligned to 8 bytes, so we'll grab the initial position of the stream and write some padding
+    to get our initial aligment set up.
+    */
+    result = fs_stream_tell(pOutputStream, &initialPos);
+    if (result != FS_SUCCESS) {
+        fs_memory_stream_uninit(&toc);
+        return result;
+    }
+
+    /* Check that the initial position is not too big for the padding calculation. */
+    if (initialPos < 0 || initialPos > FS_INT64_MAX - 7) {
+        fs_memory_stream_uninit(&toc);
+        return FS_TOO_BIG;
+    }
+
+    initialPosAligned = FS_ALIGN(initialPos, 8);
+
+    result = fs_stream_write(pOutputStream, "\0\0\0\0\0\0\0\0", (size_t)(initialPosAligned - initialPos), NULL);
+    if (result != FS_SUCCESS) {
+        fs_memory_stream_uninit(&toc);
+        return result;
+    }
+
+
+    /* File Data. */
+    result = fs_serialize_directory(pFS, pDirectoryPath, pDirectoryPath, options, pOutputStream, (fs_stream*)&toc, &tocEntryCount, &runningOffset);
+    if (result != FS_SUCCESS) {
+        fs_memory_stream_uninit(&toc);
+        return result;
+    }
+
+    /* TOC. */
+    {
+        void* pTOCData;
+        size_t tocDataSize;
+
+        /* Grab the TOC offset for output later. */
+        tocOffset = runningOffset;
+
+        pTOCData = fs_memory_stream_take_ownership(&toc, &tocDataSize); /* <-- Should never fail. */
+        FS_ASSERT(pTOCData != NULL || tocDataSize == 0);
+
+        fs_memory_stream_uninit(&toc);
+
+        result = fs_stream_write(pOutputStream, pTOCData, tocDataSize, NULL);
+        fs_free(pTOCData, fs_get_allocation_callbacks(pFS));
+
+        if (result != FS_SUCCESS) {
+            fs_memory_stream_uninit(&toc);
+            return result;
+        }
+
+        if (FS_UINT64_MAX - runningOffset < tocDataSize) {
+            fs_memory_stream_uninit(&toc);
+            return FS_TOO_BIG;
+        }
+
+        runningOffset += tocDataSize;
+    }
+
+    /* Tail. */
+    {
+        char padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        fs_int64 baseOffset;
+        fs_uint32 reserved;
+
+        /* Padding to align to 8 bytes. */
+        {
+            fs_uint64 runningOffsetAligned = FS_ALIGN(runningOffset, 8);
+            if (runningOffsetAligned < runningOffset) { /* If the aligned offset is less than the running offset it means it overflowed. */
+                return FS_TOO_BIG;
+            }
+
+            result = fs_stream_write(pOutputStream, padding, (size_t)(runningOffsetAligned - runningOffset), NULL);
+            if (result != FS_SUCCESS) {
+                return result;
+            }
+
+            runningOffset = runningOffsetAligned;
+        }
+
+
+        /*
+        We'll only be outputting 32 more bytes at this point:
+
+            Signature (8 bytes)
+            Base Offset (8 bytes)
+            TOC Offset (8 bytes)
+            TOC Entry Count (4 bytes)
+            Reserved (4 bytes)
+        */
+        if (FS_UINT64_MAX - runningOffset < 32) {
+            return FS_TOO_BIG;  /* Overflowed. */
+        }
+
+        /* The base offset is negative so we'll need to make sure it fits in a signed 64-bit integer. */
+        if (runningOffset > (fs_uint64)FS_INT64_MAX - 32) {
+            return FS_TOO_BIG;
+        }
+
+        baseOffset = -(fs_int64)(runningOffset + 32);
+
+        /* Signature. */
+        result = fs_stream_write_u32_le(pOutputStream, FS_SERIALIZED_SIG_0);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        result = fs_stream_write_u32_le(pOutputStream, FS_SERIALIZED_SIG_1);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* Base Offset. */
+        result = fs_stream_write_s64_le(pOutputStream, baseOffset);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* TOC Offset. */
+        result = fs_stream_write_u64_le(pOutputStream, tocOffset);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* TOC Entry Count. */
+        result = fs_stream_write_u32_le(pOutputStream, tocEntryCount);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+
+        /* Reserved. */
+        reserved = 0;
+        result = fs_stream_write_u32_le(pOutputStream, reserved);
+        if (result != FS_SUCCESS) {
+            return result;
+        }
+    }
+
+    return FS_SUCCESS;
+}
+
+
+static fs_result fs_deserialize_add_offset(fs_int64 baseOffset, fs_uint64 localOffset, fs_int64* pResult)
+{
+    fs_uint64 baseMagnitude;
+
+    FS_ASSERT(pResult != NULL);
+    FS_ASSERT(baseOffset < 0);
+
+    /* Adding one before negation avoids overflowing when baseOffset is INT64_MIN. */
+    baseMagnitude = (fs_uint64)(-(baseOffset + 1)) + 1;
+    if (localOffset >= baseMagnitude) {
+        return FS_INVALID_DATA;
+    }
+
+    *pResult = baseOffset + (fs_int64)localOffset;
+    return FS_SUCCESS;
+}
+
+static fs_bool32 fs_deserialize_path_is_relative(const char* pPath, size_t pathLen)
+{
+    if (pPath == NULL || pathLen == 0) {
+        return FS_FALSE;
+    }
+
+    /* Reject POSIX, root-relative Windows and UNC paths. */
+    if (pPath[0] == '/' || pPath[0] == '\\') {
+        return FS_FALSE;
+    }
+
+    /* Reject Windows drive-qualified paths, including drive-relative paths such as "C:file". */
+    if (pathLen >= 2 && ((pPath[0] >= 'A' && pPath[0] <= 'Z') || (pPath[0] >= 'a' && pPath[0] <= 'z')) && pPath[1] == ':') {
+        return FS_FALSE;
+    }
+
+    return FS_TRUE;
+}
+
 FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options, fs_stream* pInputStream)
 {
     fs_result result;
@@ -5652,6 +5885,8 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
     fs_uint32 tocEntryCount;
     fs_uint32 reserved;
     fs_uint32 iEntry;
+    fs_int64 tocSeekOffset;
+    const fs_int64 tailSize = 32;
 
     if (pInputStream == NULL) {
         return FS_INVALID_ARGS;
@@ -5662,7 +5897,7 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
     }
 
     /* First thing we need to do is read the tail. */
-    result = fs_stream_seek(pInputStream, -32, FS_SEEK_END);
+    result = fs_stream_seek(pInputStream, -tailSize, FS_SEEK_END);
     if (result != FS_SUCCESS) {
         return result;  /* Failed to seek to the tail. Either too small, or the stream does not support seeking from the end. */
     }
@@ -5688,6 +5923,11 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
         return result;
     }
 
+    /* The base offset should always be negative, and cannot overlap the tail. */
+    if (baseOffset > -tailSize) {
+        return FS_INVALID_DATA; /* Invalid base offset. */
+    }
+
     /* TOC Offset (local, relative to base). */
     result = fs_stream_read_u64_le(pInputStream, &tocOffset);
     if (result != FS_SUCCESS) {
@@ -5707,7 +5947,12 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
     }
 
     /* Now we can seek to the TOC. */
-    result = fs_stream_seek(pInputStream, baseOffset + (fs_int64)tocOffset, FS_SEEK_END);
+    result = fs_deserialize_add_offset(baseOffset, tocOffset, &tocSeekOffset);
+    if (result != FS_SUCCESS) {
+        return result;  /* Invalid TOC offset. */
+    }
+
+    result = fs_stream_seek(pInputStream, tocSeekOffset, FS_SEEK_END);
     if (result != FS_SUCCESS) {
         return result;
     }
@@ -5722,6 +5967,7 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
         fs_uint64 fileSize;
         fs_uint64 fileOffset;
         fs_int64 currentOffset;
+        fs_int64 fileSeekOffset;
         fs_file* pFile = NULL;
 
         /* Flags. */
@@ -5734,6 +5980,11 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
         result = fs_stream_read_u32_le(pInputStream, &localPathLen);
         if (result != FS_SUCCESS) {
             return result;
+        }
+
+        /* Restrict the length of the file path to something reasonable since we'll be doing a heap allocation below. */
+        if (localPathLen > 0xFFFF) {
+            return FS_INVALID_DATA;
         }
 
         /* Path. */
@@ -5753,6 +6004,20 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
             return FS_INVALID_DATA; /* Path is not null terminated. */
         }
 
+        /* The local path must be relative. */
+        if (!fs_deserialize_path_is_relative(fs_string_cstr(&localPath), localPathLen)) {
+            fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+            return FS_INVALID_DATA; /* Only relative paths are permitted in serialized data. */
+        }
+
+        /* The local path cannot have any ".." or "." segements. */
+        result = fs_validate_path(fs_string_cstr(&localPath), localPathLen, FS_NO_SPECIAL_DIRS);
+        if (result != FS_SUCCESS) {
+            fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
+            return FS_INVALID_DATA; /* Path his not allowed to have ".." or "." segments. */
+        }
+
+
         localPath.len = (size_t)localPathLen;
 
         fullPath    = fs_string_new();
@@ -5764,7 +6029,7 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
 
         fullPath.len = (size_t)fullPathLen;
 
-        if (fullPath.len > sizeof(fullPath.stack)) {
+        if (fullPath.len >= sizeof(fullPath.stack)) {
             result = fs_string_alloc(fullPathLen, fs_get_allocation_callbacks(pFS), &fullPath);
             if (result != FS_SUCCESS) {
                 fs_string_free(&localPath, fs_get_allocation_callbacks(pFS));
@@ -5818,6 +6083,17 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
             /* File. */
             fs_uint64 bytesRemaining;
 
+            if (fileOffset > tocOffset || fileSize > tocOffset - fileOffset) {
+                fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+                return FS_INVALID_DATA;
+            }
+
+            result = fs_deserialize_add_offset(baseOffset, fileOffset, &fileSeekOffset);
+            if (result != FS_SUCCESS) {
+                fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
+                return result;
+            }
+
             result = fs_file_open(pFS, fs_string_cstr(&fullPath), FS_WRITE | FS_TRUNCATE | options, &pFile);
             fs_string_free(&fullPath, fs_get_allocation_callbacks(pFS));
 
@@ -5826,7 +6102,7 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
             }
 
             /* Seek to the file data using base offset + local offset. */
-            result = fs_stream_seek(pInputStream, baseOffset + (fs_int64)fileOffset, FS_SEEK_END);
+            result = fs_stream_seek(pInputStream, fileSeekOffset, FS_SEEK_END);
             if (result != FS_SUCCESS) {
                 fs_file_close(pFile);
                 return result;
@@ -5867,6 +6143,12 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
                 }
             }
 
+            /* If we were unable to read every byte it means it's an invalid file. */
+            if (bytesRemaining > 0) {
+                fs_file_close(pFile);
+                return FS_INVALID_DATA;
+            }
+
             fs_file_close(pFile);
             pFile = NULL;
         }
@@ -5905,6 +6187,28 @@ FS_API fs_result fs_deserialize(fs* pFS, const char* pDirectoryPath, int options
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+
+/* Some standard libraries hide lstat() in strict ANSI modes despite providing the function. */
+#if !defined(FS_NO_LSTAT)
+    #if defined(__cplusplus)
+    extern "C" {
+    #endif
+
+    int lstat(const char* pPath, struct stat* pInfo);
+
+    #if defined(__cplusplus)
+    }
+    #endif
+#endif
+
+static int fs_stat_path_posix(const char* pPath, struct stat* pInfo)
+{
+#if defined(FS_NO_LSTAT)
+    return stat(pPath, pInfo);
+#else
+    return lstat(pPath, pInfo);
+#endif
+}
 
 
 static size_t fs_alloc_size_posix(const void* pBackendConfig)
@@ -5987,7 +6291,7 @@ static fs_result fs_info_posix(fs* pFS, const char* pPath, int openMode, fs_file
     } else if (pPath == FS_STDERR) {
         result = fstat(STDERR_FILENO, &info);
     } else {
-        result = stat(pPath, &info);
+        result = fs_stat_path_posix(pPath, &info);
     }
 
     if (result != 0) {
@@ -6293,13 +6597,15 @@ static fs_result fs_file_duplicate_posix(fs_file* pFile, fs_file* pDuplicate)
 
     /* Do a quick check that it's still pointing to the same file. */
     if (fstat(pFilePosix->fd, &st1) < 0) {
+        result = fs_result_from_errno(errno);
         fs_file_close_posix(pDuplicate);
-        return fs_result_from_errno(errno);
+        return result;
     }
 
     if (fstat(pDuplicatePosix->fd, &st2) < 0) {
+        result = fs_result_from_errno(errno);
         fs_file_close_posix(pDuplicate);
-        return fs_result_from_errno(errno);
+        return result;
     }
 
     if (st1.st_ino != st2.st_ino || st1.st_dev != st2.st_dev) {
@@ -6412,7 +6718,7 @@ static fs_iterator* fs_first_posix(fs* pFS, const char* pDirectoryPath, size_t d
     pIteratorPosix->iterator.nameLen = fileNameLen;
 
     /* We can now get the file information. */
-    if (stat(pIteratorPosix->pFullFilePath, &statInfo) != 0) {
+    if (fs_stat_path_posix(pIteratorPosix->pFullFilePath, &statInfo) != 0) {
         closedir(pIteratorPosix->pDir);
         fs_free(pIteratorPosix, fs_get_allocation_callbacks(pFS));
         return NULL;
@@ -6459,7 +6765,7 @@ static fs_iterator* fs_next_posix(fs_iterator* pIterator)
     pIteratorPosix->iterator.nameLen = fileNameLen;
 
     /* We can now get the file information. */
-    if (stat(pIteratorPosix->pFullFilePath, &statInfo) != 0) {
+    if (fs_stat_path_posix(pIteratorPosix->pFullFilePath, &statInfo) != 0) {
         fs_free_iterator_posix((fs_iterator*)pIteratorPosix);
         return NULL;
     }
@@ -6556,11 +6862,28 @@ static fs_result fs_win32_path_init(fs_win32_path* pPath, const char* pPathUTF8,
 
         if (pathUTF8Len == (size_t)-1) {
             cbMultiByte = (int)-1;
+            wideCharLen = MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, NULL, 0);
         } else {
-            cbMultiByte = (int)pathUTF8Len + 1;
+            if (pathUTF8Len > 0x7FFFFFFF) {
+                return FS_TOO_BIG;
+            }
+
+            cbMultiByte = (int)pathUTF8Len;
+            if (cbMultiByte == 0) {
+                wideCharLen = 1;
+            } else {
+                wideCharLen = MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, NULL, 0);
+                if (wideCharLen == 0) {
+                    return FS_ERROR;
+                }
+                if (wideCharLen == 0x7FFFFFFF) {
+                    return FS_TOO_BIG;
+                }
+
+                wideCharLen += 1;  /* +1 for the null terminator which is not included when converting an explicitly sized string. */
+            }
         }
 
-        wideCharLen = MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, NULL, 0);
         if (wideCharLen == 0) {
             return FS_ERROR;
         }
@@ -6577,8 +6900,31 @@ static fs_result fs_win32_path_init(fs_win32_path* pPath, const char* pPathUTF8,
             pPath->path = pPath->pathHeap;
         }
 
-        MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, pPath->path, wideCharLen);
-        pPath->len = wideCharLen - 1;  /* The count returned by MultiByteToWideChar() includes the null terminator, so subtract 1 to compensate. */
+        if (cbMultiByte == 0) {
+            pPath->path[0] = '\0';
+        } else {
+            int conversionResult;
+            int conversionCap;
+
+            if (cbMultiByte == -1) {
+                conversionCap = wideCharLen;
+            } else {
+                conversionCap = wideCharLen - 1;
+            }
+
+            conversionResult = MultiByteToWideChar(CP_UTF8, 0, pPathUTF8, cbMultiByte, pPath->path, conversionCap);
+            if (conversionResult == 0) {
+                fs_free(pPath->pathHeap, pAllocationCallbacks);
+                fs_win32_path_init_internal(pPath);
+                return FS_ERROR;
+            }
+
+            if (cbMultiByte != -1) {
+                pPath->path[conversionResult] = '\0';
+            }
+        }
+
+        pPath->len = wideCharLen - 1;
 
         /* Convert forward slashes to back slashes for compatibility. */
         for (i = 0; i < pPath->len; i += 1) {
@@ -6601,6 +6947,10 @@ static fs_result fs_win32_path_init(fs_win32_path* pPath, const char* pPathUTF8,
             pPath->len = pathUTF8Len;
         }
 
+        if (pPath->len == FS_SIZE_MAX) {
+            return FS_TOO_BIG;
+        }
+
         if (pPath->len >= sizeof(pPath->pathStack)) {
             pPath->pathHeap = (fs_win32_char*)fs_malloc(sizeof(fs_win32_char) * (pPath->len + 1), pAllocationCallbacks);
             if (pPath->pathHeap == NULL) {
@@ -6610,7 +6960,9 @@ static fs_result fs_win32_path_init(fs_win32_path* pPath, const char* pPathUTF8,
             pPath->path = pPath->pathHeap;
         }
 
-        fs_strcpy(pPath->path, pPathUTF8);
+        FS_COPY_MEMORY(pPath->path, pPathUTF8, pPath->len);
+        pPath->path[pPath->len] = '\0';
+
         for (i = 0; i < pPath->len; i += 1) {
             if (pPath->path[i] == '/') {
                 pPath->path[i] = '\\';
@@ -6754,31 +7106,28 @@ static fs_result fs_remove_win32(fs* pFS, const char* pFilePath)
         /* It may have been a directory. */
         DWORD error = GetLastError();
         if (error == ERROR_ACCESS_DENIED || error == ERROR_FILE_NOT_FOUND) {
+            fs_result deleteFileResult = fs_result_from_GetLastError(); /* Need to grab this before calling GetFileAttributes(). */
+
             DWORD attributes = GetFileAttributes(path.path);
-            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            if (attributes == INVALID_FILE_ATTRIBUTES) {
+                result = fs_result_from_GetLastError();
+            } else if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
                 resultWin32 = RemoveDirectory(path.path);
                 if (resultWin32 == FS_FALSE) {
                     result = fs_result_from_GetLastError();
-                    goto done;
                 } else {
-                    return FS_SUCCESS;
+                    result = FS_SUCCESS;
                 }
             } else {
-                result = fs_result_from_GetLastError();
-                goto done;
+                result = deleteFileResult;
             }
         } else {
             result = fs_result_from_GetLastError();
-            goto done;
         }
-
-        result = fs_result_from_GetLastError();
-        goto done;
     } else {
         result = FS_SUCCESS;
     }
 
-done:
     fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
 
     (void)pFS;
@@ -6928,6 +7277,7 @@ static fs_result fs_file_open_win32(fs* pFS, fs_stream* pStream, const char* pFi
     DWORD dwDesiredAccess = 0;
     DWORD dwShareMode = 0;
     DWORD dwCreationDisposition = OPEN_EXISTING;
+    size_t filePathLen;
 
     /*  */ if (pFilePath == FS_STDIN ) {
         hFile = GetStdHandle(STD_INPUT_HANDLE);
@@ -6991,6 +7341,7 @@ static fs_result fs_file_open_win32(fs* pFS, fs_stream* pStream, const char* pFi
     }
 
     if (result != FS_SUCCESS) {
+        fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
         return result;
     }
 
@@ -6998,10 +7349,12 @@ static fs_result fs_file_open_win32(fs* pFS, fs_stream* pStream, const char* pFi
     pFileWin32->openMode = openMode;
 
     /* We need to make a copy of the path for duplication purposes. */
-    if (path.len < FS_COUNTOF(pFileWin32->pFilePathStack)) {
+    filePathLen = strlen(pFilePath);
+
+    if (filePathLen < FS_COUNTOF(pFileWin32->pFilePathStack)) {
         pFileWin32->pFilePath = pFileWin32->pFilePathStack;
     } else {
-        pFileWin32->pFilePathHeap = (char*)fs_malloc(path.len + 1, fs_get_allocation_callbacks(pFS));
+        pFileWin32->pFilePathHeap = (char*)fs_malloc(filePathLen + 1, fs_get_allocation_callbacks(pFS));
         if (pFileWin32->pFilePathHeap == NULL) {
             result = FS_OUT_OF_MEMORY;
             if (pFileWin32->isStandardHandle == FS_FALSE) {
@@ -7021,7 +7374,6 @@ static fs_result fs_file_open_win32(fs* pFS, fs_stream* pStream, const char* pFi
     /* All done. */
     fs_win32_path_uninit(&path, fs_get_allocation_callbacks(pFS));
 
-    (void)pFS;
     (void)pStream;
     return FS_SUCCESS;
 }
@@ -7111,6 +7463,7 @@ static fs_result fs_file_seek_win32(fs_file* pFile, fs_int64 offset, fs_seek_ori
     fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
     LARGE_INTEGER liDistanceToMove;
     DWORD dwMoveMethod;
+    DWORD newFilePointerLow;
 
     switch (origin) {
     case FS_SEEK_SET:
@@ -7132,11 +7485,13 @@ static fs_result fs_file_seek_win32(fs_file* pFile, fs_int64 offset, fs_seek_ori
     /*
     Use SetFilePointer() instead of SetFilePointerEx() for compatibility with old Windows.
 
-    Note from MSDN:
-
-        If you do not need the high order 32-bits, this pointer must be set to NULL.
+    The awkward SetLastError/GetLastError() tap dance here is necessary because INVALID_SET_FILE_POINTER is defined
+    as 0xFFFFFFFF which is a valid seek position. It is not enough to just check for INVALID_SET_FILE_POINTER - we
+    must also check GetLastError().
     */
-    if (SetFilePointer(pFileWin32->hFile, liDistanceToMove.LowPart, (liDistanceToMove.HighPart == 0 ? NULL : &liDistanceToMove.HighPart), dwMoveMethod) == INVALID_SET_FILE_POINTER) {
+    SetLastError(NO_ERROR);
+    newFilePointerLow = SetFilePointer(pFileWin32->hFile, liDistanceToMove.LowPart, &liDistanceToMove.HighPart, dwMoveMethod);
+    if (newFilePointerLow == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
         return fs_result_from_GetLastError();
     }
 
@@ -7148,6 +7503,7 @@ static fs_result fs_file_tell_win32(fs_file* pFile, fs_int64* pCursor)
     fs_file_win32* pFileWin32 = (fs_file_win32*)fs_file_get_backend_data(pFile);
     LARGE_INTEGER liCursor;
 
+    SetLastError(NO_ERROR);
     liCursor.HighPart = 0;
     liCursor.LowPart  = SetFilePointer(pFileWin32->hFile, 0, &liCursor.HighPart, FILE_CURRENT);
 
@@ -7226,12 +7582,14 @@ static fs_result fs_file_duplicate_win32(fs_file* pFile, fs_file* pDuplicate)
 
     /* Now check the file information in case it got replaced with a different file from under us. */
     if (GetFileInformationByHandle(pFileWin32->hFile, &info1) == FS_FALSE) {
+        result = fs_result_from_GetLastError();
         fs_file_close_win32(pDuplicate);
-        return fs_result_from_GetLastError();
+        return result;
     }
     if (GetFileInformationByHandle(pDuplicateWin32->hFile, &info2) == FS_FALSE) {
+        result = fs_result_from_GetLastError();
         fs_file_close_win32(pDuplicate);
-        return fs_result_from_GetLastError();
+        return result;
     }
 
     if ((info1.dwVolumeSerialNumber != info2.dwVolumeSerialNumber) || (info1.nFileIndexLow != info2.nFileIndexLow) || (info1.nFileIndexHigh != info2.nFileIndexHigh)) {
@@ -7313,6 +7671,7 @@ static fs_iterator* fs_iterator_win32_resolve(fs_iterator_win32* pIteratorWin32,
 
 static fs_iterator* fs_first_win32(fs* pFS, const char* pDirectoryPath, size_t directoryPathLen)
 {
+    fs_iterator* pIterator;
     HANDLE hFind;
     WIN32_FIND_DATA fd;
     fs_result result;
@@ -7351,7 +7710,13 @@ static fs_iterator* fs_first_win32(fs* pFS, const char* pDirectoryPath, size_t d
         return NULL;
     }
 
-    return fs_iterator_win32_resolve(NULL, pFS, hFind, &fd);
+    pIterator = fs_iterator_win32_resolve(NULL, pFS, hFind, &fd);
+    if (pIterator == NULL) {
+        FindClose(hFind);
+        return NULL;
+    }
+
+    return pIterator;
 }
 
 static fs_iterator* fs_next_win32(fs_iterator* pIterator)
@@ -7370,6 +7735,10 @@ static fs_iterator* fs_next_win32(fs_iterator* pIterator)
 static void fs_free_iterator_win32(fs_iterator* pIterator)
 {
     fs_iterator_win32* pIteratorWin32 = (fs_iterator_win32*)pIterator;
+
+    if (pIterator == NULL) {
+        return;
+    }
 
     FindClose(pIteratorWin32->hFind);
     fs_free(pIteratorWin32, fs_get_allocation_callbacks(pIterator->pFS));
@@ -7429,13 +7798,22 @@ HRESULT fs_get_executable_directory_win32(char* pPath)
     DWORD result;
 
     result = GetModuleFileNameA(NULL, pPath, 260);
-    if (result == 260) {
-        return ERROR_INSUFFICIENT_BUFFER;
+    if (result == 0) {
+        DWORD error = GetLastError();
+        if (error != ERROR_SUCCESS) {
+            return HRESULT_FROM_WIN32(error);
+        } else {
+            return E_FAIL;
+        }
+    }
+    
+    if (result >= 260) {
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
 
     fs_path_directory(pPath, 260, pPath, result);
 
-    return ERROR_SUCCESS;
+    return S_OK;
 }
 
 /*
@@ -7446,7 +7824,7 @@ The `pPath` pointer must be large enough to store at least 260 characters.
 */
 HRESULT fs_get_folder_path_win32(char* pPath, int nFolder)
 {
-    HRESULT hr;
+    HRESULT hr = E_FAIL;
 
     FS_ASSERT(pPath != NULL);
 
@@ -7463,15 +7841,15 @@ HRESULT fs_get_folder_path_win32(char* pPath, int nFolder)
     If that also stops working, we would need to use the Known Folder API which I'm unfamiliar with.
     */
 
-    hr = SHGetSpecialFolderPathA(NULL, pPath, nFolder, 0);
-    if (FAILED(hr)) {
+    if (!SHGetSpecialFolderPathA(NULL, pPath, nFolder, 0)) {
         /*
         If this fails it could be because we're calling this from an old version of Windows. We'll
         check for known folder types and do a fall back.
         */
         if (nFolder == CSIDL_LOCAL_APPDATA) {
-            hr = SHGetSpecialFolderPathA(NULL, pPath, CSIDL_APPDATA, 0);
-            if (FAILED(hr)) {
+            if (SHGetSpecialFolderPathA(NULL, pPath, CSIDL_APPDATA, 0)) {
+                hr = S_OK;
+            } else {
                 hr = fs_get_executable_directory_win32(pPath);
             }
         } else if (nFolder == CSIDL_PROFILE) {
@@ -7481,6 +7859,8 @@ HRESULT fs_get_folder_path_win32(char* pPath, int nFolder)
             */
             hr = fs_get_executable_directory_win32(pPath);
         }
+    } else {
+        hr = S_OK;
     }
 
     return hr;
@@ -7516,7 +7896,7 @@ static size_t fs_sysdir_home_subdir(const char* pSubDir, char* pDst, size_t dstC
         size_t subDirLen = strlen(pSubDir);
         size_t fullLength = homeLen + 1 + subDirLen;
 
-        if (fullLength < dstCap) {
+        if (pDst != NULL && fullLength < dstCap) {
             FS_COPY_MEMORY(pDst, pHome, homeLen);
             pDst[homeLen] = '/';
             FS_COPY_MEMORY(pDst + homeLen + 1, pSubDir, subDirLen);
@@ -7529,6 +7909,24 @@ static size_t fs_sysdir_home_subdir(const char* pSubDir, char* pDst, size_t dstC
     return 0;
 }
 #endif
+
+static size_t fs_sysdir_trim_trailing_separator(char* pPath, size_t pathLen)
+{
+    fs_bool32 isRoot;
+
+    if (pPath == NULL || pathLen == 0) {
+        return pathLen;
+    }
+
+    isRoot = (pathLen == 1 && (pPath[0] == '/' || pPath[0] == '\\')) || (pathLen == 3 && ((pPath[0] >= 'A' && pPath[0] <= 'Z') || (pPath[0] >= 'a' && pPath[0] <= 'z')) && pPath[1] == ':' && (pPath[2] == '/' || pPath[2] == '\\'));
+    
+    if (!isRoot && (pPath[pathLen - 1] == '/' || pPath[pathLen - 1] == '\\')) {
+        pathLen -= 1;
+        pPath[pathLen] = '\0';
+    }
+
+    return pathLen;
+}
 
 FS_API size_t fs_sysdir(fs_sysdir_type type, char* pDst, size_t dstCap)
 {
@@ -7557,11 +7955,17 @@ FS_API size_t fs_sysdir(fs_sysdir_type type, char* pDst, size_t dstCap)
             {
                 fullLength = GetTempPathA(sizeof(pPath), pPath);
                 if (fullLength > 0) {
-                    fullLength -= 1;  /* Remove the trailing slash. */
-
-                    if (pDst != NULL && fullLength < dstCap) {
-                        FS_COPY_MEMORY(pDst, pPath, fullLength);
-                        pDst[fullLength] = '\0';
+                    if (fullLength < sizeof(pPath)) {
+                        if (pDst != NULL && fullLength < dstCap) {
+                            FS_COPY_MEMORY(pDst, pPath, fullLength);
+                            pDst[fullLength] = '\0';
+                        }
+                    } else {
+                        /*
+                        Getting here means our stack allocated buffer `pPath` is too small for GetTempPathA(). This is extremely
+                        unlikely to get hit so I'm going to keep this simple and just fail in this case.
+                        */
+                        fullLength = 0;
                     }
                 }
             } break;
@@ -7714,11 +8118,9 @@ FS_API size_t fs_sysdir(fs_sysdir_type type, char* pDst, size_t dstCap)
     }
     #endif
 
-    /* Check if there's a trailing slash, and if so, delete it. */
-    if (pDst != NULL && fullLength < dstCap && fullLength > 0) {
-        if (pDst[fullLength - 1] == '/' || pDst[fullLength - 1] == '\\') {
-            pDst[fullLength - 1] = '\0';
-        }
+    /* Remove a trailing separator unless it is part of a root path. */
+    if (pDst != NULL && fullLength < dstCap) {
+        fullLength = fs_sysdir_trim_trailing_separator(pDst, fullLength);
     }
 
     return fullLength;
@@ -8410,7 +8812,7 @@ FS_API int fs_path_directory(char* pDst, size_t dstCap, const char* pPath, size_
             pDst[bytesToCopy] = '\0';
         }
 
-        if (dirLen > (size_t)-1) {
+        if (dirLen > 0x7FFFFFFF) {
             return -1;  /* Too long. */
         }
 
@@ -8442,7 +8844,7 @@ FS_API const char* fs_path_extension(const char* pPath, size_t pathLen)
     }
 
     /* If the last dot is after the last slash, we've found it. Otherwise, it's not there and we need to return null. */
-    if (pDot != NULL && pDot > pLastSlash) {
+    if (pDot != NULL && (pLastSlash == NULL || pDot > pLastSlash)) {
         return pDot + 1;
     } else {
         return NULL;
@@ -8528,6 +8930,7 @@ FS_API fs_bool32 fs_path_begins_with(const char* pPath, size_t pathLen, const ch
 FS_API int fs_path_append(char* pDst, size_t dstCap, const char* pBasePath, size_t basePathLen, const char* pPathToAppend, size_t pathToAppendLen)
 {
     size_t dstLen = 0;
+    fs_bool32 basePathIsRoot;
 
     if (pBasePath == NULL) {
         pBasePath = "";
@@ -8547,9 +8950,10 @@ FS_API int fs_path_append(char* pDst, size_t dstCap, const char* pBasePath, size
         pathToAppendLen = strlen(pPathToAppend);
     }
 
+    basePathIsRoot = (basePathLen == 1 && (pBasePath[0] == '\\' || pBasePath[0] == '/'));
 
     /* Do not include the separator if we have one. */
-    if (basePathLen > 0 && (pBasePath[basePathLen - 1] == '\\' || pBasePath[basePathLen - 1] == '/')) {
+    if (!basePathIsRoot && basePathLen > 0 && (pBasePath[basePathLen - 1] == '\\' || pBasePath[basePathLen - 1] == '/')) {
         basePathLen -= 1;
     }
 
@@ -8579,15 +8983,17 @@ FS_API int fs_path_append(char* pDst, size_t dstCap, const char* pBasePath, size
         }
         dstLen += basePathLen;
 
-        /* Separator. */
-        if (pDst != NULL) {
-            if (dstCap > 1) {   /* Need to leave room for the separator. */
-                pDst[0] = '/';
-                pDst += 1;
-                dstCap -= 1;
+        if (!basePathIsRoot) {
+            /* Separator. */
+            if (pDst != NULL) {
+                if (dstCap > 1) {   /* Need to leave room for the separator. */
+                    pDst[0] = '/';
+                    pDst += 1;
+                    dstCap -= 1;
+                }
             }
+            dstLen += 1;
         }
-        dstLen += 1;    
     }
     
 
@@ -8657,7 +9063,7 @@ FS_API int fs_path_normalize(char* pDst, size_t dstCap, const char* pPath, size_
     if (iPath.segmentLength == 0) {
         allowLeadingBackNav = FS_FALSE; /* When the path starts with "/" we cannot allow a leading ".." in the output path. */
 
-        if (pDst != NULL && dstCap > 0) {
+        if (pDst != NULL && dstCap > 1) {
             pDst[0] = '/';
             pDst   += 1;
             dstCap -= 1;
@@ -8667,6 +9073,10 @@ FS_API int fs_path_normalize(char* pDst, size_t dstCap, const char* pPath, size_
         /* Get past the root. */
         result = fs_path_next(&iPath);
         if (result != FS_SUCCESS) {
+            if (pDst != NULL && dstCap > 0) {
+                pDst[0] = '\0';
+            }
+
             return dstLen;
         }
     }
@@ -8722,16 +9132,18 @@ FS_API int fs_path_normalize(char* pDst, size_t dstCap, const char* pPath, size_
         for (i = 0; i < top; i += 1) {
             size_t segLen = stack[i].segmentLength;
 
-            if (pDst != NULL && dstCap > segLen) {
-                FS_COPY_MEMORY(pDst, stack[i].pFullPath + stack[i].segmentOffset, segLen);
-                pDst   += segLen;
-                dstCap -= segLen;
+            if (pDst != NULL && dstCap > 1) {
+                size_t bytesToCopy = FS_MIN(segLen, dstCap - 1);
+
+                FS_MOVE_MEMORY(pDst, stack[i].pFullPath + stack[i].segmentOffset, bytesToCopy);
+                pDst   += bytesToCopy;
+                dstCap -= bytesToCopy;
             }
             dstLen += (int)segLen;
 
             /* Separator. */
             if (i + 1 < top) {
-                if (pDst != NULL && dstCap > 0) {
+                if (pDst != NULL && dstCap > 1) {
                     pDst[0] = '/';
                     pDst   += 1;
                     dstCap -= 1;
@@ -8807,28 +9219,34 @@ static size_t fs_memory_stream_duplicate_alloc_size_internal(fs_stream* pStream)
 static fs_result fs_memory_stream_duplicate_internal(fs_stream* pStream, fs_stream* pDuplicatedStream)
 {
     fs_memory_stream* pMemoryStream;
+    fs_memory_stream* pDuplicatedMemoryStream;
 
     pMemoryStream = (fs_memory_stream*)pStream;
     FS_ASSERT(pMemoryStream != NULL);
 
-    *pDuplicatedStream = *pStream;
+    pDuplicatedMemoryStream = (fs_memory_stream*)pDuplicatedStream;
+    FS_ASSERT(pDuplicatedMemoryStream != NULL);
+
+    *pDuplicatedMemoryStream = *pMemoryStream;
 
     /* Slightly special handling for write mode. Need to make a copy of the output buffer. */
-    if (pMemoryStream->write.pData != NULL) {
-        void* pNewData = fs_malloc(pMemoryStream->write.dataCap, &pMemoryStream->allocationCallbacks);
-        if (pNewData == NULL) {
-            return FS_OUT_OF_MEMORY;
+    if (pMemoryStream->ppData == &pMemoryStream->write.pData) {
+        if (pMemoryStream->write.pData != NULL) {
+            void* pNewData = fs_malloc(pMemoryStream->write.dataCap, &pMemoryStream->allocationCallbacks);
+            if (pNewData == NULL) {
+                return FS_OUT_OF_MEMORY;
+            }
+
+            FS_COPY_MEMORY(pNewData, pMemoryStream->write.pData, pMemoryStream->write.dataSize);
+
+            pDuplicatedMemoryStream->write.pData = pNewData;
         }
 
-        FS_COPY_MEMORY(pNewData, pMemoryStream->write.pData, pMemoryStream->write.dataSize);
-
-        pMemoryStream->write.pData = pNewData;
-
-        pMemoryStream->ppData    = &pMemoryStream->write.pData;
-        pMemoryStream->pDataSize = &pMemoryStream->write.dataSize;
+        pDuplicatedMemoryStream->ppData    = &pDuplicatedMemoryStream->write.pData;
+        pDuplicatedMemoryStream->pDataSize = &pDuplicatedMemoryStream->write.dataSize;
     } else {
-        pMemoryStream->ppData    = (void**)&pMemoryStream->readonly.pData;
-        pMemoryStream->pDataSize = &pMemoryStream->readonly.dataSize;
+        pDuplicatedMemoryStream->ppData    = (void**)&pDuplicatedMemoryStream->readonly.pData;
+        pDuplicatedMemoryStream->pDataSize = &pDuplicatedMemoryStream->readonly.dataSize;
     }
 
     return FS_SUCCESS;
@@ -8970,13 +9388,30 @@ FS_API fs_result fs_memory_stream_write(fs_memory_stream* pStream, const void* p
         return FS_INVALID_OPERATION;
     }
 
+    if (bytesToWrite == 0) {
+        return FS_SUCCESS;
+    }
+
     /* Calculate where the write will end and resize if necessary. */
+    if (bytesToWrite > FS_SIZE_MAX - pStream->cursor) {
+        return FS_TOO_BIG;
+    }
+
     writeEndPosition = pStream->cursor + bytesToWrite;
     if (writeEndPosition > pStream->write.dataCap) {
         void* pNewBuffer;
         size_t newCap;
 
-        newCap = FS_MAX(writeEndPosition, pStream->write.dataCap * 2);
+        if (pStream->write.dataCap > FS_SIZE_MAX / 2) {
+            newCap = FS_SIZE_MAX;
+        } else {
+            newCap = pStream->write.dataCap * 2;
+        }
+
+        if (newCap < writeEndPosition) {
+            newCap = writeEndPosition;
+        }
+
         pNewBuffer = fs_realloc(*pStream->ppData, newCap, &pStream->allocationCallbacks);
         if (pNewBuffer == NULL) {
             return FS_OUT_OF_MEMORY;
@@ -9003,39 +9438,48 @@ FS_API fs_result fs_memory_stream_write(fs_memory_stream* pStream, const void* p
     return FS_SUCCESS;
 }
 
-FS_API fs_result fs_memory_stream_seek(fs_memory_stream* pStream, fs_int64 offset, int origin)
+FS_API fs_result fs_memory_stream_seek(fs_memory_stream* pStream, fs_int64 offset, fs_seek_origin origin)
 {
-    fs_int64 newCursor;
+    size_t baseCursor;
+    size_t newCursor;
+    fs_uint64 offsetMagnitude;
 
     if (pStream == NULL) {
         return FS_INVALID_ARGS;
     }
 
-    if ((fs_uint64)FS_ABS(offset) > FS_SIZE_MAX) {
-        return FS_INVALID_ARGS;  /* Trying to seek too far. This will never happen on 64-bit builds. */
-    }
-
     if (origin == FS_SEEK_SET) {
-        newCursor = 0;
+        baseCursor = 0;
     } else if (origin == FS_SEEK_CUR) {
-        newCursor = (fs_int64)pStream->cursor;
+        baseCursor = pStream->cursor;
     } else if (origin == FS_SEEK_END) {
-        newCursor = (fs_int64)*pStream->pDataSize;
+        baseCursor = *pStream->pDataSize;
     } else {
         FS_ASSERT(!"Invalid seek origin");
         return FS_INVALID_ARGS;
     }
 
-    newCursor += offset;
+    if (offset < 0) {
+        /* Adding one before negation avoids overflowing when offset is INT64_MIN. */
+        offsetMagnitude = (fs_uint64)(-(offset + 1)) + 1;
+        if (offsetMagnitude > (fs_uint64)baseCursor) {
+            return FS_BAD_SEEK;  /* Trying to seek prior to the start of the buffer. */
+        }
 
-    if (newCursor < 0) {
-        return FS_BAD_SEEK;  /* Trying to seek prior to the start of the buffer. */
-    }
-    if ((size_t)newCursor > *pStream->pDataSize) {
-        return FS_BAD_SEEK;  /* Trying to seek beyond the end of the buffer. */
+        newCursor = baseCursor - (size_t)offsetMagnitude;
+    } else {
+        offsetMagnitude = (fs_uint64)offset;
+        if (offsetMagnitude > (fs_uint64)(FS_SIZE_MAX - baseCursor)) {
+            return FS_BAD_SEEK;  /* The new cursor would overflow size_t. */
+        }
+
+        newCursor = baseCursor + (size_t)offsetMagnitude;
+        if (newCursor > *pStream->pDataSize) {
+            return FS_BAD_SEEK;  /* Trying to seek beyond the end of the buffer. */
+        }
     }
 
-    pStream->cursor = (size_t)newCursor;
+    pStream->cursor = newCursor;
 
     return FS_SUCCESS;
 }
@@ -9061,19 +9505,33 @@ FS_API fs_result fs_memory_stream_remove(fs_memory_stream* pStream, size_t offse
 {
     void* pDst;
     void* pSrc;
+    size_t dataSize;
+    size_t removeEnd;
     size_t tailSize;
 
     if (pStream == NULL) {
         return FS_INVALID_ARGS;
     }
 
-    if ((offset + size) > *pStream->pDataSize) {
+    /* Cannot modify a read-only stream. */
+    if (pStream->readonly.pData != NULL) {
+        return FS_INVALID_OPERATION;
+    }
+
+    dataSize = *pStream->pDataSize;
+    if (offset > dataSize || size > dataSize - offset) {
         return FS_INVALID_ARGS;
     }
 
+    if (size == 0) {
+        return FS_SUCCESS;
+    }
+
+    removeEnd = offset + size;  /* Safe because of the bounds check above. */
+
     /* The cursor needs to be moved. */
     if (pStream->cursor > offset) {
-        if (pStream->cursor >= (offset + size)) {
+        if (pStream->cursor >= removeEnd) {
             pStream->cursor -= size;
         } else {
             pStream->cursor  = offset;
@@ -9081,8 +9539,8 @@ FS_API fs_result fs_memory_stream_remove(fs_memory_stream* pStream, size_t offse
     }
 
     pDst = FS_OFFSET_PTR(*pStream->ppData, offset);
-    pSrc = FS_OFFSET_PTR(*pStream->ppData, offset + size);
-    tailSize = *pStream->pDataSize - (offset + size);
+    pSrc = FS_OFFSET_PTR(*pStream->ppData, removeEnd);
+    tailSize = dataSize - removeEnd;
 
     FS_MOVE_MEMORY(pDst, pSrc, tailSize);
     *pStream->pDataSize -= size;
@@ -9163,21 +9621,17 @@ FS_API void* fs_binary_search(const void* pKey, const void* pList, size_t count,
     size_t iEnd;
     size_t iMid;
 
-    if (count == 0) {
-        return NULL;
-    }
-
     iStart = 0;
-    iEnd = count - 1;
+    iEnd = count;
 
-    while (iStart <= iEnd) {
+    while (iStart < iEnd) {
         int compareResult;
 
         iMid = iStart + (iEnd - iStart) / 2;
 
         compareResult = compareProc(pUserData, pKey, (char*)pList + (iMid * stride));
         if (compareResult < 0) {
-            iEnd = iMid - 1;
+            iEnd = iMid;
         } else if (compareResult > 0) {
             iStart = iMid + 1;
         } else {

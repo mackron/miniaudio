@@ -175,7 +175,7 @@ original path to do the duplication.
 To delete a file, use `fs_remove()`:
 
 ```c
-fs_remove(pFS, "file.txt");
+fs_remove(pFS, "file.txt", 0);
 ```
 
 Note that files are deleted permanently. There is no recycle bin or trash functionality.
@@ -183,7 +183,7 @@ Note that files are deleted permanently. There is no recycle bin or trash functi
 Files can be renamed and moved with `fs_rename()`:
 
 ```c
-fs_rename(pFS, "file.txt", "new-file.txt");
+fs_rename(pFS, "file.txt", "new-file.txt", 0);
 ```
 
 To create a directory, use `fs_mkdir()`:
@@ -533,7 +533,9 @@ such as when working with temporary files.
 You can enumerate over the contents of a directory like the following:
 
 ```c
-for (fs_iterator* pIterator = fs_first(pFS, "directory/to/enumerate", FS_NULL_TERMINATED, 0); pIterator != NULL; pIterator = fs_next(pIterator)) {
+fs_iterator* pIterator;
+
+for (pIterator = fs_first(pFS, "directory/to/enumerate", 0); pIterator != NULL; pIterator = fs_next(pIterator)) {
     printf("Name: %s\n",   pIterator->pName);
     printf("Size: %llu\n", pIterator->info.size);
 }
@@ -948,7 +950,7 @@ extern "C" {
 #if defined(SIZE_MAX)
     #define FS_SIZE_MAX  SIZE_MAX
 #else
-    #define FS_SIZE_MAX  0xFFFFFFFF  /* When SIZE_MAX is not defined by the standard library just default to the maximum 32-bit unsigned integer. */
+    #define FS_SIZE_MAX  ((size_t)-1)
 #endif
 
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
@@ -1013,7 +1015,9 @@ typedef unsigned int  fs_bool32;
 #define FS_FALSE 0
 
 
-#define FS_INT64_MAX ((fs_int64)(((fs_uint64)0x7FFFFFFF << 32) | 0xFFFFFFFF))
+#define FS_UINT64_MAX               (((fs_uint64)0xFFFFFFFF << 32) | 0xFFFFFFFF)
+#define FS_INT64_MAX    ((fs_int64 )(((fs_uint64)0x7FFFFFFF << 32) | 0xFFFFFFFF))
+#define FS_INT64_MIN    (-FS_INT64_MAX - 1)
 
 
 #ifndef FS_API
@@ -1073,62 +1077,16 @@ typedef unsigned int  fs_bool32;
         typedef pthread_t       fs_pthread_t;
         typedef pthread_mutex_t fs_pthread_mutex_t;
     #else
+        /*
+        If you have opted into not including pthread.h in the header section, you need to
+        accept that the sizes of the structures below may not be accurate. It is on you
+        to take this risk and no technical support will be offered.
+        */
         typedef fs_uintptr      fs_pthread_t;
         typedef union           fs_pthread_mutex_t { char __data[40]; fs_uint64 __alignment; } fs_pthread_mutex_t;
     #endif
 #endif
 /* END fs_thread_basic_types.h */
-
-
-/* BEG fs_thread_mtx.h */
-#if defined(FS_WIN32)
-    typedef struct
-    {
-        void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
-        int type;
-    } fs_mtx;
-#else
-    /*
-    We may need to force the use of a manual recursive mutex which will happen when compiling
-    on very old compilers, or with `-std=c89`.
-    */
-
-    /* If __STDC_VERSION__ is not defined it means we're compiling in C89 mode. */
-    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && !defined(__STDC_VERSION__)
-        #define FS_USE_MANUAL_RECURSIVE_MUTEX
-    #endif
-
-    /* This is for checking if PTHREAD_MUTEX_RECURSIVE is available. */
-    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && (!defined(__USE_UNIX98) && !defined(__USE_XOPEN2K8))
-        #define FS_USE_MANUAL_RECURSIVE_MUTEX
-    #endif
-
-    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
-        typedef struct
-        {
-            fs_pthread_mutex_t mutex;    /* The underlying pthread mutex. */
-            fs_pthread_mutex_t guard;    /* Guard for metadata (owner and recursionCount). */
-            fs_pthread_t owner;
-            int recursionCount;
-            int type;
-        } fs_mtx;
-    #else
-        typedef fs_pthread_mutex_t fs_mtx;
-    #endif
-#endif
-
-enum
-{
-    fs_mtx_plain     = 0x00000000,
-    fs_mtx_timed     = 0x00000001,
-    fs_mtx_recursive = 0x00000002
-};
-
-FS_API int fs_mtx_init(fs_mtx* mutex, int type);
-FS_API void fs_mtx_destroy(fs_mtx* mutex);
-FS_API int fs_mtx_lock(fs_mtx* mutex);
-FS_API int fs_mtx_unlock(fs_mtx* mutex);
-/* END fs_thread_mtx.h */
 
 
 /* BEG fs_result.h */
@@ -1195,9 +1153,62 @@ typedef enum
     FS_NEEDS_MORE_INPUT              = 100, /* Some stream needs more input data before it can be processed. */
     FS_HAS_MORE_OUTPUT               = 102  /* Some stream has more output data to be read, but there's not enough room in the output buffer. */
 } fs_result;
-
-FS_API const char* fs_result_description(fs_result result);
 /* END fs_result.h */
+
+/* BEG fs_result_description.h */
+FS_API const char* fs_result_description(fs_result result);
+/* END fs_result_description.h */
+
+
+/* BEG fs_thread_mtx.h */
+#if defined(FS_WIN32)
+    typedef struct
+    {
+        void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
+        int type;
+    } fs_mtx;
+#else
+    /*
+    We may need to force the use of a manual recursive mutex which will happen when compiling
+    on very old compilers, or with `-std=c89`.
+    */
+
+    /* If __STDC_VERSION__ is not defined it means we're compiling in C89 mode. */
+    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && !defined(__STDC_VERSION__)
+        #define FS_USE_MANUAL_RECURSIVE_MUTEX
+    #endif
+
+    /* This is for checking if PTHREAD_MUTEX_RECURSIVE is available. */
+    #if !defined(FS_USE_MANUAL_RECURSIVE_MUTEX) && (!defined(__USE_UNIX98) && !defined(__USE_XOPEN2K8))
+        #define FS_USE_MANUAL_RECURSIVE_MUTEX
+    #endif
+
+    #ifdef FS_USE_MANUAL_RECURSIVE_MUTEX
+        typedef struct
+        {
+            fs_pthread_mutex_t mutex;    /* The underlying pthread mutex. */
+            fs_pthread_mutex_t guard;    /* Guard for metadata (owner and recursionCount). */
+            fs_pthread_t owner;
+            int recursionCount;
+            int type;
+        } fs_mtx;
+    #else
+        typedef fs_pthread_mutex_t fs_mtx;
+    #endif
+#endif
+
+enum
+{
+    fs_mtx_plain     = 0x00000000,
+    fs_mtx_timed     = 0x00000001,
+    fs_mtx_recursive = 0x00000002
+};
+
+FS_API fs_result fs_mtx_init(fs_mtx* mutex, int type);
+FS_API void fs_mtx_destroy(fs_mtx* mutex);
+FS_API fs_result fs_mtx_lock(fs_mtx* mutex);
+FS_API fs_result fs_mtx_unlock(fs_mtx* mutex);
+/* END fs_thread_mtx.h */
 
 
 /* BEG fs_allocation_callbacks.h */
@@ -1298,7 +1309,7 @@ the returned pointer with fs_free().
 The format (FS_FORMAT_TEXT or FS_FORMAT_BINARY) is used to determine whether or not a null terminator should be
 appended to the end of the data.
 
-For flexiblity in case the backend does not support cursor retrieval or positioning, the data will be read
+For flexibility in case the backend does not support cursor retrieval or positioning, the data will be read
 in fixed sized chunks.
 */
 
@@ -1511,7 +1522,7 @@ struct fs_file_info
 struct fs_iterator
 {
     fs* pFS;
-    const char* pName;              /* Must be null terminated. The FS implementation is responsible for manageing the memory allocation. */
+    const char* pName;              /* Must be null terminated. The FS implementation is responsible for managing the memory allocation. */
     size_t nameLen;
     fs_file_info info;
 };
@@ -2796,8 +2807,8 @@ omitted for clarity.
 ```c
 fs_iterator* pIterator = fs_first(pFS, "somefolder", FS_READ);
 while (pIterator != NULL) {
-    // Use pIterator->name and pIterator->info here...
-    printf("Found entry: %.*s\n", (int)pIterator->nameLength, pIterator->pName);
+    // Use pIterator->pName and pIterator->info here...
+    printf("Found entry: %.*s\n", (int)pIterator->nameLen, pIterator->pName);
     pIterator = fs_next(pIterator);
 }
 
@@ -3363,7 +3374,7 @@ fs_get_allocation_callbacks() if necessary, like so:
 The format (FS_FORMAT_TEXT or FS_FORMAT_BINARY) is used to determine whether or not a null terminator should be
 appended to the end of the data.
 
-For flexiblity in case the backend does not support cursor retrieval or positioning, the data will be read
+For flexibility in case the backend does not support cursor retrieval or positioning, the data will be read
 in fixed sized chunks.
 */
 FS_API fs_result fs_file_read_to_end(fs_file* pFile, fs_format format, void** ppData, size_t* pDataSize);
@@ -3665,7 +3676,7 @@ struct fs_memory_stream
         size_t dataCap;
     } write;
     size_t cursor;
-    fs_allocation_callbacks allocationCallbacks; /* This is copied from the allocation callbacks passed in from e_memory_stream_init(). Only used in write mode. */
+    fs_allocation_callbacks allocationCallbacks; /* This is copied from the allocation callbacks passed in from fs_memory_stream_init_write(). Only used in write mode. */
 };
 
 FS_API fs_result fs_memory_stream_init_write(const fs_allocation_callbacks* pAllocationCallbacks, fs_memory_stream* pStream);
@@ -3673,7 +3684,7 @@ FS_API fs_result fs_memory_stream_init_readonly(const void* pData, size_t dataSi
 FS_API void fs_memory_stream_uninit(fs_memory_stream* pStream);    /* Only needed for write mode. This will free the internal pointer so make sure you've done what you need to do with it. */
 FS_API fs_result fs_memory_stream_read(fs_memory_stream* pStream, void* pDst, size_t bytesToRead, size_t* pBytesRead);
 FS_API fs_result fs_memory_stream_write(fs_memory_stream* pStream, const void* pSrc, size_t bytesToWrite, size_t* pBytesWritten);
-FS_API fs_result fs_memory_stream_seek(fs_memory_stream* pStream, fs_int64 offset, int origin);
+FS_API fs_result fs_memory_stream_seek(fs_memory_stream* pStream, fs_int64 offset, fs_seek_origin origin);
 FS_API fs_result fs_memory_stream_tell(fs_memory_stream* pStream, size_t* pCursor);
 FS_API fs_result fs_memory_stream_remove(fs_memory_stream* pStream, size_t offset, size_t size);
 FS_API fs_result fs_memory_stream_truncate(fs_memory_stream* pStream);
