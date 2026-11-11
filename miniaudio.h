@@ -4131,6 +4131,11 @@ Some backends have some nuance details you may want to be aware of.
   when the `AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM` flag is specified. Setting wasapi.noAutoConvertSRC
   will result in miniaudio's internal resampler being used instead which will in turn enable the
   use of low-latency shared mode.
+- When using `MA_THREADING_MODE_SINGLE_THREADED`, the application must initialize COM with
+  `CoInitializeEx()` on the thread that initializes and processes the device. Keep COM initialized
+  until after `ma_device_uninit()`, and initialize, process and uninitialize the device on that
+  same thread. You need only do this when using `MA_THREADING_MODE_SINGLE_THREADED`. You do not
+  need to do this by default.
 
 15.2. PulseAudio
 ----------------
@@ -23903,33 +23908,12 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
 {
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr;
-    HRESULT CoInitializeResult;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppMMDevice != NULL);
 
-    /*
-    This weird COM init/uninit here is a hack to work around a crash when changing devices. What is happening is
-    WASAPI fires a callback from another thread when the device is changed. It's from that thread where this
-    function is getting called. What I'm suspecting is that the other thread is not initializing COM which in turn
-    results in CoCreateInstance() failing.
-
-    The community has reported that this seems to fix the crash. There are future plans to move all WASAPI operation
-    over to a single thread to make everything safer, but in the meantime while we wait for that to come online I'm
-    happy enough to use this hack instead.
-
-    CoUninitialize should only be called if we successfully initialized. S_OK and S_FALSE both mean that we need to
-    call CoUninitialize since the internal ref count was increased. RPC_E_CHANGED_MODE means that CoInitializeEx was
-    called with a different COINIT value, and we don't call CoUninitialize in that case. Other errors are possible,
-    so we check for S_OK and S_FALSE specifically.
-    */
-    CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
-    {
-        hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    }    
-    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) { ma_CoUninitialize(pContext); }
-
-    if (FAILED(hr)) {   /* <-- This is checking the call above to ma_CoCreateInstance(). */
+    hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.");
         return ma_result_from_HRESULT(hr);
     }
