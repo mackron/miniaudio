@@ -72254,7 +72254,13 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
         ma_resource_manager_inline_notification_init(pResourceManager, &waitNotification);
     }
 
-    ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
+    /*
+    A stream has no separate "done" stage. The load job only releases the init fence, so only that one is acquired here.
+    Acquiring the done fence as well would leave it held forever and anything waiting on it would never return.
+    */
+    if (notifications.init.pFence != NULL) {
+        ma_fence_acquire(notifications.init.pFence);
+    }
 
     /* Set the absolute cursor to our initial seek position so retrieval of the cursor returns a good value. */
     ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, pConfig->initialSeekPointInPCMFrames);
@@ -72271,7 +72277,9 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
-        ma_resource_manager_pipeline_notifications_release_all_fences(&notifications);
+        if (notifications.init.pFence != NULL) {
+            ma_fence_release(notifications.init.pFence);
+        }
 
         if (waitBeforeReturning) {
             ma_resource_manager_inline_notification_uninit(&waitNotification);
