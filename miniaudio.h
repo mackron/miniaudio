@@ -70778,7 +70778,7 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataBufferNode  != NULL);
-    MA_ASSERT(ppDecoder         != NULL);
+    MA_ASSERT(ppDecoder        != NULL);
     MA_ASSERT(pFilePath != NULL || pFilePathW != NULL);
 
     *ppDecoder = NULL;  /* For safety. */
