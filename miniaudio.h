@@ -70715,6 +70715,31 @@ static ma_uint32 ma_resource_manager_data_buffer_node_next_execution_order(ma_re
     return ma_atomic_fetch_add_32(&pDataBufferNode->executionCounter, 1);
 }
 
+static ma_result ma_resource_manager_data_buffer_node_post_page_job(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, ma_job* pJob)
+{
+    ma_result result;
+
+    /* This function should be called synchronously, usually between ma_resource_manager_data_buffer_bst_lock() and ma_resource_manager_data_buffer_bst_unlock(). */
+
+    /*
+    A free job may have been posted while the previous page was decoding. In this case the node
+    result will have been set to something other than MA_BUSY.
+    */
+    result = ma_resource_manager_data_buffer_node_result(pDataBufferNode);
+    if (result != MA_BUSY) {
+        return result;
+    }
+
+    pJob->order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+
+    result = ma_resource_manager_post_job(pResourceManager, pJob);
+    if (result != MA_SUCCESS) {
+        ma_atomic_fetch_sub_32(&pDataBufferNode->executionCounter, 1);
+    }
+
+    return result;
+}
+
 static ma_result ma_resource_manager_data_buffer_node_init_supply_encoded(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, const char* pFilePath, const wchar_t* pFilePathW)
 {
     ma_result result;
@@ -71296,11 +71321,17 @@ stage2:
             /* The sound is still loading. We need to delay the freeing of the node to a safe time. */
             ma_job job;
 
-            /* We need to mark the node as unavailable for the sake of the resource manager worker threads. */
-            ma_atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
-
             job = ma_job_init(MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE);
-            job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+
+            /* Prevent a page job from being posted after the free job. */
+            ma_resource_manager_data_buffer_bst_lock(pResourceManager);
+            {
+                /* We need to mark the node as unavailable for the sake of the resource manager worker threads. */
+                ma_atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
+                job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+            }
+            ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
+
             job.data.resourceManager.freeDataBufferNode.pResourceManager = pResourceManager;
             job.data.resourceManager.freeDataBufferNode.pDataBufferNode  = pDataBufferNode;
 
@@ -73205,15 +73236,23 @@ static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job*
         Note that if an error occurred at an earlier point, this section will have been skipped.
         */
         pageDataBufferNodeJob = ma_job_init(MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE);
-        pageDataBufferNodeJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pResourceManager  = pResourceManager;
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDataBufferNode   = pDataBufferNode;
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDecoder          = pDecoder;
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDoneNotification = pJob->data.resourceManager.loadDataBufferNode.pDoneNotification;
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDoneFence        = pJob->data.resourceManager.loadDataBufferNode.pDoneFence;
 
+        /* WAIT_INIT executes this job inside the data buffer BST lock. */
+        if ((pJob->data.resourceManager.loadDataBufferNode.flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) == 0) {
+            ma_resource_manager_data_buffer_bst_lock(pResourceManager);
+        }
+
         /* The job has been set up so it can now be posted. */
-        result = ma_resource_manager_post_job(pResourceManager, &pageDataBufferNodeJob);
+        result = ma_resource_manager_data_buffer_node_post_page_job(pResourceManager, pDataBufferNode, &pageDataBufferNodeJob);
+
+        if ((pJob->data.resourceManager.loadDataBufferNode.flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) == 0) {
+            ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
+        }
 
         /*
         When we get here, we want to make sure the result code is set to MA_BUSY. The reason for
@@ -73222,7 +73261,10 @@ static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job*
         is set to MA_BUSY.
         */
         if (result != MA_SUCCESS) {
-            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE job. %s\n", ma_result_description(result));
+            if (result != MA_UNAVAILABLE) {
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE job. %s\n", ma_result_description(result));
+            }
+
             ma_decoder_uninit(pDecoder);
             ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
         } else {
@@ -73344,9 +73386,12 @@ static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job*
     if (result == MA_SUCCESS) {
         ma_job newJob;
         newJob = *pJob; /* Everything is the same as the input job, except the execution order. */
-        newJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);   /* We need a fresh execution order. */
 
-        result = ma_resource_manager_post_job(pResourceManager, &newJob);
+        ma_resource_manager_data_buffer_bst_lock(pResourceManager);
+        {
+            result = ma_resource_manager_data_buffer_node_post_page_job(pResourceManager, pDataBufferNode, &newJob);
+        }
+        ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
         /* Since the sound isn't yet fully decoded we want the status to be set to busy. */
         if (result == MA_SUCCESS) {
