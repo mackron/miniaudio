@@ -20946,6 +20946,8 @@ MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename)
                     handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
                 }
             #endif
+        #elif defined(__COSMOPOLITAN__)
+            handle = (ma_handle)cosmo_dlopen(filename, RTLD_NOW);
         #else
             handle = (ma_handle)dlopen(filename, RTLD_NOW);
         #endif
@@ -20977,6 +20979,10 @@ MA_API void ma_dlclose(ma_log* pLog, ma_handle handle)
         #ifdef MA_WIN32
         {
             FreeLibrary((HMODULE)handle);
+        }
+        #elif defined(__COSMOPOLITAN__)
+        {
+            cosmo_dlclose((void*)handle);
         }
         #else
         {
@@ -21022,7 +21028,14 @@ MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
                 #pragma GCC diagnostic push
                 #pragma GCC diagnostic ignored "-Wpedantic"
             #endif
-                proc = (ma_proc)dlsym((void*)handle, symbol);
+                #if defined(__COSMOPOLITAN__)
+                    proc = (ma_proc)cosmo_dlsym((void*)handle, symbol);
+                    if (proc != NULL) {
+                        proc = (ma_proc)cosmo_dltramp((void*)proc);
+                    }
+                #else
+                    proc = (ma_proc)dlsym((void*)handle, symbol);
+                #endif
             #if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
                 #pragma GCC diagnostic pop
             #endif
@@ -54930,6 +54943,26 @@ MA_API ma_result ma_device_init(const ma_device_config* pConfig, ma_device* pDev
     {
         if (!backendInfo.isMultiThreadedModeAllowedWhenThreadingDisabled) {
             threadingMode = MA_THREADING_MODE_SINGLE_THREADED;
+        }
+    }
+    #endif
+
+    /*
+    The Cosmopolitan build requires single threaded mode. It's because of threading and thread-local
+    storage. When Cosmo creates a thread it does so with its own thread-local state. When a host
+    library, such as PulseAudio, executes on that thread and calls the host C runtime, such as
+    glibc, that expects its own thread-local state which Cosmo did not initialize for that thread.
+    This can result in a crash.
+
+    To work around this, we enforce single threaded mode with Cosmo builds, and all miniaudio context
+    and device functions, include functions that call into them like ma_engine, should be called from
+    the main thread.
+    */
+    #if defined(__COSMOPOLITAN__)
+    {
+        if (threadingMode != MA_THREADING_MODE_SINGLE_THREADED) {
+            ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[Cosmo] Use single-threaded mode and call context and device functions on the main thread.\n");
+            return MA_INVALID_OPERATION;
         }
     }
     #endif

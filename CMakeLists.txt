@@ -48,6 +48,7 @@ option(MINIAUDIO_NO_VITA                       "Disable the Vita backend"       
 option(MINIAUDIO_NO_NULL                       "Disable the null backend"             OFF)
 option(MINIAUDIO_NO_SDL3                       "Disable the SDL3 backend"             OFF)
 option(MINIAUDIO_NO_SDL2                       "Disable the SDL2 backend"             OFF)
+option(MINIAUDIO_NO_COSMO                      "Disable the Cosmopolitan backend"     OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"            OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"       OFF)
@@ -69,6 +70,7 @@ option(MINIAUDIO_ENABLE_VITA                   "Enable the Vita backend"        
 option(MINIAUDIO_ENABLE_NULL                   "Enable the null backend"              OFF)
 option(MINIAUDIO_ENABLE_SDL3                   "Enable the SDL3 backend"              OFF)
 option(MINIAUDIO_ENABLE_SDL2                   "Enable the SDL2 backend"              OFF)
+option(MINIAUDIO_ENABLE_COSMO                  "Enable the Cosmopolitan backend"      OFF)
 option(MINIAUDIO_NO_DECODING                   "Disable decoding APIs"                OFF)
 option(MINIAUDIO_NO_ENCODING                   "Disable encoding APIs"                OFF)
 option(MINIAUDIO_NO_WAV                        "Disable the built-in WAV decoder"     OFF)
@@ -131,6 +133,7 @@ normalize_backend_enabled_option(VITA)
 normalize_backend_enabled_option(NULL)
 normalize_backend_enabled_option(SDL3)
 normalize_backend_enabled_option(SDL2)
+normalize_backend_enabled_option(COSMO)
 
 
 
@@ -341,6 +344,9 @@ endif()
 if(MINIAUDIO_NO_SDL2)
     list(APPEND COMPILE_DEFINES MA_NO_SDL2)
 endif()
+if(MINIAUDIO_NO_COSMO)
+    list(APPEND COMPILE_DEFINES MA_NO_COSMO)
+endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
 
@@ -403,6 +409,9 @@ if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     endif()
     if(MINIAUDIO_ENABLE_SDL2)
         list(APPEND COMPILE_DEFINES MA_ENABLE_SDL2)
+    endif()
+    if(MINIAUDIO_ENABLE_COSMO)
+        list(APPEND COMPILE_DEFINES MA_ENABLE_COSMO)
     endif()
 endif()
 if(MINIAUDIO_NO_DECODING)
@@ -806,6 +815,24 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
         if(MINIAUDIO_NO_RUNTIME_LINKING)
             target_link_libraries(miniaudio_sdl2 PRIVATE PkgConfig::SDL2)
         endif()
+    endif()
+
+    if(NOT MINIAUDIO_NO_COSMO)
+        add_library(miniaudio_cosmo STATIC
+            extras/backends/cosmo/miniaudio_cosmo.c
+            extras/backends/cosmo/miniaudio_cosmo.h
+        )
+
+        if(MINIAUDIO_FORCE_CXX)
+            set_source_file_language_cxx(extras/backends/cosmo/miniaudio_cosmo.c)
+        endif()
+
+        list(APPEND LIBS_TO_INSTALL miniaudio_cosmo)
+        install(FILES extras/backends/cosmo/miniaudio_cosmo.h DESTINATION include/miniaudio/extras/backends/cosmo)
+
+        target_include_directories(miniaudio_cosmo PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/cosmo)
+        target_compile_options    (miniaudio_cosmo PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_cosmo PRIVATE ${COMPILE_DEFINES})
     endif()
 
     # Template Backend (for build validation only, not installed)

@@ -29,6 +29,7 @@ will receive the captured audio.
     null
     sdl3
     sdl2
+    cosmo
 
 "waveform" can be one of the following:
     sine
@@ -70,6 +71,7 @@ Runtime linking supports both backends without either set of SDL headers.
 #endif
 #include "../../extras/backends/sdl3/miniaudio_sdl3.c"
 #include "../../extras/backends/sdl2/miniaudio_sdl2.c"
+#include "../../extras/backends/cosmo/miniaudio_cosmo.c"
 
 #ifdef ENABLE_LIBVORBIS
 #include "../../extras/decoders/libvorbis/miniaudio_libvorbis.c"
@@ -232,6 +234,10 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sdl2, NULL);
         goto done;
     }
+    if (strcmp(arg, "cosmo") == 0) {
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_cosmo, NULL);
+        goto done;
+    }
 
 done:
     if (*pBackendCount < backendCount) {
@@ -330,6 +336,10 @@ void print_enabled_backends(void)
 
     if (ma_device_backend_sdl2 != NULL) {
         printf("    SDL2\n");
+    }
+
+    if (ma_device_backend_cosmo != NULL) {
+        printf("    Cosmo\n");
     }
 
     printf("\n");
