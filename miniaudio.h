@@ -72236,6 +72236,9 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
         MA_ZERO_OBJECT(&notifications);
     }
 
+    /* Streams have no notion of a done stage. Only the init fence is used. */
+    notifications.done.pFence = NULL;
+
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.vtable = &g_ma_resource_manager_data_stream_vtable;
 
