@@ -71279,9 +71279,10 @@ static ma_result ma_resource_manager_data_buffer_node_unacquire(ma_resource_mana
             }
         }
     }
+    
+stage2:
     ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
-stage2:
     if (result != MA_SUCCESS) {
         return result;
     }
