@@ -1,6 +1,25 @@
 #ifndef fs_c
 #define fs_c
 
+/*
+Bit of a hack here to get `-std=c89` working with DJGPP. This is just undefining `__STRICT_ANSI__`
+then including the relevant headers, then restoring `__STRICT_ANSI__`. Later on we could improve
+this by doing a DOS-specific backend for the various file IO functions instead of using POSIX, but
+for now this will do.
+*/
+#if defined(__DJGPP__) && defined(__STRICT_ANSI__)
+    #pragma push_macro("__STRICT_ANSI__")
+    #undef __STRICT_ANSI__
+    #include <errno.h>
+    #include <sys/types.h>
+    #include <sys/stat.h>
+    #include <fcntl.h>
+    #include <unistd.h>
+    #include <dirent.h>
+    #include <pwd.h>
+    #pragma pop_macro("__STRICT_ANSI__")
+#endif
+
 #include "fs.h"
 
 #include <errno.h>
@@ -6556,6 +6575,9 @@ application opts into it by defining _POSIX_C_SOURCE or _XOPEN_SOURCE
     #define FS_HAS_FTRUNCATE
 #endif
 #if !defined(FS_HAS_FTRUNCATE) && !defined(__STRICT_ANSI__) /* Not using strict ANSI. Assume available. Might need to massage this later. */
+    #define FS_HAS_FTRUNCATE
+#endif
+#if !defined(FS_HAS_FTRUNCATE) && defined(__DJGPP__)
     #define FS_HAS_FTRUNCATE
 #endif
 
