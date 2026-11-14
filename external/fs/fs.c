@@ -918,6 +918,40 @@ FS_API fs_result fs_mtx_unlock(fs_mtx* mutex)
 
     return FS_SUCCESS;
 }
+#elif defined(FS_DOS)
+FS_API fs_result fs_mtx_init(fs_mtx* mutex, int type)
+{
+    if (mutex == NULL || (type & ~(fs_mtx_timed | fs_mtx_recursive)) != 0) {
+        return FS_ERROR;
+    }
+
+    *mutex = type;
+
+    return FS_SUCCESS;
+}
+
+FS_API void fs_mtx_destroy(fs_mtx* mutex)
+{
+    (void)mutex;
+}
+
+FS_API fs_result fs_mtx_lock(fs_mtx* mutex)
+{
+    if (mutex == NULL) {
+        return FS_ERROR;
+    }
+
+    return FS_SUCCESS;
+}
+
+FS_API fs_result fs_mtx_unlock(fs_mtx* mutex)
+{
+    if (mutex == NULL) {
+        return FS_ERROR;
+    }
+
+    return FS_SUCCESS;
+}
 #else
 static fs_result fs_result_from_pthread(int e)
 {

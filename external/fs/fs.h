@@ -938,6 +938,8 @@ extern "C" {
 /* BEG fs_platform_detection.h */
 #if defined(_WIN32)
     #define FS_WIN32
+#elif defined(__MSDOS__) || defined(__DOS__) || defined(_DOS) || defined(MSDOS)
+    #define FS_DOS
 #else
     #define FS_POSIX
 #endif
@@ -1167,6 +1169,8 @@ FS_API const char* fs_result_description(fs_result result);
         void* handle;    /* HANDLE, CreateMutex(), CreateEvent() */
         int type;
     } fs_mtx;
+#elif defined(FS_DOS)
+    typedef int fs_mtx;
 #else
     /*
     We may need to force the use of a manual recursive mutex which will happen when compiling
