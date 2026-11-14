@@ -12596,6 +12596,21 @@ IMPLEMENTATION
     #include <unistd.h> 
 #endif
 
+#if defined(MA_DOS)
+    #include <dos.h>        /* For delay(). */
+
+    /* DJGPP hides delay() in strict ANSI and POSIX modes. */
+    #if defined(__DJGPP__) && (defined(__STRICT_ANSI__) || defined(_POSIX_SOURCE))
+        #if defined(__cplusplus)
+        extern "C" {
+        #endif
+        void delay(unsigned int milliseconds);
+        #if defined(__cplusplus)
+        }
+        #endif
+    #endif
+#endif
+
 /* For fstat(), etc. */
 #if defined(MA_XBOX_NXDK)
     #include <stat.h>       /* Suggestion for NXDK: Add a sys/stat.h wrapper for compatibility. */
@@ -12957,6 +12972,13 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
 }
 #endif
 
+#ifdef MA_DOS
+static void ma_sleep__dos(ma_uint32 milliseconds)
+{
+    delay(milliseconds);
+}
+#endif
+
 static MA_INLINE void ma_sleep(ma_uint32 milliseconds)
 {
 #ifdef MA_WIN32
@@ -12964,6 +12986,9 @@ static MA_INLINE void ma_sleep(ma_uint32 milliseconds)
 #endif
 #ifdef MA_POSIX
     ma_sleep__posix(milliseconds);
+#endif
+#ifdef MA_DOS
+    ma_sleep__dos(milliseconds);
 #endif
 }
 #endif
@@ -14315,6 +14340,7 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
     #else
     {
         /* Getting here means there is no way to open the file with a wide character string. */
+        (void)pAllocationCallbacks;
         *ppFile = NULL;
     }
     #endif
@@ -22198,6 +22224,11 @@ static void ma_normalize_descriptor__null(ma_device_descriptor* pDescriptor, ma_
 
     pDescriptor->periodSizeInFrames = periodSizeInFrames;
     pDescriptor->periodCount        = 1;
+
+    /* DOS time updates are about 55 ms apart. Use a longer period to avoid discarding missed periods. */
+    #if defined(MA_DOS)
+    pDescriptor->periodSizeInFrames = ma_max(pDescriptor->periodSizeInFrames, ma_calculate_buffer_size_in_frames_from_milliseconds(100, pDescriptor->sampleRate));
+    #endif
 }
 
 static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBackendConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState)

@@ -20,7 +20,7 @@ may be updated to make use of a more advanced data source that handles all of th
 static ma_audio_ring_buffer rb;
 static ma_device device;
 static ma_engine engine;
-static ma_sound sound;  /* The sound will be the playback of the capture side. */
+static ma_sound captureSound;  /* The sound will be the playback of the capture side. */
 
 void capture_data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -91,7 +91,7 @@ int main(int argc, char** argv)
     ring buffer. The capture side will be writing data into the ring buffer, whereas the sound
     will be reading from it.
     */
-    result = ma_sound_init_from_data_source(&engine, &rb, 0, NULL, NULL, &sound);
+    result = ma_sound_init_from_data_source(&engine, &rb, 0, NULL, NULL, &captureSound);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize the sound.");
         return -1;
@@ -99,13 +99,13 @@ int main(int argc, char** argv)
 
     /* Link the starting of the device and sound together. */
     ma_device_start(&device);
-    ma_sound_start(&sound);
+    ma_sound_start(&captureSound);
 
 
     printf("Press Enter to quit...\n");
     getchar();
 
-    ma_sound_uninit(&sound);
+    ma_sound_uninit(&captureSound);
     ma_engine_uninit(&engine);
     ma_device_uninit(&device);
     ma_audio_ring_buffer_uninit(&rb);
