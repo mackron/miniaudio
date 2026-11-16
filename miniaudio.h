@@ -80807,10 +80807,7 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
         return result;
     }
 
-    result = ma_decoder_init__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
+    result = ma_decoder_init__internal(&config, pDecoder);   /* This will also do the post-initialization. */
 
     /* If we failed to initialize a decoder make sure our file handle is closed. */
     if (result != MA_SUCCESS) {
@@ -80869,10 +80866,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
         return result;
     }
 
-    result = ma_decoder_init__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
+    result = ma_decoder_init__internal(&config, pDecoder);   /* This will also do the post-initialization. */
 
     /* If we failed to initialize a decoder make sure our file handle is closed. */
     if (result != MA_SUCCESS) {
