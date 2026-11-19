@@ -82024,7 +82024,12 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
         if (pWav->onSeek(pWav->pUserData, 0, MA_DR_WAV_SEEK_END) == MA_TRUE) {
             ma_int64 fileSize;
             if (pWav->onTell(pWav->pUserData, &fileSize)) {
-                if (dataChunkSize + pWav->dataChunkDataPos > (ma_uint64)fileSize) {
+                if (fileSize < 0 || (ma_uint64)fileSize < pWav->dataChunkDataPos) {
+                    ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
+                    return MA_FALSE;
+                }
+                if ((dataChunkSize == 0xFFFFFFFF && (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rifx)) ||
+                    dataChunkSize > (ma_uint64)fileSize - pWav->dataChunkDataPos) {
                     dataChunkSize = (ma_uint64)fileSize - pWav->dataChunkDataPos;
                 }
             }
@@ -82032,6 +82037,11 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
         }
     }
     if (dataChunkSize == 0xFFFFFFFF && (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rifx) && pWav->isSequentialWrite == MA_FALSE) {
+        /* The file-size probe may have left the stream at EOF. */
+        if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
+            ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
+            return MA_FALSE;
+        }
         dataChunkSize = 0;
         for (;;) {
             ma_uint8 temp[4096];
