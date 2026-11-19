@@ -49,6 +49,7 @@ option(MINIAUDIO_NO_NULL                       "Disable the null backend"       
 option(MINIAUDIO_NO_SDL3                       "Disable the SDL3 backend"             OFF)
 option(MINIAUDIO_NO_SDL2                       "Disable the SDL2 backend"             OFF)
 option(MINIAUDIO_NO_COSMO                      "Disable the Cosmopolitan backend"     OFF)
+option(MINIAUDIO_NO_SB16                       "Disable the Sound Blaster 16 backend" OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"            OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"       OFF)
@@ -71,6 +72,7 @@ option(MINIAUDIO_ENABLE_NULL                   "Enable the null backend"        
 option(MINIAUDIO_ENABLE_SDL3                   "Enable the SDL3 backend"              OFF)
 option(MINIAUDIO_ENABLE_SDL2                   "Enable the SDL2 backend"              OFF)
 option(MINIAUDIO_ENABLE_COSMO                  "Enable the Cosmopolitan backend"      OFF)
+option(MINIAUDIO_ENABLE_SB16                   "Enable the Sound Blaster 16 backend"  OFF)
 option(MINIAUDIO_NO_DECODING                   "Disable decoding APIs"                OFF)
 option(MINIAUDIO_NO_ENCODING                   "Disable encoding APIs"                OFF)
 option(MINIAUDIO_NO_WAV                        "Disable the built-in WAV decoder"     OFF)
@@ -105,6 +107,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
 endif()
 
 
+# Strict C89 is not supported with DJGPP.
+if(DJGPP)
+    set(MINIAUDIO_FORCE_C89 OFF)
+endif()
+
+
 # Normalize our MINIAUDIO_NO_[BACKEND] options to account for MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS. This makes
 # it easier to check if a backend is enabled or not.
 function(normalize_backend_enabled_option NAME)
@@ -134,6 +142,7 @@ normalize_backend_enabled_option(NULL)
 normalize_backend_enabled_option(SDL3)
 normalize_backend_enabled_option(SDL2)
 normalize_backend_enabled_option(COSMO)
+normalize_backend_enabled_option(SB16)
 
 
 
@@ -347,6 +356,9 @@ endif()
 if(MINIAUDIO_NO_COSMO)
     list(APPEND COMPILE_DEFINES MA_NO_COSMO)
 endif()
+if(MINIAUDIO_NO_SB16)
+    list(APPEND COMPILE_DEFINES MA_NO_SB16)
+endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
 
@@ -412,6 +424,9 @@ if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     endif()
     if(MINIAUDIO_ENABLE_COSMO)
         list(APPEND COMPILE_DEFINES MA_ENABLE_COSMO)
+    endif()
+    if(MINIAUDIO_ENABLE_SB16)
+        list(APPEND COMPILE_DEFINES MA_ENABLE_SB16)
     endif()
 endif()
 if(MINIAUDIO_NO_DECODING)
@@ -848,6 +863,24 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
         target_include_directories(miniaudio_cosmo PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/cosmo)
         target_compile_options    (miniaudio_cosmo PRIVATE ${COMPILE_OPTIONS})
         target_compile_definitions(miniaudio_cosmo PRIVATE ${COMPILE_DEFINES})
+    endif()
+
+    if(NOT MINIAUDIO_NO_SB16)
+        add_library(miniaudio_sb16 STATIC
+            extras/backends/sb16/miniaudio_sb16.c
+            extras/backends/sb16/miniaudio_sb16.h
+        )
+
+        if(MINIAUDIO_FORCE_CXX)
+            set_source_file_language_cxx(extras/backends/sb16/miniaudio_sb16.c)
+        endif()
+
+        list(APPEND LIBS_TO_INSTALL miniaudio_sb16)
+        install(FILES extras/backends/sb16/miniaudio_sb16.h DESTINATION include/miniaudio/extras/backends/sb16)
+
+        target_include_directories(miniaudio_sb16 PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/sb16)
+        target_compile_options    (miniaudio_sb16 PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_sb16 PRIVATE ${COMPILE_DEFINES})
     endif()
 
     # Template Backend (for build validation only, not installed)
