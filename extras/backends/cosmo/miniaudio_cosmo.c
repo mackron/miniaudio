@@ -213,7 +213,7 @@ static ma_result ma_device_init__cosmo(ma_device* pDevice, const void* pDeviceBa
     ma_device_config_cosmo defaultConfig;
     ma_device_stream_cosmo playbackStream;
     ma_device_stream_cosmo captureStream;
-    ma_device_state_cosmo* pState;
+    ma_device_state_cosmo* pDeviceStateCosmo;
     size_t bufferSizeInBytesCapture = 0;
     size_t bufferSizeInBytesPlayback = 0;
     ma_device_type deviceType;
@@ -252,24 +252,24 @@ static ma_result ma_device_init__cosmo(ma_device* pDevice, const void* pDeviceBa
         bufferSizeInBytesPlayback = ma_align_64((size_t)pDescriptorPlayback->periodSizeInFrames * pDescriptorPlayback->channels * sizeof(float));
     }
 
-    pState = (ma_device_state_cosmo*)ma_malloc(ma_align_64(sizeof(*pState)) + bufferSizeInBytesCapture + bufferSizeInBytesPlayback, ma_device_get_allocation_callbacks(pDevice));
-    if (pState == NULL) {
+    pDeviceStateCosmo = (ma_device_state_cosmo*)ma_malloc(ma_align_64(sizeof(*pDeviceStateCosmo)) + bufferSizeInBytesCapture + bufferSizeInBytesPlayback, ma_device_get_allocation_callbacks(pDevice));
+    if (pDeviceStateCosmo == NULL) {
         result = MA_OUT_OF_MEMORY;
         goto error;
     }
 
-    pState->playback = playbackStream;
-    pState->capture  = captureStream;
+    pDeviceStateCosmo->playback = playbackStream;
+    pDeviceStateCosmo->capture  = captureStream;
 
     if (bufferSizeInBytesCapture > 0) {
-        pState->capture.pBuffer = (float*)ma_offset_ptr(pState, ma_align_64(sizeof(*pState)));
+        pDeviceStateCosmo->capture.pBuffer = (float*)ma_offset_ptr(pDeviceStateCosmo, ma_align_64(sizeof(*pDeviceStateCosmo)));
     }
 
     if (bufferSizeInBytesPlayback > 0) {
-        pState->playback.pBuffer = (float*)ma_offset_ptr(pState, ma_align_64(sizeof(*pState)) + bufferSizeInBytesCapture);
+        pDeviceStateCosmo->playback.pBuffer = (float*)ma_offset_ptr(pDeviceStateCosmo, ma_align_64(sizeof(*pDeviceStateCosmo)) + bufferSizeInBytesCapture);
     }
 
-    *ppDeviceState = pState;
+    *ppDeviceState = pDeviceStateCosmo;
     return MA_SUCCESS;
 
 error:
@@ -280,18 +280,18 @@ error:
 
 static void ma_device_uninit__cosmo(ma_device* pDevice)
 {
-    ma_device_state_cosmo* pState = ma_device_get_backend_state__cosmo(pDevice);
+    ma_device_state_cosmo* pDeviceStateCosmo = ma_device_get_backend_state__cosmo(pDevice);
 
-    ma_device_stream_close__cosmo(pDevice, &pState->capture);
-    ma_device_stream_close__cosmo(pDevice, &pState->playback);
+    ma_device_stream_close__cosmo(pDevice, &pDeviceStateCosmo->capture);
+    ma_device_stream_close__cosmo(pDevice, &pDeviceStateCosmo->playback);
     
-    ma_free(pState, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateCosmo, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static ma_result ma_device_process_playback__cosmo(ma_device* pDevice)
 {
-    ma_device_state_cosmo* pState = ma_device_get_backend_state__cosmo(pDevice);
-    ma_device_stream_cosmo* pStream = &pState->playback;
+    ma_device_state_cosmo* pDeviceStateCosmo = ma_device_get_backend_state__cosmo(pDevice);
+    ma_device_stream_cosmo* pStream = &pDeviceStateCosmo->playback;
     ma_uint32 framesToWrite;
     ma_uint32 totalFramesWritten = 0;
     int writableFrames = 0;
@@ -337,8 +337,8 @@ static ma_result ma_device_process_playback__cosmo(ma_device* pDevice)
 
 static ma_result ma_device_process_capture__cosmo(ma_device* pDevice)
 {
-    ma_device_state_cosmo* pState = ma_device_get_backend_state__cosmo(pDevice);
-    ma_device_stream_cosmo* pStream = &pState->capture;
+    ma_device_state_cosmo* pDeviceStateCosmo = ma_device_get_backend_state__cosmo(pDevice);
+    ma_device_stream_cosmo* pStream = &pDeviceStateCosmo->capture;
     ma_uint32 totalFramesRead = 0;
     int readableFrames = 0;
     int framesRead;
@@ -380,11 +380,11 @@ static ma_result ma_device_process_capture__cosmo(ma_device* pDevice)
 
 static ma_result ma_device_stop__cosmo(ma_device* pDevice)
 {
-    ma_device_state_cosmo* pState = ma_device_get_backend_state__cosmo(pDevice);
+    ma_device_state_cosmo* pDeviceStateCosmo = ma_device_get_backend_state__cosmo(pDevice);
     int resultCosmo;
 
-    if (pState->playback.pAudio != NULL) {
-        resultCosmo = cosmoaudio_flush(pState->playback.pAudio);
+    if (pDeviceStateCosmo->playback.pAudio != NULL) {
+        resultCosmo = cosmoaudio_flush(pDeviceStateCosmo->playback.pAudio);
         if (resultCosmo != COSMOAUDIO_SUCCESS) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[Cosmo] Failed to drain playback (%d).\n", resultCosmo);
             return MA_ERROR;
@@ -396,8 +396,8 @@ static ma_result ma_device_stop__cosmo(ma_device* pDevice)
 
 static ma_result ma_device_start__cosmo(ma_device* pDevice)
 {
-    ma_device_state_cosmo* pState = ma_device_get_backend_state__cosmo(pDevice);
-    ma_device_stream_cosmo* pStream = &pState->capture;
+    ma_device_state_cosmo* pDeviceStateCosmo = ma_device_get_backend_state__cosmo(pDevice);
+    ma_device_stream_cosmo* pStream = &pDeviceStateCosmo->capture;
     int readableFrames = 0;
     int framesRead;
     int resultCosmo;
@@ -429,13 +429,13 @@ static ma_result ma_device_start__cosmo(ma_device* pDevice)
 
 static ma_result ma_device_step__cosmo(ma_device* pDevice, ma_blocking_mode blockingMode)
 {
-    ma_device_state_cosmo* pState = ma_device_get_backend_state__cosmo(pDevice);
+    ma_device_state_cosmo* pDeviceStateCosmo = ma_device_get_backend_state__cosmo(pDevice);
     ma_bool32 hasProcessedData = MA_FALSE;
     ma_result result;
     struct timespec delay;
 
     while (ma_device_is_started(pDevice)) {
-        if (pState->capture.pAudio != NULL) {
+        if (pDeviceStateCosmo->capture.pAudio != NULL) {
             result = ma_device_process_capture__cosmo(pDevice);
             if (result == MA_SUCCESS) {
                 hasProcessedData = MA_TRUE;
@@ -444,7 +444,7 @@ static ma_result ma_device_step__cosmo(ma_device* pDevice, ma_blocking_mode bloc
             }
         }
 
-        if (pState->playback.pAudio != NULL) {
+        if (pDeviceStateCosmo->playback.pAudio != NULL) {
             result = ma_device_process_playback__cosmo(pDevice);
             if (result == MA_SUCCESS) {
                 hasProcessedData = MA_TRUE;
