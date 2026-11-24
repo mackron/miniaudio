@@ -52,5 +52,4 @@
 .vscode/
 
 # Below are individual files that I may start version controlling later or delete outright.
-/examples/build/COSMO.txt
 /tools/hrtfgen/
