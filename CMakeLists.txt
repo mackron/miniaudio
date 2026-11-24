@@ -50,6 +50,7 @@ option(MINIAUDIO_NO_SDL3                       "Disable the SDL3 backend"       
 option(MINIAUDIO_NO_SDL2                       "Disable the SDL2 backend"             OFF)
 option(MINIAUDIO_NO_COSMO                      "Disable the Cosmopolitan backend"     OFF)
 option(MINIAUDIO_NO_SB16                       "Disable the Sound Blaster 16 backend" OFF)
+option(MINIAUDIO_NO_XAUDIO2                    "Disable the XAudio2 backend"          OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"            OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"       OFF)
@@ -73,6 +74,7 @@ option(MINIAUDIO_ENABLE_SDL3                   "Enable the SDL3 backend"        
 option(MINIAUDIO_ENABLE_SDL2                   "Enable the SDL2 backend"              OFF)
 option(MINIAUDIO_ENABLE_COSMO                  "Enable the Cosmopolitan backend"      OFF)
 option(MINIAUDIO_ENABLE_SB16                   "Enable the Sound Blaster 16 backend"  OFF)
+option(MINIAUDIO_ENABLE_XAUDIO2                "Enable the XAudio2 backend"           OFF)
 option(MINIAUDIO_NO_DECODING                   "Disable decoding APIs"                OFF)
 option(MINIAUDIO_NO_ENCODING                   "Disable encoding APIs"                OFF)
 option(MINIAUDIO_NO_WAV                        "Disable the built-in WAV decoder"     OFF)
@@ -143,6 +145,7 @@ normalize_backend_enabled_option(SDL3)
 normalize_backend_enabled_option(SDL2)
 normalize_backend_enabled_option(COSMO)
 normalize_backend_enabled_option(SB16)
+normalize_backend_enabled_option(XAUDIO2)
 
 
 
@@ -359,6 +362,9 @@ endif()
 if(MINIAUDIO_NO_SB16)
     list(APPEND COMPILE_DEFINES MA_NO_SB16)
 endif()
+if(MINIAUDIO_NO_XAUDIO2)
+    list(APPEND COMPILE_DEFINES MA_NO_XAUDIO2)
+endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     list(APPEND COMPILE_DEFINES MA_ENABLE_ONLY_SPECIFIC_BACKENDS)
 
@@ -427,6 +433,9 @@ if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     endif()
     if(MINIAUDIO_ENABLE_SB16)
         list(APPEND COMPILE_DEFINES MA_ENABLE_SB16)
+    endif()
+    if(MINIAUDIO_ENABLE_XAUDIO2)
+        list(APPEND COMPILE_DEFINES MA_ENABLE_XAUDIO2)
     endif()
 endif()
 if(MINIAUDIO_NO_DECODING)
@@ -768,6 +777,10 @@ if(ANDROID AND MINIAUDIO_NO_RUNTIME_LINKING)
     list(APPEND COMMON_LINK_LIBRARIES ${ANDROID_LINK_LIBRARIES})
 endif()
 
+if(WIN32 AND MINIAUDIO_NO_RUNTIME_LINKING)
+    list(APPEND COMMON_LINK_LIBRARIES ole32)
+endif()
+
 function(set_source_file_language_cxx source)
     set_source_files_properties("${source}" PROPERTIES LANGUAGE CXX)
 
@@ -881,6 +894,28 @@ if(NOT MINIAUDIO_NO_DEVICEIO)
         target_include_directories(miniaudio_sb16 PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/sb16)
         target_compile_options    (miniaudio_sb16 PRIVATE ${COMPILE_OPTIONS})
         target_compile_definitions(miniaudio_sb16 PRIVATE ${COMPILE_DEFINES})
+    endif()
+
+    if(NOT MINIAUDIO_NO_XAUDIO2)
+        add_library(miniaudio_xaudio2 STATIC
+            extras/backends/xaudio2/miniaudio_xaudio2.c
+            extras/backends/xaudio2/miniaudio_xaudio2.h
+        )
+
+        if(MINIAUDIO_FORCE_CXX)
+            set_source_file_language_cxx(extras/backends/xaudio2/miniaudio_xaudio2.c)
+        endif()
+
+        list(APPEND LIBS_TO_INSTALL miniaudio_xaudio2)
+        install(FILES extras/backends/xaudio2/miniaudio_xaudio2.h DESTINATION include/miniaudio/extras/backends/xaudio2)
+
+        target_include_directories(miniaudio_xaudio2 PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/xaudio2)
+        target_compile_options    (miniaudio_xaudio2 PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_xaudio2 PRIVATE ${COMPILE_DEFINES})
+
+        if(WIN32 AND MINIAUDIO_NO_RUNTIME_LINKING)
+            target_link_libraries(miniaudio_xaudio2 PRIVATE ole32 xaudio2)
+        endif()
     endif()
 
     # Template Backend (for build validation only, not installed)
@@ -1025,6 +1060,10 @@ endif()
 
 # Link external libraries if runtime linking is disabled.
 if(MINIAUDIO_NO_RUNTIME_LINKING)
+    if(WIN32)
+        target_link_libraries(miniaudio PRIVATE ole32)
+    endif()
+
     if(ANDROID)
         target_link_libraries(miniaudio PRIVATE ${ANDROID_LINK_LIBRARIES})
     endif()
@@ -1106,6 +1145,10 @@ if(MINIAUDIO_BUILD_TESTS)
 
     add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
     if(MINIAUDIO_NO_RUNTIME_LINKING)
+        if(WIN32)
+            target_link_libraries(miniaudio_deviceio PRIVATE xaudio2)
+        endif()
+
         # SDL2 and SDL3 cannot share a translation unit. Prefer SDL3 unless SDL2 is explicitly selected.
         if(NOT MINIAUDIO_NO_SDL3 AND TARGET PkgConfig::SDL3 AND (NOT MINIAUDIO_ENABLE_SDL2 OR MINIAUDIO_ENABLE_SDL3))
             target_compile_definitions(miniaudio_deviceio PRIVATE MA_NO_SDL2)

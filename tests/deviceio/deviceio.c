@@ -31,6 +31,7 @@ will receive the captured audio.
     sdl2
     cosmo
     sb16
+    xaudio2
 
 "waveform" can be one of the following:
     sine
@@ -74,6 +75,7 @@ Runtime linking supports both backends without either set of SDL headers.
 #include "../../extras/backends/sdl2/miniaudio_sdl2.c"
 #include "../../extras/backends/cosmo/miniaudio_cosmo.c"
 #include "../../extras/backends/sb16/miniaudio_sb16.c"
+#include "../../extras/backends/xaudio2/miniaudio_xaudio2.c"
 
 #ifdef ENABLE_LIBVORBIS
 #include "../../extras/decoders/libvorbis/miniaudio_libvorbis.c"
@@ -244,6 +246,10 @@ ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends
         pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sb16, NULL);
         goto done;
     }
+    if (strcmp(arg, "xaudio2") == 0) {
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_xaudio2, NULL);
+        goto done;
+    }
 
 done:
     if (*pBackendCount < backendCount) {
@@ -350,6 +356,10 @@ void print_enabled_backends(void)
 
     if (ma_device_backend_sb16 != NULL) {
         printf("    Sound Blaster 16\n");
+    }
+
+    if (ma_device_backend_xaudio2 != NULL) {
+        printf("    XAudio2\n");
     }
 
     printf("\n");

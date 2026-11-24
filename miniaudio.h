@@ -4522,17 +4522,27 @@ typedef ma_uint16 wchar_t;
         #define MA_WIN32_GDK
     #elif defined(NXDK)
         #define MA_WIN32_NXDK
-    #else
+    #elif !defined(_XBOX)
         #define MA_WIN32_DESKTOP
     #endif
 
-    /* The original Xbox. */
+    /* Original Xbox. */
     #if defined(NXDK)   /* <-- Add other Xbox compiler toolchains here, and then add a toolchain-specific define in case we need to discriminate between them later. */
         #define MA_XBOX
 
         #if defined(NXDK)
             #define MA_XBOX_NXDK
         #endif
+    #endif
+
+    /* Xbox 360. */
+    #if defined(_XBOX)  /* <-- Add other Xbox 360 compiler toolchains here. */
+        #define MA_XBOX_360
+    #endif
+
+    /* Modern Xbox platforms using GDK. */
+    #if defined(MA_WIN32_GDK)
+        #define MA_XBOX_GDK
     #endif
 #endif
 #if defined(__MSDOS__) || defined(MSDOS) || defined(_MSDOS) || defined(__DOS__)
@@ -12567,7 +12577,14 @@ IMPLEMENTATION
 #endif
 
 #if defined(MA_WIN32)
-    #include <windows.h>
+    #if defined(MA_XBOX_360)
+        #include <xtl.h>
+    #else
+        #include <windows.h>
+        #if defined(MA_NO_RUNTIME_LINKING) && !defined(MA_XBOX)
+            #include <objbase.h>
+        #endif
+    #endif
 
     /*
     There's a possibility that WIN32_LEAN_AND_MEAN has been defined which will exclude some symbols
@@ -20939,7 +20956,7 @@ Dynamic Linking
 *******************************************************************************/
 /* Disable run-time linking on certain backends and platforms. */
 #ifndef MA_NO_RUNTIME_LINKING
-    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO) || defined(MA_SWITCH) || defined(MA_DREAMCAST) || defined(MA_VITA)
+    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO) || defined(MA_SWITCH) || defined(MA_DREAMCAST) || defined(MA_VITA) || defined(MA_XBOX_360)
         #define MA_NO_RUNTIME_LINKING
     #endif
 #endif
@@ -21120,7 +21137,7 @@ BACKENDS
 
 ************************************************************************************************************************************************************/
 /* Some backends are only supported on certain platforms. */
-#if defined(MA_WIN32) && !defined(MA_XBOX)
+#if defined(MA_WIN32) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
     #define MA_SUPPORT_WASAPI
 
     #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
@@ -21279,7 +21296,7 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
 
 
 
-#if defined(MA_WIN32) && !defined(MA_XBOX)
+#if defined(MA_WIN32) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
 /* WASAPI error codes. */
 #define MA_AUDCLNT_E_NOT_INITIALIZED              ((HRESULT)0x88890001)
 #define MA_AUDCLNT_E_ALREADY_INITIALIZED          ((HRESULT)0x88890002)
@@ -22372,7 +22389,7 @@ MA_API ma_device_config_null ma_device_config_null_init(void)
 WIN32 COMMON
 
 *******************************************************************************/
-#if defined(MA_WIN32) && !defined(MA_XBOX)
+#if defined(MA_WIN32) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
@@ -53993,11 +54010,11 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
     ma_device* pDevice = (ma_device*)pData;
     ma_result result;
     ma_device_op* pOp;
-    #ifdef MA_WIN32
+    #if defined(MA_WIN32) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
     HRESULT CoInitializeResult;
     #endif
 
-    #if defined(MA_WIN32) && !defined(MA_XBOX)
+    #if defined(MA_WIN32) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
     {
         CoInitializeResult = ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
     }
@@ -54115,7 +54132,7 @@ static ma_thread_result MA_THREADCALL ma_audio_thread(void* pData)
     ma_mutex_unlock(&pDevice->startStopLock);
 
 end_audio_thread:
-    #if defined(MA_WIN32) && !defined(MA_XBOX)
+    #if defined(MA_WIN32) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
     {
         if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) {
             ma_CoUninitialize(pDevice->pContext);
@@ -54131,7 +54148,7 @@ end_audio_thread:
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
-    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    #if (defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
     {
         ma_dlclose(ma_context_get_log(pContext), pContext->win32.hOle32DLL);
     }
@@ -54150,21 +54167,35 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     TODO: Reassess all of this stuff and move everything to the relevant backends. For example, I think
     GetForegroundWindow() and GetDesktopWindow() are only used by the DirectSound backend.
     */
-    #if (defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)) && !defined(MA_XBOX)
+    #if (defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)) && !defined(MA_XBOX) && !defined(MA_XBOX_360)
     {
         /* Ole32.dll */
-        pContext->win32.hOle32DLL = ma_dlopen(ma_context_get_log(pContext), "ole32.dll");
-        if (pContext->win32.hOle32DLL == NULL) {
-            return MA_FAILED_TO_INIT_BACKEND;
-        }
+        #ifndef MA_NO_RUNTIME_LINKING
+        {
+            pContext->win32.hOle32DLL = ma_dlopen(ma_context_get_log(pContext), "ole32.dll");
+            if (pContext->win32.hOle32DLL == NULL) {
+                return MA_FAILED_TO_INIT_BACKEND;
+            }
 
-        pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitialize");
-        pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitializeEx");
-        pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoUninitialize");
-        pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoCreateInstance");
-        pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoTaskMemFree");
-        pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "PropVariantClear");
-        pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "StringFromGUID2");
+            pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitialize");
+            pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitializeEx");
+            pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoUninitialize");
+            pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoCreateInstance");
+            pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoTaskMemFree");
+            pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "PropVariantClear");
+            pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "StringFromGUID2");
+        }
+        #else
+        {
+            pContext->win32.CoInitialize     = (ma_proc)CoInitialize;
+            pContext->win32.CoInitializeEx   = (ma_proc)CoInitializeEx;
+            pContext->win32.CoUninitialize   = (ma_proc)CoUninitialize;
+            pContext->win32.CoCreateInstance = (ma_proc)CoCreateInstance;
+            pContext->win32.CoTaskMemFree    = (ma_proc)CoTaskMemFree;
+            pContext->win32.PropVariantClear = (ma_proc)PropVariantClear;
+            pContext->win32.StringFromGUID2  = (ma_proc)StringFromGUID2;
+        }
+        #endif
     }
     #else
     {
